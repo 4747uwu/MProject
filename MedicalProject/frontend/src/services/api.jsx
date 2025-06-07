@@ -1,12 +1,14 @@
 // filepath: src/services/api.js
 import axios from 'axios';
 
-// ✅ FIXED: Use relative URLs in production for nginx proxy
-const API_URL = import.meta.env.VITE_NODE_ENV === 'production' 
-  ? '/api'  // ✅ Relative URL for nginx proxy in production
+// ✅ FIXED: Better logic for production
+const API_URL = import.meta.env.VITE_NODE_ENV === 'production' && !import.meta.env.VITE_BACKEND_URL
+  ? '/api'  // ✅ Use nginx proxy in production when VITE_BACKEND_URL is empty
   : `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api`;
 
-console.log('🔍 API Service URL:', API_URL); // Debug log
+console.log('🔍 API Service URL:', API_URL);
+console.log('🔍 VITE_NODE_ENV:', import.meta.env.VITE_NODE_ENV);
+console.log('🔍 VITE_BACKEND_URL:', import.meta.env.VITE_BACKEND_URL);
 
 // Create an axios instance with defaults
 const api = axios.create({
