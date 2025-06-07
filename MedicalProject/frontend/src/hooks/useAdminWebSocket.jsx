@@ -27,17 +27,15 @@ const useAdminWebSocket = (user) => {
 
     setConnectionStatus('connecting');
     let wsUrl;
-  if (WS_URL.startsWith('/')) {
-    // Production: nginx proxy - WS_URL is already "/ws"
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    wsUrl = `${protocol}//${window.location.host}${WS_URL}/admin`;  // ws://64.227.187.164/ws/admin
-  } else {
-    // Development: full URL - WS_URL is "ws://localhost:3000"
-    wsUrl = `${WS_URL}/ws/admin`;  // ws://localhost:3000/ws/admin
-  }  
+    if (WS_URL.startsWith('/')) {
+      // Production: nginx proxy - WS_URL is already "/ws"
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      wsUrl = `${protocol}//${window.location.host}${WS_URL}/admin`;  // ws://64.227.187.164/ws/admin
+    } else {
+      // Development: full URL - WS_URL is "ws://localhost:3000"
+      wsUrl = `${WS_URL}/ws/admin`;  // ws://localhost:3000/ws/admin
+    }  
     // Since we're using cookies, the browser will automatically send them with the WebSocket connection
-    const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
-    console.log('🔌 WebSocket URL:', WS_URL);
     
     try {
       console.log('🔌 Attempting to connect to WebSocket...');
