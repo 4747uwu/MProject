@@ -17,7 +17,33 @@ jobs:
         username: ${{ secrets.DROPLET_USER }}
         password: ${{ secrets.DROPLET_PASSWORD }}
         script: |
-          # Ensure project directory exists
+          # ✅ INSTALL DOCKER & DOCKER COMPOSE IF NOT PRESENT
+          if ! command -v docker &> /dev/null; then
+            echo "🔧 Installing Docker..."
+            apt update
+            apt install -y apt-transport-https ca-certificates curl software-properties-common
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+            add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+            apt update
+            apt install -y docker-ce docker-ce-cli containerd.io
+            systemctl start docker
+            systemctl enable docker
+            echo "✅ Docker installed"
+          else
+            echo "✅ Docker already present"
+          fi
+          
+          if ! command -v docker-compose &> /dev/null; then
+            echo "🔧 Installing Docker Compose..."
+            curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+            chmod +x /usr/local/bin/docker-compose
+            ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
+            echo "✅ Docker Compose installed"
+          else
+            echo "✅ Docker Compose already present"
+          fi
+
+          # Create and navigate to project directory
           mkdir -p /opt/medical-project
           cd /opt/medical-project
           
@@ -28,7 +54,7 @@ jobs:
           # Navigate to the MedicalProject subdirectory
           cd MProject/MedicalProject
           
-          # ✅ UPDATED: Create production environment file with LOCAL MongoDB
+          # ✅ FIXED: Create production environment file with LOCAL MongoDB
           cat > .env << 'EOF'
           NODE_ENV=production
           MONGODB_URI=mongodb://alice:alicePassword@64.227.187.164:27017/medicalproject
@@ -49,12 +75,12 @@ jobs:
           WASABI_BACKUPS_BUCKET=medical-backups
           EOF
           
-          # ✅ SAFE: Only stop our project containers (preserve Orthanc/OHIF/MongoDB)
+          # ✅ SAFE: Only stop our project containers (preserve existing services)
           echo "=== Gentle cleanup ==="
           docker-compose -f docker-compose.prod.yml stop backend frontend 2>/dev/null || echo "No existing project containers to stop"
           docker-compose -f docker-compose.prod.yml rm -f backend frontend 2>/dev/null || echo "No existing project containers to remove"
           
-          # Build only backend and frontend
+          # Build only backend and frontend (skip Orthanc since it's running externally)
           echo "=== Building backend and frontend ==="
           if ! docker-compose -f docker-compose.prod.yml build --no-cache backend frontend; then
             echo "❌ Build failed! Checking logs..."
@@ -62,7 +88,7 @@ jobs:
             exit 1
           fi
           
-          # Start only backend and frontend (skip Orthanc since it's already running)
+          # Start only backend and frontend
           echo "=== Starting backend and frontend ==="
           if ! docker-compose -f docker-compose.prod.yml up -d backend frontend; then
             echo "❌ Container startup failed! Checking logs..."

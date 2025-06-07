@@ -31,7 +31,7 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - SENDER_EMAIL=${SENDER_EMAIL}
-      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_URL=http://64.227.187.164:8042
       - ORTHANC_USERNAME=alice
       - ORTHANC_PASSWORD=alicePassword
       - FRONTEND_URL=http://64.227.187.164  # ✅ Change from 157.245.86.199
