@@ -2,7 +2,9 @@ import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
 // ✅ Use environment variable instead of hardcoded localhost
-const API_URL = `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api`;
+const API_URL = import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
+  ? `${import.meta.env.VITE_BACKEND_URL}/api`  // Development: use external URL
+  : '/api';  // Production: use nginx proxy
 
 console.log('🔍 API_URL:', API_URL); // Debug log
 
