@@ -1,0 +1,62 @@
+name: Deploy to DigitalOcean Droplet
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy to droplet
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.DROPLET_HOST }}
+        username: ${{ secrets.DROPLET_USER }}
+        password: ${{ secrets.DROPLET_PASSWORD }}
+        script: |
+          # Navigate to project directory
+          cd /opt/medical-project
+          
+          # Clean up and get fresh code
+          rm -rf MProject
+          git clone https://github.com/4747uwu/MProject.git
+          
+          # Navigate to the MedicalProject subdirectory (this is key!)
+          cd MProject/MedicalProject
+          
+          # Create production environment file
+          cat > .env << 'EOF'
+          NODE_ENV=production
+          MONGODB_URI=mongodb+srv://4747uwu:fitkymA4NsAHdNoM@cluster0.lr1ko.mongodb.net/medicalproject?retryWrites=true&w=majority
+          REDIS_URL=rediss://default:ATDmAAIjcDFlY2U3MzZmZjIxNDQ0YmZmYmY0NmVlZTBhMjgwOTkyYnAxMA@just-pug-12518.upstash.io:6379
+          JWT_SECRET=your_jwt_secret_for_day_2_auth
+          SMTP_HOST=smtp.gmail.com
+          SMTP_PORT=587
+          SMTP_USER=pawrangerskyler@gmail.com
+          SMTP_PASS=cnuw_zttj_vzsx_dbxh
+          SENDER_EMAIL=pawrangerskyler@gmail.com
+          WASABI_ACCESS_KEY=EMJYIRHNX3687Z1HDF9R
+          WASABI_SECRET_KEY=n2ZP0zoTSCOmQ5vo20zteAQGcg9XNjO7br4idAOe
+          WASABI_REGION=ap-southeast-1
+          WASABI_ENDPOINT=https://s3.ap-southeast-1.wasabisys.com
+          WASABI_DICOM_BUCKET=diacom
+          WASABI_DOCUMENTS_BUCKET=medicaldocuments
+          WASABI_REPORTS_BUCKET=diacomreports
+          WASABI_BACKUPS_BUCKET=medical-backups
+          EOF
+          
+          # Stop existing containers
+          docker-compose -f docker-compose.prod.yml down || true
+          
+          # Build and deploy
+          docker-compose -f docker-compose.prod.yml build --no-cache
+          docker-compose -f docker-compose.prod.yml up -d
+          
+          # Clean up old images
+          docker image prune -f
+          
+          # Show running containers
+          docker ps
