@@ -27,8 +27,8 @@ jobs:
             git clone https://github.com/4747uwu/MProject.git .
           fi
           
-          # Navigate to the MedicalProject subdirectory
-          cd MedicalProject
+          # Navigate to MProject then MedicalProject subdirectory
+          cd MProject/MedicalProject
           
           # Build and deploy with docker-compose
           docker-compose -f docker-compose.prod.yml down
