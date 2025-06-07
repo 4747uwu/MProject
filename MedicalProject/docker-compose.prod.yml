@@ -13,20 +13,21 @@ services:
       - NODE_ENV=production
       - PORT=3000
       - MONGODB_URI=${MONGODB_URI}
+      - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_EXPIRES_IN=1d
       - JWT_COOKIE_NAME=jwtAuthToken
       - BCRYPT_SALT_ROUNDS=12
       - WASABI_ACCESS_KEY=${WASABI_ACCESS_KEY}
       - WASABI_SECRET_KEY=${WASABI_SECRET_KEY}
-      - WASABI_REGION=ap-southeast-1
-      - WASABI_ENDPOINT=https://s3.ap-southeast-1.wasabisys.com
-      - WASABI_DICOM_BUCKET=diacom
-      - WASABI_DOCUMENTS_BUCKET=medicaldocuments
-      - WASABI_REPORTS_BUCKET=diacomreports
-      - WASABI_BACKUPS_BUCKET=medical-backups
-      - SMTP_HOST=smtp.gmail.com
-      - SMTP_PORT=587
+      - WASABI_REGION=${WASABI_REGION}
+      - WASABI_ENDPOINT=${WASABI_ENDPOINT}
+      - WASABI_DICOM_BUCKET=${WASABI_DICOM_BUCKET}
+      - WASABI_DOCUMENTS_BUCKET=${WASABI_DOCUMENTS_BUCKET}
+      - WASABI_REPORTS_BUCKET=${WASABI_REPORTS_BUCKET}
+      - WASABI_BACKUPS_BUCKET=${WASABI_BACKUPS_BUCKET}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - SENDER_EMAIL=${SENDER_EMAIL}
@@ -36,7 +37,7 @@ services:
       - FRONTEND_URL=http://157.245.86.199
     restart: unless-stopped
     depends_on:
-      - redis
+      - orthanc
     networks:
       - medical-network
 
@@ -54,14 +55,6 @@ services:
     networks:
       - medical-network
 
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    networks:
-      - medical-network
-
   orthanc:
     image: orthancteam/orthanc:latest
     ports:
@@ -73,7 +66,6 @@ services:
       - medical-network
 
 volumes:
-  redis_data:
   orthanc_data:
 
 networks:
