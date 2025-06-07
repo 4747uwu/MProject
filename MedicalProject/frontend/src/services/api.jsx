@@ -1,7 +1,12 @@
 // filepath: src/services/api.js
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+// ✅ Use environment variable with production fallback
+const API_URL = import.meta.env.VITE_BACKEND_URL 
+  ? `${import.meta.env.VITE_BACKEND_URL}/api`
+  : 'http://localhost:3000/api';
+
+console.log('🔍 API Service URL:', API_URL); // Debug log
 
 // Create an axios instance with defaults
 const api = axios.create({

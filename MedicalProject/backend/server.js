@@ -36,7 +36,7 @@ const PORT = process.env.PORT || 3000;
 const server = http.createServer(app);
 
 // 🔧 PRODUCTION SECURITY MIDDLEWARE
-// ✅ 1. HELMET - Security headers
+// ✅ 1. HELMET - Security headers with WebSocket support
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
@@ -45,7 +45,17 @@ app.use(helmet({
             scriptSrc: ["'self'", "'unsafe-inline'"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             imgSrc: ["'self'", "data:", "https:", "blob:"],
-            connectSrc: ["'self'", "ws:", "wss:", "https:"],
+            // ✅ FIX: Add WebSocket support to connectSrc
+            connectSrc: [
+                "'self'", 
+                "ws:", 
+                "wss:", 
+                "https:",
+                "ws://157.245.86.199:3000",    // ✅ Production WebSocket
+                "wss://157.245.86.199:3000",   // ✅ Secure WebSocket
+                "ws://localhost:3000",          // ✅ Development
+                "wss://localhost:3000"          // ✅ Development secure
+            ],
             mediaSrc: ["'self'", "blob:"],
             objectSrc: ["'none'"],
             frameSrc: ["'none'"],

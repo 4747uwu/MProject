@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
 
-const WS_URL = process.env.NODE_ENV === 'production' 
-  ? 'wss://your-domain.com/ws/admin' 
-  : 'ws://localhost:3000/ws/admin';
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+console.log('🔌 WebSocket URL:', WS_URL);
 
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -28,7 +27,7 @@ const useAdminWebSocket = (user) => {
     setConnectionStatus('connecting');
     
     // Since we're using cookies, the browser will automatically send them with the WebSocket connection
-    const wsUrl = `ws://localhost:3000/ws/admin`;
+    const wsUrl = `${WS_URL}/ws/admin`;
     
     try {
       console.log('🔌 Attempting to connect to WebSocket...');
