@@ -1,0 +1,125 @@
+
+name: medical-imaging-platform
+region: nyc1
+
+databases:
+- name: medical-mongodb
+  engine: MONGODB
+  version: "6"
+  size: db-s-1vcpu-1gb
+  num_nodes: 1
+
+services:
+- name: backend
+  source_dir: /backend
+  github:
+    repo: 4747uwu/MedicalProject
+    branch: main
+  run_command: node server.js
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 3000
+  
+  envs:
+  - key: NODE_ENV
+    value: production
+  - key: PORT
+    value: "3000"
+  - key: MONGODB_URI
+    value: `${medical-mongodb.DATABASE_URL}
+  - key: JWT_SECRET
+    value: medical_project_super_secret_jwt_key_2024_production_secure_123456789
+  - key: JWT_EXPIRES_IN
+    value: 1d
+  - key: JWT_COOKIE_NAME
+    value: jwtAuthToken
+  - key: BCRYPT_SALT_ROUNDS
+    value: "12"
+  - key: WASABI_ACCESS_KEY
+    value: EMJYIRHNX3687Z1HDF9R
+  - key: WASABI_SECRET_KEY
+    value: n2ZP0zoTSCOmQ5vo20zteAQGcg9XNjO7br4idAOe
+  - key: WASABI_REGION
+    value: ap-southeast-1
+  - key: WASABI_ENDPOINT
+    value: https://s3.ap-southeast-1.wasabisys.com
+  - key: WASABI_DICOM_BUCKET
+    value: diacom
+  - key: WASABI_DOCUMENTS_BUCKET
+    value: medicaldocuments
+  - key: WASABI_REPORTS_BUCKET
+    value: diacomreports
+  - key: WASABI_BACKUPS_BUCKET
+    value: medical-backups
+  - key: SMTP_HOST
+    value: smtp.gmail.com
+  - key: SMTP_PORT
+    value: "587"
+  - key: SMTP_USER
+    value: pawrangerskyler@gmail.com
+  - key: SMTP_PASS
+    value: cnuw zttj vzsx dbxh
+  - key: SENDER_EMAIL
+    value: pawrangerskyler@gmail.com
+  - key: ORTHANC_URL
+    value: http://localhost:8042
+  - key: ORTHANC_USERNAME
+    value: alice
+  - key: ORTHANC_PASSWORD
+    value: alicePassword
+  - key: FRONTEND_URL
+    value: https://`${APP_DOMAIN}
+  
+  health_check:
+    http_path: /health
+    initial_delay_seconds: 30
+    period_seconds: 10
+    timeout_seconds: 5
+    success_threshold: 1
+    failure_threshold: 3
+  
+  routes:
+  - path: /api
+  - path: /ws
+
+- name: frontend
+  source_dir: /frontend
+  github:
+    repo: 4747uwu/MedicalProject
+    branch: main
+  build_command: npm run build
+  run_command: npx serve -s dist -l 3000
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  http_port: 3000
+  
+  envs:
+  - key: VITE_BACKEND_URL
+    value: https://`${APP_DOMAIN}/api
+  - key: VITE_WS_URL
+    value: wss://`${APP_DOMAIN}/ws
+  - key: VITE_ORTHANC_URL
+    value: http://localhost:8042
+  - key: VITE_ORTHANC_USERNAME
+    value: alice
+  - key: VITE_ORTHANC_PASSWORD
+    value: alicePassword
+  - key: VITE_OHIF_LOCAL_URL
+    value: http://localhost:4000
+  - key: VITE_OHIF_CLOUD_URL
+    value: https://viewer.ohif.org
+  - key: VITE_API_TIMEOUT
+    value: "30000"
+  - key: VITE_PAGINATION_LIMIT
+    value: "20"
+  - key: VITE_NODE_ENV
+    value: production
+  
+  routes:
+  - path: /
+
+static_sites: []
+functions: []
+workers: []

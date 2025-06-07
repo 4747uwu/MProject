@@ -1,0 +1,110 @@
+# 🔧 PRODUCTION: .github/workflows/deploy-frontend.yml
+name: Deploy Frontend to DigitalOcean
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'frontend/**' ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: registry.digitalocean.com
+  IMAGE_NAME: medical-frontend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Run tests
+      working-directory: ./frontend
+      run: npm test
+
+    - name: Build application
+      working-directory: ./frontend
+      env:
+        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+        VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+        VITE_ORTHANC_URL: ${{ secrets.VITE_ORTHANC_URL }}
+        VITE_ORTHANC_USERNAME: ${{ secrets.VITE_ORTHANC_USERNAME }}
+        VITE_ORTHANC_PASSWORD: ${{ secrets.VITE_ORTHANC_PASSWORD }}
+        VITE_OHIF_LOCAL_URL: ${{ secrets.VITE_OHIF_LOCAL_URL }}
+      run: npm run build
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Build application
+      working-directory: ./frontend
+      env:
+        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
+        VITE_WS_URL: ${{ secrets.VITE_WS_URL }}
+        VITE_ORTHANC_URL: ${{ secrets.VITE_ORTHANC_URL }}
+        VITE_ORTHANC_USERNAME: ${{ secrets.VITE_ORTHANC_USERNAME }}
+        VITE_ORTHANC_PASSWORD: ${{ secrets.VITE_ORTHANC_PASSWORD }}
+        VITE_OHIF_LOCAL_URL: ${{ secrets.VITE_OHIF_LOCAL_URL }}
+      run: npm run build
+
+    - name: Install doctl
+      uses: digitalocean/action-doctl@v2
+      with:
+        token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+    - name: Log in to DigitalOcean Container Registry
+      run: doctl registry login --expiry-seconds 1200
+
+    - name: Build Docker image
+      working-directory: ./frontend
+      run: |
+        docker build \
+          --tag $REGISTRY/${{ secrets.DO_REGISTRY_NAME }}/$IMAGE_NAME:$GITHUB_SHA \
+          --tag $REGISTRY/${{ secrets.DO_REGISTRY_NAME }}/$IMAGE_NAME:latest \
+          .
+
+    - name: Push Docker image
+      run: |
+        docker push $REGISTRY/${{ secrets.DO_REGISTRY_NAME }}/$IMAGE_NAME:$GITHUB_SHA
+        docker push $REGISTRY/${{ secrets.DO_REGISTRY_NAME }}/$IMAGE_NAME:latest
+
+    - name: Deploy to DigitalOcean App Platform
+      run: |
+        doctl apps create-deployment ${{ secrets.DO_FRONTEND_APP_ID }} \
+          --wait \
+          --format ID,Status,UpdatedAt
+
+    - name: Verify deployment
+      run: |
+        echo "🚀 Frontend deployed successfully!"
+        echo "Image: $REGISTRY/${{ secrets.DO_REGISTRY_NAME }}/$IMAGE_NAME:$GITHUB_SHA"
