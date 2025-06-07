@@ -69,19 +69,23 @@ app.use(compression({
     threshold: 1024 // Only compress if response is larger than 1KB
 }));
 
-// ✅ 3. PRODUCTION CORS - Secure CORS configuration
+// ✅ 3. PRODUCTION CORS - Fixed configuration
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [
-        process.env.FRONTEND_URL,
-        'https://your-frontend-domain.com', // Replace with your actual domain
-        'https://www.your-frontend-domain.com'
+        'http://157.245.86.199',        // ✅ Your current IP
+        'https://157.245.86.199',       // ✅ HTTPS version
+        process.env.FRONTEND_URL,       // ✅ Environment variable fallback
+        'http://localhost',             // ✅ Local testing
+        'https://localhost'             // ✅ Local HTTPS testing
       ]
     : [
         'http://localhost:3000',
         'http://localhost:3001', 
         'http://localhost:5173', // Vite dev server
         'http://127.0.0.1:3000',
-        'http://127.0.0.1:5173'
+        'http://127.0.0.1:5173',
+        'http://157.245.86.199',  // ✅ Add for local testing
+        'https://157.245.86.199'
       ];
 
 app.use(cors({
@@ -90,10 +94,11 @@ app.use(cors({
         if (!origin) return callback(null, true);
         
         if (allowedOrigins.includes(origin)) {
+            console.log(`✅ CORS allowed origin: ${origin}`);
             callback(null, true);
         } else {
             console.warn(`🚨 CORS blocked origin: ${origin}`);
-            callback(new Error('Not allowed by CORS'));
+            callback(new Error(`Not allowed by CORS: ${origin}`));
         }
     },
     credentials: true,
@@ -106,8 +111,8 @@ app.use(cors({
         'Origin',
         'Cache-Control'
     ],
-    exposedHeaders: ['Content-Disposition'], // ✅ IMPORTANT: Expose filename header
-    maxAge: 86400 // Cache preflight for 24 hours
+    exposedHeaders: ['Content-Disposition'],
+    maxAge: 86400
 }));
 
 // ✅ 4. SECURITY MIDDLEWARE

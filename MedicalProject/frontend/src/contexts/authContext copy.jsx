@@ -1,10 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
-// ✅ Use environment variable instead of hardcoded localhost
-const API_URL = `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api`;
-
-console.log('🔍 API_URL:', API_URL); // Debug log
+const API_URL = 'http://localhost:3000/api';
 
 export const AuthContext = createContext();
 
@@ -17,7 +14,6 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
-        console.log('🔍 Checking auth at:', `${API_URL}/auth/me`);
         const res = await axios.get(`${API_URL}/auth/me`, { withCredentials: true });
         if (res.data.success) {
           setCurrentUser(res.data.data);
@@ -37,7 +33,6 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     setError(null);
     try {
-      console.log('🔍 Attempting login at:', `${API_URL}/auth/login`);
       const res = await axios.post(`${API_URL}/auth/login`, 
         { email, password },
         { withCredentials: true } // Important for cookies
@@ -50,7 +45,6 @@ export const AuthProvider = ({ children }) => {
         throw new Error(res.data.message || 'Login failed');
       }
     } catch (err) {
-      console.error('❌ Login error:', err);
       setError(err.response?.data?.message || err.message || 'Login failed');
       throw err;
     }
