@@ -57,7 +57,7 @@ jobs:
           # ✅ FIXED: Create production environment file with LOCAL MongoDB
           cat > .env << 'EOF'
           NODE_ENV=production
-          MONGODB_URI=mongodb://alice:alicePassword@64.227.187.164:27017/medicalproject
+          MONGODB_URI=mongodb://alice:alicePassword@64.227.187.164:27017/medical_project?authSource=admin&replicaSet=rs0
           REDIS_URL=rediss://default:ATDmAAIjcDFlY2U3MzZmZjIxNDQ0YmZmYmY0NmVlZTBhMjgwOTkyYnAxMA@just-pug-12518.upstash.io:6379
           JWT_SECRET=your_jwt_secret_for_day_2_auth
           SMTP_HOST=smtp.gmail.com
