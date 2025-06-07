@@ -1,9 +1,9 @@
 // filepath: src/services/api.js
 import axios from 'axios';
 
-// ✅ FIXED: Better logic for production
-const API_URL = import.meta.env.VITE_NODE_ENV === 'production' && !import.meta.env.VITE_BACKEND_URL
-  ? '/api'  // ✅ Use nginx proxy in production when VITE_BACKEND_URL is empty
+// ✅ SUPER SIMPLE: Just check production mode
+const API_URL = import.meta.env.VITE_NODE_ENV === 'production' 
+  ? '/api'  // ✅ Always use nginx proxy in production
   : `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000'}/api`;
 
 console.log('🔍 API Service URL:', API_URL);
