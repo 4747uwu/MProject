@@ -60,8 +60,8 @@ app.use(compression({
 // ✅ 3. PRODUCTION CORS - Fixed configuration
 const allowedOrigins = process.env.NODE_ENV === 'production' 
     ? [
-        'http://157.245.86.199',        // ✅ Your current IP
-        'https://157.245.86.199',       // ✅ HTTPS version
+        'http://64.227.187.164',        // ✅ CHANGE from 157.245.86.199
+        'https://64.227.187.164',       // ✅ HTTPS version
         process.env.FRONTEND_URL,       // ✅ Environment variable fallback
         'http://localhost',             // ✅ Local testing
         'https://localhost'             // ✅ Local HTTPS testing
@@ -72,8 +72,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://localhost:5173', // Vite dev server
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
-        'http://157.245.86.199',  // ✅ Add for local testing
-        'https://157.245.86.199'
+        'http://64.227.187.164',        // ✅ CHANGE from 157.245.86.199
+        'https://64.227.187.164'   
       ];
 
 app.use(cors({

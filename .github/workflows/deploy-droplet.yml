@@ -17,7 +17,8 @@ jobs:
         username: ${{ secrets.DROPLET_USER }}
         password: ${{ secrets.DROPLET_PASSWORD }}
         script: |
-          # Navigate to project directory
+          # Ensure project directory exists
+          mkdir -p /opt/medical-project
           cd /opt/medical-project
           
           # Clean up and get fresh code
@@ -27,10 +28,10 @@ jobs:
           # Navigate to the MedicalProject subdirectory
           cd MProject/MedicalProject
           
-          # Create production environment file
+          # ✅ UPDATED: Create production environment file with LOCAL MongoDB
           cat > .env << 'EOF'
           NODE_ENV=production
-          MONGODB_URI=mongodb+srv://4747uwu:fitkymA4NsAHdNoM@cluster0.lr1ko.mongodb.net/medicalproject?retryWrites=true&w=majority
+          MONGODB_URI=mongodb://alice:alicePassword@64.227.187.164:27017/medicalproject
           REDIS_URL=rediss://default:ATDmAAIjcDFlY2U3MzZmZjIxNDQ0YmZmYmY0NmVlZTBhMjgwOTkyYnAxMA@just-pug-12518.upstash.io:6379
           JWT_SECRET=your_jwt_secret_for_day_2_auth
           SMTP_HOST=smtp.gmail.com
@@ -48,50 +49,48 @@ jobs:
           WASABI_BACKUPS_BUCKET=medical-backups
           EOF
           
-          # Stop existing containers
-          docker-compose -f docker-compose.prod.yml down || true
+          # ✅ SAFE: Only stop our project containers (preserve Orthanc/OHIF/MongoDB)
+          echo "=== Gentle cleanup ==="
+          docker-compose -f docker-compose.prod.yml stop backend frontend 2>/dev/null || echo "No existing project containers to stop"
+          docker-compose -f docker-compose.prod.yml rm -f backend frontend 2>/dev/null || echo "No existing project containers to remove"
           
-          # Build with error checking
-          echo "=== Building containers ==="
-          if ! docker-compose -f docker-compose.prod.yml build --no-cache; then
+          # Build only backend and frontend
+          echo "=== Building backend and frontend ==="
+          if ! docker-compose -f docker-compose.prod.yml build --no-cache backend frontend; then
             echo "❌ Build failed! Checking logs..."
-            docker-compose -f docker-compose.prod.yml logs
+            docker-compose -f docker-compose.prod.yml logs backend frontend
             exit 1
           fi
           
-          # Deploy with error checking
-          echo "=== Starting containers ==="
-          if ! docker-compose -f docker-compose.prod.yml up -d; then
+          # Start only backend and frontend (skip Orthanc since it's already running)
+          echo "=== Starting backend and frontend ==="
+          if ! docker-compose -f docker-compose.prod.yml up -d backend frontend; then
             echo "❌ Container startup failed! Checking logs..."
-            docker-compose -f docker-compose.prod.yml logs
+            docker-compose -f docker-compose.prod.yml logs backend frontend
             exit 1
           fi
           
           # Wait for containers to start
           sleep 15
           
-          # Check container status with detailed info
-          echo "=== Container Status ==="
-          docker-compose -f docker-compose.prod.yml ps
+          # Show all running containers
+          echo "=== All Running Containers ==="
+          docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
           
-          echo "=== All Docker Containers ==="
-          docker ps -a
+          # Check our project containers specifically
+          echo "=== Medical Project Status ==="
+          docker-compose -f docker-compose.prod.yml ps backend frontend
           
           # Check logs for any errors
           echo "=== Recent Container Logs ==="
-          docker-compose -f docker-compose.prod.yml logs --tail=50
+          docker-compose -f docker-compose.prod.yml logs --tail=50 backend frontend
           
           # Install and check ports
           apt update && apt install -y net-tools
           echo "=== Listening Ports ==="
-          netstat -tlnp | grep -E ':(80|3000|8042)' || echo "No services listening on target ports"
-          
-          # Check if containers are actually healthy
-          echo "=== Container Health ==="
-          for container in $(docker-compose -f docker-compose.prod.yml ps -q); do
-            echo "Container: $container"
-            docker inspect $container | grep -A 5 "Health\|State" || echo "No health info"
-          done
+          netstat -tlnp | grep -E ':(80|3000|4000|8042|27017)' || echo "No services listening on target ports"
           
           # Clean up old images
           docker image prune -f
+          
+          echo "✅ Deployment complete! Preserved: Orthanc, OHIF, MongoDB"

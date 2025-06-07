@@ -14,7 +14,7 @@ class RadiantBridgeService {
     // 🔧 CONFIGURATION: Set up paths and settings
     this.tempDownloadPath = path.join(os.tmpdir(), 'radiant-bridge-downloads');
     this.orthancConfig = {
-      baseUrl: process.env.ORTHANC_URL || 'http://localhost:8042',
+      baseUrl: process.env.ORTHANC_URL ||'http://64.227.187.164:8042',
       username: process.env.ORTHANC_USERNAME || 'alice',
       password: process.env.ORTHANC_PASSWORD || 'alicePassword'
     };

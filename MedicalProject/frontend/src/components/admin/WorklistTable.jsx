@@ -141,7 +141,7 @@ const EyeIconOHIFButton = React.memo(({ studyInstanceUID }) => {
 // Enhanced DownloadDropdown
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://64.227.187.164:3000';
 
   // 🆕 NEW: OHIF Viewer Functions
   const handleOpenOHIFLocal = () => {
@@ -1015,7 +1015,7 @@ const WorklistTable = React.memo(({
       }
       
       // Create download URLs for each study
-      const backendUrl = import.meta.env.VITE_BACKEND_URL;
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://64.227.187.164:3000';
       const downloadPromises = validStudies.map((study, index) => {
         return new Promise((resolve, reject) => {
           const downloadUrl = `${backendUrl}/api/orthanc-download/study/${study.orthancStudyID}/download`;

@@ -34,10 +34,9 @@ services:
       - ORTHANC_URL=http://orthanc:8042
       - ORTHANC_USERNAME=alice
       - ORTHANC_PASSWORD=alicePassword
-      - FRONTEND_URL=http://157.245.86.199
+      - FRONTEND_URL=http://64.227.187.164  # ✅ Change from 157.245.86.199
     restart: unless-stopped
-    depends_on:
-      - orthanc
+    
     networks:
       - medical-network
 
@@ -45,8 +44,9 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_BACKEND_URL=http://157.245.86.199:3000/api
-        - VITE_WS_URL=ws://157.245.86.199:3000/ws
+        - VITE_BACKEND_URL=http://64.227.187.164:3000/api     # ✅ Change IP
+        - VITE_WS_URL=ws://64.227.187.164:3000/ws             # ✅ Change IP  
+        - VITE_ORTHANC_URL=http://64.227.187.164:8042         # ✅ Change IP
     ports:
       - "80:80"
     depends_on:
@@ -55,15 +55,15 @@ services:
     networks:
       - medical-network
 
-  orthanc:
-    image: orthancteam/orthanc:latest
-    ports:
-      - "8042:8042"
-    volumes:
-      - orthanc_data:/var/lib/orthanc/db
-    restart: unless-stopped
-    networks:
-      - medical-network
+  # orthanc:
+  #   image: orthancteam/orthanc:latest
+  #   ports:
+  #     - "8042:8042"
+  #   volumes:
+  #     - orthanc_data:/var/lib/orthanc/db
+  #   restart: unless-stopped
+  #   networks:
+  #     - medical-network
 
 volumes:
   orthanc_data:
