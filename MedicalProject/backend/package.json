@@ -24,7 +24,6 @@
     "crypto": "^1.0.1",
     "dcmjs": "^0.40.0",
     "dcmjs-dimse": "^0.2.6",
-    
     "dicom-parser": "^1.8.21",
     "docxtemplater": "^3.63.0",
     "dotenv": "^16.5.0",
