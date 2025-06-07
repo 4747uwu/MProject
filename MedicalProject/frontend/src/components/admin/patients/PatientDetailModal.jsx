@@ -54,12 +54,9 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     setError('');
     
     try {
-      let response;
-      if (isLabStaff) {
-        response = await api.get(`/labEdit/patients/${patientId}`);
-      } else {
-        response = await api.get(`/admin/patients/${patientId}/detailed-view`);
-      }
+      let response = await api.get(`/labEdit/patients/${patientId}`);
+      
+      
       
       console.log('Patient Details:', response.data);
       
@@ -300,7 +297,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     return allDocs;
   };
 
-  // 🔧 SIMPLIFIED: Single download function for all document types
+  // 🔧 ENHANCED: Single download function with comprehensive toast notifications
   const handleDownloadDocument = async (doc, index) => {
     if (!canDownload) {
       toast.error('You do not have permission to download documents');
@@ -310,28 +307,92 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     try {
       console.log(`🔽 Downloading document:`, doc);
       
+      // 🆕 NEW: Initial toast to indicate download preparation
+      const downloadToast = toast.loading(
+        `📋 Preparing download for: ${doc.fileName}...`,
+        {
+          duration: 4000,
+          style: {
+            background: '#3B82F6',
+            color: 'white',
+          },
+          icon: '📋',
+        }
+      );
+      
       // 🔧 SIMPLE: Use a single download endpoint for all documents
       let downloadUrl;
       
       if (doc.source === 'study') {
         // For study documents, use the study report download endpoint
         downloadUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}/download`;
+        console.log(`📋 Study report download URL: ${downloadUrl}`);
       } else {
         // For patient documents, find the actual index in patient.documents array
         const patientDocIndex = patientDetails.documents.findIndex(d => d._id === doc._id);
         if (patientDocIndex === -1) {
-          toast.error('Document not found in patient records');
+          toast.dismiss(downloadToast);
+          toast.error('❌ Document not found in patient records');
           return;
         }
         downloadUrl = `/labEdit/patients/${patientId}/documents/${patientDocIndex}/download`;
+        console.log(`📄 Patient document download URL: ${downloadUrl}`);
       }
+      
+      // 🆕 NEW: Update toast to show server request progress
+      toast.loading(
+        `🌐 Contacting server for: ${doc.fileName}...`,
+        {
+          id: downloadToast,
+          style: {
+            background: '#059669',
+            color: 'white',
+          },
+          icon: '🌐',
+        }
+      );
       
       console.log(`🔗 Download URL: ${downloadUrl}`);
       
       const response = await api.get(downloadUrl, {
         responseType: 'blob',
-        timeout: 30000
+        timeout: 30000,
+        // 🆕 NEW: Add progress tracking for downloads
+        onDownloadProgress: (progressEvent) => {
+          if (progressEvent.lengthComputable) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            console.log(`📊 Download progress: ${percentCompleted}%`);
+            
+            // Update toast with progress (only show after 10% to avoid spam)
+            if (percentCompleted >= 10) {
+              toast.loading(
+                `⬇️ Downloading ${doc.fileName}... ${percentCompleted}%`,
+                {
+                  id: downloadToast,
+                  style: {
+                    background: '#7C3AED',
+                    color: 'white',
+                  },
+                  icon: '📊',
+                }
+              );
+            }
+          }
+        }
       });
+      
+      // 🆕 NEW: Update toast to show file processing
+      toast.loading(
+        `⚙️ Processing ${doc.fileName} for download...`,
+        {
+          id: downloadToast,
+          style: {
+            background: '#F59E0B',
+            color: 'white',
+          },
+          icon: '⚙️',
+        }
+      );
       
       // Create download link
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -343,11 +404,92 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       link.remove();
       window.URL.revokeObjectURL(url);
       
-      toast.success(`Downloaded: ${doc.fileName}`);
+      // 🆕 NEW: Enhanced success toast with file details
+      const fileSize = doc.size ? `${(doc.size / 1024).toFixed(1)} KB` : 'Unknown size';
+      const fileType = doc.fileType || doc.documentType || 'Unknown type';
+      
+      toast.success(
+        `✅ Download completed successfully!\n📁 File: ${doc.fileName}\n💾 Size: ${fileSize}\n📋 Type: ${fileType}`,
+        {
+          id: downloadToast,
+          duration: 4000,
+          style: {
+            background: '#10B981',
+            color: 'white',
+            fontSize: '14px',
+          },
+          icon: '🎉',
+        }
+      );
+      
+      // 🆕 NEW: Additional notification toast for user guidance
+      
+      
+      console.log(`✅ Successfully downloaded: ${doc.fileName}`);
       
     } catch (error) {
       console.error('❌ Error downloading document:', error);
-      toast.error(error.response?.data?.message || 'Failed to download document');
+      
+      // 🆕 NEW: Enhanced error handling with specific error toasts
+      let errorMessage = 'Failed to download document';
+      let errorDetails = '';
+      let errorIcon = '❌';
+      
+      if (error.response?.status === 404) {
+        errorMessage = '📄 Document not found';
+        errorDetails = 'The requested document may have been moved or deleted from the server';
+        errorIcon = '🔍';
+      } else if (error.response?.status === 403) {
+        errorMessage = '🔒 Access denied';
+        errorDetails = 'You do not have permission to download this document';
+        errorIcon = '🚫';
+      } else if (error.response?.status === 500) {
+        errorMessage = '🖥️ Server error';
+        errorDetails = 'The server encountered an error. Please try again or contact support';
+        errorIcon = '🛠️';
+      } else if (error.code === 'NETWORK_ERROR') {
+        errorMessage = '🌐 Network error';
+        errorDetails = 'Please check your internet connection and try again';
+        errorIcon = '📡';
+      } else if (error.code === 'ECONNABORTED') {
+        errorMessage = '⏱️ Download timeout';
+        errorDetails = 'The download took too long. Please try again with a stable connection';
+        errorIcon = '⏰';
+      } else if (error.response?.data?.message) {
+        errorMessage = '⚠️ Download failed';
+        errorDetails = error.response.data.message;
+        errorIcon = '⚠️';
+      }
+      
+      toast.error(
+        `${errorIcon} ${errorMessage}\n${errorDetails}`,
+        {
+          duration: 6000,
+          style: {
+            background: '#EF4444',
+            color: 'white',
+            fontSize: '14px',
+          },
+          icon: errorIcon,
+        }
+      );
+      
+      // 🆕 NEW: Helpful suggestion toast for common errors
+      if (error.response?.status === 404 || error.code === 'NETWORK_ERROR') {
+        setTimeout(() => {
+          toast(
+            `💡 Suggestion: Try refreshing the page or contact support if the issue persists`,
+            {
+              duration: 4000,
+              style: {
+                background: '#6B7280',
+                color: 'white',
+              },
+              icon: '💡',
+            }
+          );
+        }, 2000);
+      }
     }
   };
 
@@ -1017,14 +1159,12 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                           </div>
                         )}
                         
-                        {/* 🔧 UPDATED: Documents table to use getAllDocuments() */}
+                        {/* 🔧 SIMPLIFIED: Documents table - removed Source and Study Link columns */}
                         <table className="w-full border text-sm">
                           <thead>
                             <tr className="bg-gray-700 text-white">
                               <th className="p-2 text-left">File</th>
                               <th className="p-2 text-left">Type</th>
-                              <th className="p-2 text-left">Source</th>
-                              <th className="p-2 text-left">Study Link</th>
                               <th className="p-2 text-left">Uploaded</th>
                               <th className="p-2 text-left">Actions</th>
                             </tr>
@@ -1060,24 +1200,6 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                                       {doc.fileType === 'uploaded-report' ? 'Study Report' : 
                                        (doc.documentType || doc.fileType || 'Unknown')}
                                     </span>
-                                  </td>
-                                  <td className="p-2">
-                                    <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                                      doc.source === 'study' ? 'bg-indigo-100 text-indigo-800' : 'bg-gray-100 text-gray-600'
-                                    }`}>
-                                      {doc.source === 'study' ? '🔬 Study Report' : '📋 Patient Document'}
-                                    </span>
-                                  </td>
-                                  <td className="p-2">
-                                    {doc.studyId ? (
-                                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800" title={doc.studyId}>
-                                        🔗 {doc.studyId.substring(0, 20)}...
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                                        No Study Link
-                                      </span>
-                                    )}
                                   </td>
                                   <td className="p-2 text-xs">
                                     <div>{doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString('en-GB') : 'N/A'}</div>
@@ -1116,7 +1238,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                               ))
                             ) : (
                               <tr className="bg-yellow-50">
-                                <td className="p-4 text-center text-gray-600" colSpan="6">
+                                <td className="p-4 text-center text-gray-600" colSpan="4">
                                   <div className="flex flex-col items-center">
                                     <svg className="w-8 h-8 text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

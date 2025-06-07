@@ -9,8 +9,10 @@ import Lab from '../models/labModel.js';
 import Patient from '../models/patientModel.js';
 import Doctor from '../models/doctorModel.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
+
 import WasabiService from '../services/wasabi.service.js';
-import Document from '../models/documentModal.js'; // NEW: Import Document model
+
+import Document from '../models/documentModal.js';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -519,9 +521,9 @@ static async getStudyReport(req, res) {
       });
     }
   }
-  // List reports for a study (only uploaded reports)
-// 🔧 FIXED: Upload study report function
-// 🔧 ENHANCED: Upload study report with Wasabi storage and Document model integration
+
+
+
 static async uploadStudyReport(req, res) {
   console.log('🔧 Uploading study report with Wasabi integration...'); 
   try {
@@ -533,6 +535,27 @@ static async uploadStudyReport(req, res) {
           return res.status(400).json({ 
               success: false, 
               message: 'No file uploaded' 
+          });
+      }
+      
+      // 🔧 FIX: Check if WasabiService is properly loaded
+      if (!WasabiService) {
+          console.error('❌ WasabiService is not properly imported');
+          return res.status(500).json({
+              success: false,
+              message: 'Storage service not available',
+              error: 'WasabiService not loaded'
+          });
+      }
+      
+      // 🔧 FIX: Check if WasabiService has required methods
+      if (typeof WasabiService.uploadDocument !== 'function') {
+          console.error('❌ WasabiService.uploadDocument method not found');
+          console.log('Available WasabiService methods:', Object.getOwnPropertyNames(WasabiService));
+          return res.status(500).json({
+              success: false,
+              message: 'Storage service method not available',
+              error: 'uploadDocument method not found'
           });
       }
       
@@ -571,25 +594,35 @@ static async uploadStudyReport(req, res) {
       
       console.log(`📤 Uploading ${file.originalname} to Wasabi...`);
       
-      // 🔧 NEW: Upload to Wasabi first
-      const wasabiResult = await WasabiService.uploadDocument(
-          file.buffer,
-          file.originalname,
-          'clinical', // documentType
-          {
-              patientId: study.patientId,
-              studyId: study.studyInstanceUID,
-              uploadedBy: uploaderName,
-              doctorId: effectiveDoctorId
-          }
-      );
+      // 🔧 ENHANCED: Upload to Wasabi with better error handling
+      let wasabiResult;
+      try {
+          wasabiResult = await WasabiService.uploadDocument(
+              file.buffer,
+              file.originalname,
+              'clinical', // documentType
+              {
+                  patientId: study.patientId,
+                  studyId: study.studyInstanceUID,
+                  uploadedBy: uploaderName,
+                  doctorId: effectiveDoctorId
+              }
+          );
+      } catch (wasabiError) {
+          console.error('❌ WasabiService.uploadDocument threw error:', wasabiError);
+          return res.status(500).json({
+              success: false,
+              message: 'Failed to upload to storage service',
+              error: wasabiError.message
+          });
+      }
       
-      if (!wasabiResult.success) {
-          console.error('❌ Wasabi upload failed:', wasabiResult.error);
+      if (!wasabiResult || !wasabiResult.success) {
+          console.error('❌ Wasabi upload failed:', wasabiResult?.error);
           return res.status(500).json({
               success: false,
               message: 'Failed to upload file to storage',
-              error: wasabiResult.error
+              error: wasabiResult?.error || 'Unknown storage error'
           });
       }
       
@@ -1129,4 +1162,4 @@ static async deleteStudyReport(req, res) {
 }
 
 export default DocumentController;
-//# sourceMappingURL=documentController.js.map
+
