@@ -15,7 +15,7 @@ import NewDoctorPage from './pages/admin/NewDoctorPage';
 import ForgotPasswordPage from './pages/ForgotPassword';
 import ManageDoctorsPage from './pages/ManageDoctorsPage';
 import TATReportPage from './pages/TATReport';
-import { WebSocketProvider } from './contexts/WebSocketContext';
+import { WebSocketProvider } from './contexts/webSocketContext';
 import ShareStudy from './pages/ShareStudy';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
