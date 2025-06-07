@@ -38,19 +38,7 @@ const server = http.createServer(app);
 // 🔧 PRODUCTION SECURITY MIDDLEWARE
 // ✅ 1. HELMET - Security headers
 app.use(helmet({
-    contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-            scriptSrc: ["'self'", "'unsafe-inline'"],
-            fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            imgSrc: ["'self'", "data:", "https:", "blob:"],
-            connectSrc: ["'self'", "ws:", "wss:", "https:"],
-            mediaSrc: ["'self'", "blob:"],
-            objectSrc: ["'none'"],
-            frameSrc: ["'none'"],
-        },
-    },
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false, // Disable for file downloads
     crossOriginResourcePolicy: { policy: "cross-origin" }, // Allow cross-origin requests
 }));
@@ -257,7 +245,6 @@ server.listen(PORT, () => {
     console.log(`🔒 Security: Helmet + Compression enabled`);
     console.log(`🌐 CORS: ${process.env.NODE_ENV === 'production' ? 'Production' : 'Development'} mode`);
 });
-
 
 
 
