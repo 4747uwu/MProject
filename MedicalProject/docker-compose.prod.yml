@@ -44,8 +44,9 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_BACKEND_URL=http://64.227.187.164:3000/api     # ✅ Change IP
-        - VITE_WS_URL=ws://64.227.187.164:3000/ws             # ✅ Change IP  
+        - VITE_NODE_ENV=production    
+        - VITE_BACKEND_URL=/   # ✅ Change IP
+        - VITE_WS_URL=/             # ✅ Change IP  
         - VITE_ORTHANC_URL=http://64.227.187.164:8042         # ✅ Change IP
     ports:
       - "80:80"
