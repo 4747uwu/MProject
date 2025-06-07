@@ -24,7 +24,7 @@ jobs:
           rm -rf MProject
           git clone https://github.com/4747uwu/MProject.git
           
-          # Navigate to the MedicalProject subdirectory (this is key!)
+          # Navigate to the MedicalProject subdirectory
           cd MProject/MedicalProject
           
           # Create production environment file
@@ -51,12 +51,47 @@ jobs:
           # Stop existing containers
           docker-compose -f docker-compose.prod.yml down || true
           
-          # Build and deploy
-          docker-compose -f docker-compose.prod.yml build --no-cache
-          docker-compose -f docker-compose.prod.yml up -d
+          # Build with error checking
+          echo "=== Building containers ==="
+          if ! docker-compose -f docker-compose.prod.yml build --no-cache; then
+            echo "❌ Build failed! Checking logs..."
+            docker-compose -f docker-compose.prod.yml logs
+            exit 1
+          fi
+          
+          # Deploy with error checking
+          echo "=== Starting containers ==="
+          if ! docker-compose -f docker-compose.prod.yml up -d; then
+            echo "❌ Container startup failed! Checking logs..."
+            docker-compose -f docker-compose.prod.yml logs
+            exit 1
+          fi
+          
+          # Wait for containers to start
+          sleep 15
+          
+          # Check container status with detailed info
+          echo "=== Container Status ==="
+          docker-compose -f docker-compose.prod.yml ps
+          
+          echo "=== All Docker Containers ==="
+          docker ps -a
+          
+          # Check logs for any errors
+          echo "=== Recent Container Logs ==="
+          docker-compose -f docker-compose.prod.yml logs --tail=50
+          
+          # Install and check ports
+          apt update && apt install -y net-tools
+          echo "=== Listening Ports ==="
+          netstat -tlnp | grep -E ':(80|3000|8042)' || echo "No services listening on target ports"
+          
+          # Check if containers are actually healthy
+          echo "=== Container Health ==="
+          for container in $(docker-compose -f docker-compose.prod.yml ps -q); do
+            echo "Container: $container"
+            docker inspect $container | grep -A 5 "Health\|State" || echo "No health info"
+          done
           
           # Clean up old images
           docker image prune -f
-          
-          # Show running containers
-          docker ps
