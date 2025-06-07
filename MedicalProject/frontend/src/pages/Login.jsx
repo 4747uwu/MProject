@@ -85,34 +85,28 @@ const LoginPage = () => {
         {/* Content wrapper */}
         <div className="w-full max-w-md p-8 relative z-10">
           
-          {/* Language & Theme selector */}
-          
-
-          {/* Enhanced form header */}
+          {/* 🔧 UPDATED: Simple form header with clean logo */}
           <div className="mb-8 text-center">
-            {/* 🎨 Morphing border logo */}
-            <div className="relative inline-block mb-6">
-              {/* Morphing background shapes */}
-              <div className="absolute inset-0 animate-morph-1">
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-blue-400 to-purple-500 opacity-20 blur-sm"></div>
-              </div>
-              <div className="absolute inset-0 animate-morph-2">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-r from-purple-400 to-pink-500 opacity-15 blur-md"></div>
-              </div>
-              <div className="absolute inset-0 animate-morph-3">
-                <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-cyan-400 to-blue-500 opacity-25 blur-lg"></div>
-              </div>
-              
-              {/* Animated border lines */}
-              <div className="absolute inset-0 rounded-2xl border-2 border-transparent bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-clip-border animate-border-dance"></div>
-              
-              {/* Logo container */}
-              <div className="relative p-4 rounded-2xl bg-white shadow-xl backdrop-blur-sm">
-                <img 
-                  src={logoImage} 
-                  alt="Star Radiology Logo" 
-                  className="h-16 w-auto mx-auto object-contain relative z-10 filter drop-shadow-md"
-                />
+            {/* Simple Logo Container */}
+            <div className="mb-6">
+              <img 
+                src={logoImage} 
+                alt="Star Radiology" 
+                className="h-16 w-auto mx-auto object-contain"
+                onError={(e) => {
+                  // Fallback if image fails to load
+                  console.error('Logo failed to load:', e);
+                  e.target.style.display = 'none';
+                  e.target.nextElementSibling.style.display = 'block';
+                }}
+              />
+              {/* Fallback text (hidden by default, shown if image fails) */}
+              <div className="hidden">
+                <div className="flex items-center justify-center w-16 h-16 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg mx-auto">
+                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
               </div>
             </div>
             
@@ -319,9 +313,6 @@ const LoginPage = () => {
               </button>
             </div>
           </form>
-
-          {/* 🆕 ADD: Shiny "Powered by XCENTIC" text */}
-          
 
           {/* Enhanced Support contact */}
           <div className="mt-6 pt-6 border-t border-gray-200">
