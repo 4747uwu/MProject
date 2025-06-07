@@ -1,0 +1,36 @@
+name: Deploy to DigitalOcean Droplet
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Deploy to droplet
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.DROPLET_HOST }}
+        username: ${{ secrets.DROPLET_USER }}
+        password: ${{ secrets.DROPLET_PASSWORD }}
+        script: |
+          # Navigate to project directory
+          cd /opt/medical-project
+          
+          # Pull latest code
+          if [ -d ".git" ]; then
+            git pull origin main
+          else
+            git clone https://github.com/4747uwu/MProject.git .
+          fi
+          
+          # Build and deploy with docker-compose
+          docker-compose -f docker-compose.prod.yml down
+          docker-compose -f docker-compose.prod.yml build --no-cache
+          docker-compose -f docker-compose.prod.yml up -d
+          
+          # Clean up old images
+          docker image prune -f

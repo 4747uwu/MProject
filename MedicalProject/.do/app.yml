@@ -1,4 +1,3 @@
-
 name: medical-imaging-platform
 region: nyc1
 
@@ -11,9 +10,9 @@ databases:
 
 services:
 - name: backend
-  source_dir: /backend
+  source_dir: /MedicalProject/backend
   github:
-    repo: 4747uwu/MedicalProject
+    repo: 4747uwu/MProject
     branch: main
   run_command: node server.js
   environment_slug: node-js
@@ -27,7 +26,7 @@ services:
   - key: PORT
     value: "3000"
   - key: MONGODB_URI
-    value: `${medical-mongodb.DATABASE_URL}
+    value: ${medical-mongodb.DATABASE_URL}
   - key: JWT_SECRET
     value: medical_project_super_secret_jwt_key_2024_production_secure_123456789
   - key: JWT_EXPIRES_IN
@@ -69,7 +68,7 @@ services:
   - key: ORTHANC_PASSWORD
     value: alicePassword
   - key: FRONTEND_URL
-    value: https://`${APP_DOMAIN}
+    value: https://${APP_DOMAIN}
   
   health_check:
     http_path: /health
@@ -84,9 +83,9 @@ services:
   - path: /ws
 
 - name: frontend
-  source_dir: /frontend
+  source_dir: /MedicalProject/frontend
   github:
-    repo: 4747uwu/MedicalProject
+    repo: 4747uwu/MProject
     branch: main
   build_command: npm run build
   run_command: npx serve -s dist -l 3000
@@ -97,9 +96,9 @@ services:
   
   envs:
   - key: VITE_BACKEND_URL
-    value: https://`${APP_DOMAIN}/api
+    value: https://${APP_DOMAIN}/api
   - key: VITE_WS_URL
-    value: wss://`${APP_DOMAIN}/ws
+    value: wss://${APP_DOMAIN}/ws
   - key: VITE_ORTHANC_URL
     value: http://localhost:8042
   - key: VITE_ORTHANC_USERNAME

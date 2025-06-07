@@ -3,44 +3,79 @@ version: '3.8'
 
 services:
   backend:
-    image: registry.digitalocean.com/your-registry/medical-backend:latest
+    build:
+      context: ./backend
+      args:
+        - NODE_ENV=production
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      - PORT=3000
       - MONGODB_URI=${MONGODB_URI}
-      - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=1d
+      - JWT_COOKIE_NAME=jwtAuthToken
+      - BCRYPT_SALT_ROUNDS=12
       - WASABI_ACCESS_KEY=${WASABI_ACCESS_KEY}
       - WASABI_SECRET_KEY=${WASABI_SECRET_KEY}
+      - WASABI_REGION=ap-southeast-1
+      - WASABI_ENDPOINT=https://s3.ap-southeast-1.wasabisys.com
+      - WASABI_DICOM_BUCKET=diacom
+      - WASABI_DOCUMENTS_BUCKET=medicaldocuments
+      - WASABI_REPORTS_BUCKET=diacomreports
+      - WASABI_BACKUPS_BUCKET=medical-backups
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+      - SENDER_EMAIL=${SENDER_EMAIL}
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_USERNAME=alice
+      - ORTHANC_PASSWORD=alicePassword
+      - FRONTEND_URL=http://157.245.86.199
     restart: unless-stopped
     depends_on:
-      - mongodb
       - redis
+    networks:
+      - medical-network
 
   frontend:
-    image: registry.digitalocean.com/your-registry/medical-frontend:latest
+    build:
+      context: ./frontend
+      args:
+        - VITE_BACKEND_URL=http://157.245.86.199:3000/api
+        - VITE_WS_URL=ws://157.245.86.199:3000/ws
     ports:
       - "80:80"
     depends_on:
       - backend
     restart: unless-stopped
-
-  mongodb:
-    image: mongo:6.0
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=admin
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
-    volumes:
-      - mongodb_data:/data/db
-    restart: unless-stopped
+    networks:
+      - medical-network
 
   redis:
     image: redis:7-alpine
     volumes:
       - redis_data:/data
     restart: unless-stopped
+    networks:
+      - medical-network
+
+  orthanc:
+    image: orthancteam/orthanc:latest
+    ports:
+      - "8042:8042"
+    volumes:
+      - orthanc_data:/var/lib/orthanc/db
+    restart: unless-stopped
+    networks:
+      - medical-network
 
 volumes:
-  mongodb_data:
   redis_data:
+  orthanc_data:
+
+networks:
+  medical-network:
+    driver: bridge
