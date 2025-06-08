@@ -64,7 +64,7 @@ export const generateShareableLink = async (req, res) => {
     await shareToken.save();
 
     // 🔧 FIXED: Generate correct frontend shareable URL (not API URL)
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const baseUrl = 'http://64.227.187.164';
     const shareableLink = `${baseUrl}/share/${token}`; // 🔧 This should point to frontend route
 
     console.log(`🔗 Generated shareable link for study ${studyId}: ${shareableLink}`);

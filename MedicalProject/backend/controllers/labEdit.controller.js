@@ -40,372 +40,649 @@ const sanitizeInput = (input) => {
 
 // 🔧 OPTIMIZED: getPatientDetailedView (same name, enhanced performance)
 export const getPatientDetailedView = async (req, res) => {
-    try {
-        const { patientId } = req.params;
-        const userId = req.user.id;
+  try {
+      const { patientId } = req.params;
+      const userId = req.user.id;
 
-        console.log(`🔍 Fetching detailed view for patient: ${patientId} by user: ${userId}`);
+      console.log(`🔍 Fetching detailed view for patient: ${patientId} by user: ${userId}`);
 
-        // 🔧 PERFORMANCE: Check cache first
-        const cacheKey = `patient_detail_${patientId}`;
-        let cachedData = cache.get(cacheKey);
-        if (cachedData) {
-            return res.json({
-                success: true,
-                data: cachedData,
-                fromCache: true
-            });
-        }
+      // 🔧 PERFORMANCE: Check cache first
+      const cacheKey = `patient_detail_${patientId}`;
+      let cachedData = cache.get(cacheKey);
+      if (cachedData) {
+          return res.json({
+              success: true,
+              data: cachedData,
+              fromCache: true
+          });
+      }
 
-        // 🔧 OPTIMIZED: Parallel queries for better performance
-        const [patient, allStudies] = await Promise.all([
-            Patient.findOne({ patientID: patientId })
-                .populate('clinicalInfo.lastModifiedBy', 'fullName email')
-                .lean(),
-            DicomStudy.find({ patientId: patientId })
-                .select('studyInstanceUID studyDate modality accessionNumber workflowStatus caseType examDescription examType sourceLab uploadedReports')
-                .populate('sourceLab', 'name')
-                .sort({ createdAt: -1 })
-                .lean()
-        ]);
+      // 🔧 ENHANCED: More comprehensive parallel queries
+      const [patient, allStudies] = await Promise.all([
+          Patient.findOne({ patientID: patientId })
+              .populate('clinicalInfo.lastModifiedBy', 'fullName email')
+              .lean(),
+          DicomStudy.find({ patientId: patientId })
+              .select(`
+                  studyInstanceUID studyDate studyTime modality modalitiesInStudy 
+                  accessionNumber workflowStatus caseType examDescription examType 
+                  sourceLab uploadedReports createdAt referringPhysician referringPhysicianName
+                  assignment.assignedAt assignment.assignedTo reportInfo.finalizedAt
+                  reportInfo.startedAt timingInfo numberOfSeries numberOfImages
+                  institutionName patientInfo
+              `)
+              .populate('sourceLab', 'name identifier')
+              .populate({
+                  path: 'assignment.assignedTo',
+                  populate: {
+                      path: 'userAccount',
+                      select: 'fullName email'
+                  }
+              })
+              .sort({ createdAt: -1 })
+              .lean()
+      ]);
 
-        if (!patient) {
-            return res.status(404).json({
-                success: false,
-                message: 'Patient not found'
-            });
-        }
+      if (!patient) {
+          return res.status(404).json({
+              success: false,
+              message: 'Patient not found'
+          });
+      }
 
-        // 🔧 OPTIMIZED: Get current study efficiently
-        const currentStudy = allStudies.length > 0 ? allStudies[0] : null;
+      // 🔧 OPTIMIZED: Get current study efficiently
+      const currentStudy = allStudies.length > 0 ? allStudies[0] : null;
 
-        // 🔧 NEW: Extract study reports separately (don't merge)
-        const studyReports = [];
-        allStudies.forEach(study => {
-            if (study.uploadedReports && study.uploadedReports.length > 0) {
-                study.uploadedReports.forEach(report => {
-                    studyReports.push({
-                        _id: report._id,
-                        fileName: report.filename,
-                        fileType: report.reportType || 'study-report',
-                        documentType: report.documentType || 'clinical',
-                        contentType: report.contentType,
-                        size: report.size,
-                        uploadedAt: report.uploadedAt,
-                        uploadedBy: report.uploadedBy,
-                        storageType: report.storageType || 'wasabi',
-                        wasabiKey: report.wasabiKey,
-                        wasabiBucket: report.wasabiBucket,
-                        reportStatus: report.reportStatus,
-                        studyId: study.studyInstanceUID,
-                        studyObjectId: study._id,
-                        source: 'study'
-                    });
-                });
-            }
-        });
+      // 🔧 ENHANCED: Calculate TAT for current study
+      const calculateTAT = (study) => {
+          if (!study) return {};
 
-        console.log(`📋 Found ${patient.documents?.length || 0} patient documents and ${studyReports.length} study reports`);
+          const studyDate = study.studyDate ? new Date(study.studyDate) : null;
+          const uploadDate = study.createdAt ? new Date(study.createdAt) : null;
+          const assignedDate = study.assignment?.assignedAt ? new Date(study.assignment.assignedAt) : null;
+          const reportDate = study.reportInfo?.finalizedAt ? new Date(study.reportInfo.finalizedAt) : null;
+          const currentDate = new Date();
 
-        const responseData = {
-            patientInfo: {
-                patientId: patient.patientID,
-                patientID: patient.patientID, // Add both for compatibility
-                fullName: patient.computed?.fullName || 
-                         `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Unknown',
-                firstName: patient.firstName || '',
-                lastName: patient.lastName || '',
-                age: patient.ageString || 'N/A',
-                gender: patient.gender || 'N/A',
-                dateOfBirth: patient.dateOfBirth || 'N/A',
-                contactPhone: patient.contactInformation?.phone || 'N/A',
-                contactEmail: patient.contactInformation?.email || 'N/A',
-                mrn: patient.mrn || 'N/A'
-            },
-            clinicalInfo: {
-                clinicalHistory: patient.clinicalInfo?.clinicalHistory || '',
-                previousInjury: patient.clinicalInfo?.previousInjury || '',
-                previousSurgery: patient.clinicalInfo?.previousSurgery || '',
-                lastModifiedBy: patient.clinicalInfo?.lastModifiedBy || null,
-                lastModifiedAt: patient.clinicalInfo?.lastModifiedAt || null
-            },
-            medicalHistory: {
-                clinicalHistory: patient.medicalHistory?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
-                previousInjury: patient.medicalHistory?.previousInjury || patient.clinicalInfo?.previousInjury || '',
-                previousSurgery: patient.medicalHistory?.previousSurgery || patient.clinicalInfo?.previousSurgery || ''
-            },
-            studyInfo: currentStudy ? {
-                studyId: currentStudy.studyInstanceUID,
-                studyDate: currentStudy.studyDate,
-                modality: currentStudy.modality || 'N/A',
-                accessionNumber: currentStudy.accessionNumber || 'N/A',
-                status: currentStudy.workflowStatus,
-                caseType: currentStudy.caseType || 'routine',
-                workflowStatus: currentStudy.workflowStatus,
-                images: []
-            } : {},
-            visitInfo: {
-                examDescription: currentStudy?.examDescription || 'N/A',
-                center: currentStudy?.sourceLab?.name || 'Default Lab',
-                studyDate: currentStudy?.studyDate || 'N/A',
-                caseType: currentStudy?.caseType?.toUpperCase() || 'ROUTINE'
-            },
-            allStudies: allStudies.map(study => ({
-                studyId: study.studyInstanceUID,
-                studyDate: study.studyDate,
-                modality: study.modality || 'N/A',
-                accessionNumber: study.accessionNumber || 'N/A',
-                status: study.workflowStatus
-            })),
-            // 🔧 ENHANCED: Include studies array for compatibility
-            studies: allStudies.map(study => ({
-                _id: study._id,
-                studyInstanceUID: study.studyInstanceUID,
-                accessionNumber: study.accessionNumber || 'N/A',
-                studyDateTime: study.studyDate,
-                modality: study.modality || 'N/A',
-                description: study.examDescription || '',
-                workflowStatus: study.workflowStatus,
-                priority: study.caseType?.toUpperCase() || 'ROUTINE',
-                location: study.sourceLab?.name || 'Default Lab',
-                assignedDoctor: study.assignedDoctor || 'Not Assigned',
-                reportFinalizedAt: study.reportFinalizedAt
-            })),
-            // 🔧 SEPARATE: Keep patient documents and study reports separate
-            documents: patient.documents || [],
-            studyReports: studyReports, // 🔧 NEW: Study reports as separate array
-            referralInfo: patient.referralInfo || ''
-        };
+          const calculateMinutes = (start, end) => {
+              if (!start || !end) return null;
+              return Math.round((end - start) / (1000 * 60));
+          };
 
-        // 🔧 PERFORMANCE: Cache the result
-        cache.set(cacheKey, responseData, 180); // 3 minutes
+          const calculateDays = (start, end) => {
+              if (!start || !end) return null;
+              return Math.round((end - start) / (1000 * 60 * 60 * 24));
+          };
 
-        console.log('✅ Patient detailed view fetched successfully');
+          return {
+              studyToUploadTAT: studyDate && uploadDate ? calculateMinutes(studyDate, uploadDate) : null,
+              uploadToAssignmentTAT: uploadDate && assignedDate ? calculateMinutes(uploadDate, assignedDate) : null,
+              assignmentToReportTAT: assignedDate && reportDate ? calculateMinutes(assignedDate, reportDate) : null,
+              studyToReportTAT: studyDate && reportDate ? calculateMinutes(studyDate, reportDate) : null,
+              uploadToReportTAT: uploadDate && reportDate ? calculateMinutes(uploadDate, reportDate) : null,
+              totalTATDays: studyDate ? calculateDays(studyDate, reportDate || currentDate) : null,
+              
+              // Formatted versions for display
+              studyToReportTATFormatted: null,
+              uploadToReportTATFormatted: null,
+              assignmentToReportTATFormatted: null,
+              totalTATFormatted: null
+          };
+      };
 
-        res.json({
-            success: true,
-            data: responseData,
-            fromCache: false
-        });
+      // 🔧 HELPER: Format TAT for display
+      const formatTAT = (minutes) => {
+          if (!minutes) return 'N/A';
+          
+          if (minutes < 60) {
+              return `${minutes} minutes`;
+          } else if (minutes < 1440) { // Less than 24 hours
+              const hours = Math.floor(minutes / 60);
+              const remainingMinutes = minutes % 60;
+              return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours} hours`;
+          } else { // 24 hours or more
+              const days = Math.floor(minutes / 1440);
+              const remainingHours = Math.floor((minutes % 1440) / 60);
+              return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days} days`;
+          }
+      };
 
-    } catch (error) {
-        console.error('❌ Error fetching patient detailed view:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            error: error.message
-        });
-    }
+      // 🔧 ENHANCED: Get referring physician information
+      const getReferringPhysician = (study) => {
+          if (!study) return 'N/A';
+          
+          // Check structured referring physician object first
+          if (study.referringPhysician?.name) {
+              return {
+                  name: study.referringPhysician.name,
+                  institution: study.referringPhysician.institution || 'N/A',
+                  contactInfo: study.referringPhysician.contactInfo || 'N/A',
+                  source: 'structured'
+              };
+          }
+          
+          // Check simple referring physician name
+          if (study.referringPhysicianName) {
+              return {
+                  name: study.referringPhysicianName,
+                  institution: 'N/A',
+                  contactInfo: 'N/A',
+                  source: 'name_only'
+              };
+          }
+          
+          return {
+              name: 'N/A',
+              institution: 'N/A',
+              contactInfo: 'N/A',
+              source: 'not_available'
+          };
+      };
+
+      // 🔧 ENHANCED: Process current study TAT
+      const currentStudyTAT = calculateTAT(currentStudy);
+      if (currentStudyTAT.studyToReportTAT) {
+          currentStudyTAT.studyToReportTATFormatted = formatTAT(currentStudyTAT.studyToReportTAT);
+      }
+      if (currentStudyTAT.uploadToReportTAT) {
+          currentStudyTAT.uploadToReportTATFormatted = formatTAT(currentStudyTAT.uploadToReportTAT);
+      }
+      if (currentStudyTAT.assignmentToReportTAT) {
+          currentStudyTAT.assignmentToReportTATFormatted = formatTAT(currentStudyTAT.assignmentToReportTAT);
+      }
+      if (currentStudyTAT.totalTATDays !== null) {
+          currentStudyTAT.totalTATFormatted = `${currentStudyTAT.totalTATDays} days`;
+      }
+
+      // 🔧 NEW: Extract study reports separately (don't merge)
+      const studyReports = [];
+      allStudies.forEach(study => {
+          if (study.uploadedReports && study.uploadedReports.length > 0) {
+              study.uploadedReports.forEach(report => {
+                  studyReports.push({
+                      _id: report._id,
+                      fileName: report.filename,
+                      fileType: report.reportType || 'study-report',
+                      documentType: report.documentType || 'clinical',
+                      contentType: report.contentType,
+                      size: report.size,
+                      uploadedAt: report.uploadedAt,
+                      uploadedBy: report.uploadedBy,
+                      storageType: report.storageType || 'wasabi',
+                      wasabiKey: report.wasabiKey,
+                      wasabiBucket: report.wasabiBucket,
+                      reportStatus: report.reportStatus,
+                      studyId: study.studyInstanceUID,
+                      studyObjectId: study._id,
+                      source: 'study'
+                  });
+              });
+          }
+      });
+
+      console.log(`📋 Found ${patient.documents?.length || 0} patient documents and ${studyReports.length} study reports`);
+
+      // 🔧 ENHANCED: Get referring physician for current study
+      const currentStudyReferringPhysician = getReferringPhysician(currentStudy);
+
+      // 🔧 ENHANCED: Process all referring physicians from all studies
+      const allReferringPhysicians = [];
+      const uniquePhysicians = new Set();
+      
+      allStudies.forEach(study => {
+          const physician = getReferringPhysician(study);
+          if (physician.name !== 'N/A') {
+              const physicianKey = `${physician.name}_${physician.institution}`;
+              if (!uniquePhysicians.has(physicianKey)) {
+                  uniquePhysicians.add(physicianKey);
+                  allReferringPhysicians.push({
+                      ...physician,
+                      studyId: study.studyInstanceUID,
+                      studyDate: study.studyDate
+                  });
+              }
+          }
+      });
+
+      const responseData = {
+          patientInfo: {
+              patientId: patient.patientID,
+              patientID: patient.patientID, // Add both for compatibility
+              fullName: patient.computed?.fullName || 
+                       `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Unknown',
+              firstName: patient.firstName || '',
+              lastName: patient.lastName || '',
+              age: patient.ageString || 'N/A',
+              gender: patient.gender || 'N/A',
+              dateOfBirth: patient.dateOfBirth || 'N/A',
+              contactPhone: patient.contactInformation?.phone || 'N/A',
+              contactEmail: patient.contactInformation?.email || 'N/A',
+              mrn: patient.mrn || 'N/A'
+          },
+          clinicalInfo: {
+              clinicalHistory: patient.clinicalInfo?.clinicalHistory || '',
+              previousInjury: patient.clinicalInfo?.previousInjury || '',
+              previousSurgery: patient.clinicalInfo?.previousSurgery || '',
+              lastModifiedBy: patient.clinicalInfo?.lastModifiedBy || null,
+              lastModifiedAt: patient.clinicalInfo?.lastModifiedAt || null
+          },
+          medicalHistory: {
+              clinicalHistory: patient.medicalHistory?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
+              previousInjury: patient.medicalHistory?.previousInjury || patient.clinicalInfo?.previousInjury || '',
+              previousSurgery: patient.medicalHistory?.previousSurgery || patient.clinicalInfo?.previousSurgery || ''
+          },
+          // 🔧 ENHANCED: More comprehensive study info
+          studyInfo: currentStudy ? {
+              studyId: currentStudy.studyInstanceUID,
+              studyDate: currentStudy.studyDate,
+              studyTime: currentStudy.studyTime || 'N/A',
+              modality: currentStudy.modality || (currentStudy.modalitiesInStudy?.length > 0 ? currentStudy.modalitiesInStudy.join(', ') : 'N/A'),
+              modalitiesInStudy: currentStudy.modalitiesInStudy || [],
+              accessionNumber: currentStudy.accessionNumber || 'N/A',
+              status: currentStudy.workflowStatus,
+              caseType: currentStudy.caseType || 'routine',
+              workflowStatus: currentStudy.workflowStatus,
+              examDescription: currentStudy.examDescription || 'N/A',
+              institutionName: currentStudy.institutionName || currentStudy.sourceLab?.name || 'N/A',
+              numberOfSeries: currentStudy.numberOfSeries || 0,
+              numberOfImages: currentStudy.numberOfImages || 0,
+              seriesImages: `${currentStudy.numberOfSeries || 0}/${currentStudy.numberOfImages || 0}`,
+              images: [],
+              // 🔧 NEW: TAT information
+              tat: currentStudyTAT,
+              // 🔧 NEW: Assignment information
+              assignedDoctor: currentStudy.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
+              assignedAt: currentStudy.assignment?.assignedAt || null,
+              reportStartedAt: currentStudy.reportInfo?.startedAt || null,
+              reportFinalizedAt: currentStudy.reportInfo?.finalizedAt || null
+          } : {},
+          // 🔧 ENHANCED: Visit info with more details
+          visitInfo: {
+              examDescription: currentStudy?.examDescription || 'N/A',
+              examType: currentStudy?.examType || 'N/A',
+              center: currentStudy?.sourceLab?.name || 'Default Lab',
+              labIdentifier: currentStudy?.sourceLab?.identifier || 'N/A',
+              studyDate: currentStudy?.studyDate || 'N/A',
+              studyTime: currentStudy?.studyTime || 'N/A',
+              caseType: currentStudy?.caseType?.toUpperCase() || 'ROUTINE',
+              studyStatus: currentStudy?.workflowStatus || 'N/A',
+              orderDate: currentStudy?.createdAt || 'N/A',
+              reportDate: currentStudy?.reportInfo?.finalizedAt || 'N/A',
+              // 🔧 NEW: Referring physician in visit info
+              referringPhysician: currentStudyReferringPhysician.name,
+              referringPhysicianInstitution: currentStudyReferringPhysician.institution,
+              referringPhysicianContact: currentStudyReferringPhysician.contactInfo
+          },
+          // 🔧 ENHANCED: All studies with TAT calculations
+          allStudies: allStudies.map(study => {
+              const studyTAT = calculateTAT(study);
+              const studyReferringPhysician = getReferringPhysician(study);
+              
+              return {
+                  studyId: study.studyInstanceUID,
+                  studyDate: study.studyDate,
+                  studyTime: study.studyTime || 'N/A',
+                  modality: study.modality || (study.modalitiesInStudy?.length > 0 ? study.modalitiesInStudy.join(', ') : 'N/A'),
+                  accessionNumber: study.accessionNumber || 'N/A',
+                  status: study.workflowStatus,
+                  examDescription: study.examDescription || 'N/A',
+                  caseType: study.caseType || 'routine',
+                  referringPhysician: studyReferringPhysician.name,
+                  assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
+                  tat: {
+                      totalDays: studyTAT.totalTATDays,
+                      totalDaysFormatted: studyTAT.totalTATDays !== null ? `${studyTAT.totalTATDays} days` : 'N/A',
+                      studyToReportFormatted: studyTAT.studyToReportTAT ? formatTAT(studyTAT.studyToReportTAT) : 'N/A',
+                      uploadToReportFormatted: studyTAT.uploadToReportTAT ? formatTAT(studyTAT.uploadToReportTAT) : 'N/A'
+                  }
+              };
+          }),
+          // 🔧 ENHANCED: Include studies array for compatibility with more details
+          studies: allStudies.map(study => {
+              const studyTAT = calculateTAT(study);
+              const studyReferringPhysician = getReferringPhysician(study);
+              
+              return {
+                  _id: study._id,
+                  studyInstanceUID: study.studyInstanceUID,
+                  accessionNumber: study.accessionNumber || 'N/A',
+                  studyDateTime: study.studyDate,
+                  studyTime: study.studyTime || 'N/A',
+                  modality: study.modality || (study.modalitiesInStudy?.length > 0 ? study.modalitiesInStudy.join(', ') : 'N/A'),
+                  modalitiesInStudy: study.modalitiesInStudy || [],
+                  description: study.examDescription || 'N/A',
+                  workflowStatus: study.workflowStatus,
+                  priority: study.caseType?.toUpperCase() || 'ROUTINE',
+                  location: study.sourceLab?.name || 'Default Lab',
+                  assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
+                  reportFinalizedAt: study.reportInfo?.finalizedAt,
+                  referringPhysician: studyReferringPhysician.name,
+                  referringPhysicianInstitution: studyReferringPhysician.institution,
+                  numberOfSeries: study.numberOfSeries || 0,
+                  numberOfImages: study.numberOfImages || 0,
+                  tat: studyTAT
+              };
+          }),
+          // 🔧 NEW: Comprehensive referring physician information
+          referringPhysicians: {
+              current: currentStudyReferringPhysician,
+              all: allReferringPhysicians,
+              count: allReferringPhysicians.length
+          },
+          // 🔧 SEPARATE: Keep patient documents and study reports separate
+          documents: patient.documents || [],
+          studyReports: studyReports, // 🔧 NEW: Study reports as separate array
+          referralInfo: patient.referralInfo || '',
+          
+          // 🔧 NEW: Summary statistics
+          summary: {
+              totalStudies: allStudies.length,
+              completedStudies: allStudies.filter(s => ['report_finalized', 'report_downloaded', 'final_report_downloaded'].includes(s.workflowStatus)).length,
+              pendingStudies: allStudies.filter(s => ['new_study_received', 'pending_assignment', 'assigned_to_doctor', 'report_in_progress'].includes(s.workflowStatus)).length,
+              averageTAT: allStudies.length > 0 ? 
+                  Math.round(allStudies.reduce((sum, study) => {
+                      const tat = calculateTAT(study);
+                      return sum + (tat.totalTATDays || 0);
+                  }, 0) / allStudies.length) : 0
+          }
+      };
+
+      // 🔧 PERFORMANCE: Cache the result
+      cache.set(cacheKey, responseData, 180); // 3 minutes
+
+      console.log('✅ Patient detailed view fetched successfully with enhanced details');
+      console.log(`📊 Summary: ${responseData.summary.totalStudies} studies, ${responseData.summary.completedStudies} completed, Avg TAT: ${responseData.summary.averageTAT} days`);
+
+      res.json({
+          success: true,
+          data: responseData,
+          fromCache: false
+      });
+
+  } catch (error) {
+      console.error('❌ Error fetching patient detailed view:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Internal server error',
+          error: error.message
+      });
+  }
 };
 
 // 🔧 OPTIMIZED: updatePatientDetails (same name, enhanced performance)
 export const updatePatientDetails = async (req, res) => {
-    try {
-        const { patientId } = req.params;
-        const userId = req.user.id;
-        const updateData = req.body;
-        const startTime = Date.now();
+  try {
+      const { patientId } = req.params;
+      const userId = req.user.id;
+      const updateData = req.body;
+      const startTime = Date.now();
 
-        console.log(`=== PATIENT UPDATE REQUEST ===`);
-        console.log(`👤 Patient ID: ${patientId}`);
-        console.log(`🔧 Updated by: ${userId}`);
+      console.log(`=== PATIENT UPDATE REQUEST ===`);
+      console.log(`👤 Patient ID: ${patientId}`);
+      console.log(`🔧 Updated by: ${userId}`);
+      console.log(`📋 Update Data:`, JSON.stringify(updateData, null, 2));
 
-        // 🔧 PERFORMANCE: Validate user permissions efficiently
-        const user = await User.findById(userId).select('role fullName email').lean();
-        if (!user || !['lab_staff', 'admin'].includes(user.role)) {
-            return res.status(403).json({
-                success: false,
-                message: 'Insufficient permissions to edit patient data'
-            });
-        }
+      // 🔧 PERFORMANCE: Validate user permissions efficiently
+      const user = await User.findById(userId).select('role fullName email').lean();
+      if (!user || !['lab_staff', 'admin'].includes(user.role)) {
+          return res.status(403).json({
+              success: false,
+              message: 'Insufficient permissions to edit patient data'
+          });
+      }
 
-        // 🔧 OPTIMIZED: Find patient with lean query
-        const patient = await Patient.findOne({ patientID: patientId }).lean();
-        if (!patient) {
-            return res.status(404).json({
-                success: false,
-                message: 'Patient not found'
-            });
-        }
+      // 🔧 OPTIMIZED: Find patient with lean query
+      const patient = await Patient.findOne({ patientID: patientId }).lean();
+      if (!patient) {
+          return res.status(404).json({
+              success: false,
+              message: 'Patient not found'
+          });
+      }
 
-        // 🔧 STEP 1: Collect name changes efficiently
-        let newFirstName = patient.firstName || '';
-        let newLastName = patient.lastName || '';
-        let nameChanged = false;
+      // 🔧 STEP 1: Collect name changes efficiently
+      let newFirstName = patient.firstName || '';
+      let newLastName = patient.lastName || '';
+      let nameChanged = false;
 
-        if (updateData.patientInfo) {
-            if (updateData.patientInfo.firstName !== undefined) {
-                newFirstName = sanitizeInput(updateData.patientInfo.firstName);
-                nameChanged = true;
-            }
-            if (updateData.patientInfo.lastName !== undefined) {
-                newLastName = sanitizeInput(updateData.patientInfo.lastName);
-                nameChanged = true;
-            }
-        }
+      if (updateData.patientInfo) {
+          if (updateData.patientInfo.firstName !== undefined) {
+              newFirstName = sanitizeInput(updateData.patientInfo.firstName);
+              nameChanged = true;
+          }
+          if (updateData.patientInfo.lastName !== undefined) {
+              newLastName = sanitizeInput(updateData.patientInfo.lastName);
+              nameChanged = true;
+          }
+      }
 
-        // 🔧 STEP 2: Build complete update object
-        const patientUpdateData = {};
+      // 🔧 STEP 2: Build complete update object
+      const patientUpdateData = {};
 
-        if (nameChanged) {
-            patientUpdateData.firstName = newFirstName;
-            patientUpdateData.lastName = newLastName;
-            patientUpdateData.patientNameRaw = `${newFirstName} ${newLastName}`.trim();
-            
-            // Update computed fields
-            patientUpdateData['computed.fullName'] = `${newFirstName} ${newLastName}`.trim();
-            patientUpdateData.searchName = `${newFirstName} ${newLastName} ${patientId}`.toLowerCase();
-        }
+      if (nameChanged) {
+          patientUpdateData.firstName = newFirstName;
+          patientUpdateData.lastName = newLastName;
+          patientUpdateData.patientNameRaw = `${newFirstName} ${newLastName}`.trim();
+          
+          // Update computed fields
+          patientUpdateData['computed.fullName'] = `${newFirstName} ${newLastName}`.trim();
+          patientUpdateData.searchName = `${newFirstName} ${newLastName} ${patientId}`.toLowerCase();
+      }
 
-        // Handle other patient info fields
-        if (updateData.patientInfo) {
-            if (updateData.patientInfo.age !== undefined) {
-                patientUpdateData.ageString = sanitizeInput(updateData.patientInfo.age);
-            }
-            if (updateData.patientInfo.gender !== undefined) {
-                patientUpdateData.gender = sanitizeInput(updateData.patientInfo.gender);
-            }
-            if (updateData.patientInfo.dateOfBirth !== undefined) {
-                patientUpdateData.dateOfBirth = sanitizeInput(updateData.patientInfo.dateOfBirth);
-            }
-            
-            // Handle contact information
-            if (updateData.patientInfo.contactNumber !== undefined || updateData.patientInfo.contactEmail !== undefined) {
-                patientUpdateData.contactInformation = {
-                    phone: sanitizeInput(updateData.patientInfo.contactNumber) || patient.contactInformation?.phone || '',
-                    email: sanitizeInput(updateData.patientInfo.contactEmail) || patient.contactInformation?.email || ''
-                };
-            }
-        }
+      // Handle other patient info fields
+      if (updateData.patientInfo) {
+          if (updateData.patientInfo.age !== undefined) {
+              patientUpdateData.ageString = sanitizeInput(updateData.patientInfo.age);
+          }
+          if (updateData.patientInfo.gender !== undefined) {
+              patientUpdateData.gender = sanitizeInput(updateData.patientInfo.gender);
+          }
+          if (updateData.patientInfo.dateOfBirth !== undefined) {
+              patientUpdateData.dateOfBirth = sanitizeInput(updateData.patientInfo.dateOfBirth);
+          }
+          
+          // Handle contact information
+          if (updateData.patientInfo.contactNumber !== undefined || updateData.patientInfo.contactEmail !== undefined) {
+              patientUpdateData.contactInformation = {
+                  phone: sanitizeInput(updateData.patientInfo.contactNumber) || patient.contactInformation?.phone || '',
+                  email: sanitizeInput(updateData.patientInfo.contactEmail) || patient.contactInformation?.email || ''
+              };
+          }
+      }
 
-        // Handle clinical information
-        if (updateData.clinicalInfo) {
-            patientUpdateData.clinicalInfo = {
-                ...patient.clinicalInfo,
-                clinicalHistory: sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '',
-                previousInjury: sanitizeInput(updateData.clinicalInfo.previousInjury) || '',
-                previousSurgery: sanitizeInput(updateData.clinicalInfo.previousSurgery) || '',
-                lastModifiedBy: userId,
-                lastModifiedAt: new Date()
-            };
+      // Handle clinical information
+      if (updateData.clinicalInfo) {
+          patientUpdateData.clinicalInfo = {
+              ...patient.clinicalInfo,
+              clinicalHistory: sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '',
+              previousInjury: sanitizeInput(updateData.clinicalInfo.previousInjury) || '',
+              previousSurgery: sanitizeInput(updateData.clinicalInfo.previousSurgery) || '',
+              lastModifiedBy: userId,
+              lastModifiedAt: new Date()
+          };
 
-            // Update denormalized medical history
-            patientUpdateData.medicalHistory = {
-                clinicalHistory: patientUpdateData.clinicalInfo.clinicalHistory,
-                previousInjury: patientUpdateData.clinicalInfo.previousInjury,
-                previousSurgery: patientUpdateData.clinicalInfo.previousSurgery
-            };
-        }
+          // Update denormalized medical history
+          patientUpdateData.medicalHistory = {
+              clinicalHistory: patientUpdateData.clinicalInfo.clinicalHistory,
+              previousInjury: patientUpdateData.clinicalInfo.previousInjury,
+              previousSurgery: patientUpdateData.clinicalInfo.previousSurgery
+          };
+      }
 
-        if (updateData.referralInfo !== undefined) {
-            patientUpdateData.referralInfo = sanitizeInput(updateData.referralInfo);
-        }
+      // 🆕 NEW: Handle referring physician information
+      let referringPhysicianUpdated = false;
+      let referringPhysicianData = {};
+      
+      if (updateData.physicianInfo) {
+          console.log(`👨‍⚕️ Processing referring physician updates...`);
+          
+          // Check if any referring physician fields are provided
+          const hasPhysicianName = updateData.physicianInfo.referringPhysicianName || updateData.physicianInfo.referringPhysician;
+          const hasPhysicianInstitution = updateData.physicianInfo.referringPhysicianInstitution;
+          const hasPhysicianContact = updateData.physicianInfo.referringPhysicianContact;
+          
+          if (hasPhysicianName || hasPhysicianInstitution || hasPhysicianContact) {
+              referringPhysicianUpdated = true;
+              
+              // Build structured referring physician object
+              referringPhysicianData = {
+                  name: sanitizeInput(hasPhysicianName) || '',
+                  institution: sanitizeInput(hasPhysicianInstitution) || '',
+                  contactInfo: sanitizeInput(hasPhysicianContact) || '',
+                  lastUpdatedBy: userId,
+                  lastUpdatedAt: new Date(),
+                  source: 'manual_entry'
+              };
+              
+              // Store in patient record
+              patientUpdateData.referringPhysician = referringPhysicianData;
+              
+              console.log(`✅ Referring physician data prepared:`, referringPhysicianData);
+          }
+      }
 
-        if (updateData.studyInfo?.workflowStatus) {
-            const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-            patientUpdateData.currentWorkflowStatus = normalizedStatus;
-        }
+      if (updateData.referralInfo !== undefined) {
+          patientUpdateData.referralInfo = sanitizeInput(updateData.referralInfo);
+      }
 
-        // Update computed fields
-        patientUpdateData['computed.lastActivity'] = new Date();
+      if (updateData.studyInfo?.workflowStatus) {
+          const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+          patientUpdateData.currentWorkflowStatus = normalizedStatus;
+      }
 
-        // 🔧 STEP 3: Execute single atomic update
-        console.log('💾 Executing patient update...');
+      // Update computed fields
+      patientUpdateData['computed.lastActivity'] = new Date();
 
-        const updatedPatient = await Patient.findOneAndUpdate(
-            { patientID: patientId },
-            { $set: patientUpdateData },
-            { new: true, lean: true }
-        );
+      // 🔧 STEP 3: Execute single atomic update
+      console.log('💾 Executing patient update...');
 
-        if (!updatedPatient) {
-            return res.status(404).json({
-                success: false,
-                message: 'Patient not found during update'
-            });
-        }
+      const updatedPatient = await Patient.findOneAndUpdate(
+          { patientID: patientId },
+          { $set: patientUpdateData },
+          { new: true, lean: true }
+      );
 
-        // 🔧 PERFORMANCE: Update related studies efficiently
-        if (updateData.studyInfo || nameChanged) {
-            const studyUpdateData = {};
-            
-            if (nameChanged) {
-                studyUpdateData['patientInfo.patientName'] = `${newFirstName} ${newLastName}`.trim();
-                studyUpdateData.patientName = `${newFirstName} ${newLastName}`.trim();
-            }
+      if (!updatedPatient) {
+          return res.status(404).json({
+              success: false,
+              message: 'Patient not found during update'
+          });
+      }
 
-            if (updateData.studyInfo?.workflowStatus) {
-                const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-                studyUpdateData.workflowStatus = normalizedStatus;
-            }
+      // 🔧 ENHANCED: Update related studies efficiently (including referring physician)
+      if (updateData.studyInfo || nameChanged || referringPhysicianUpdated) {
+          const studyUpdateData = {};
+          
+          if (nameChanged) {
+              studyUpdateData['patientInfo.patientName'] = `${newFirstName} ${newLastName}`.trim();
+              studyUpdateData.patientName = `${newFirstName} ${newLastName}`.trim();
+          }
 
-            if (updateData.studyInfo?.caseType) {
-                studyUpdateData.caseType = sanitizeInput(updateData.studyInfo.caseType);
-            }
+          if (updateData.studyInfo?.workflowStatus) {
+              const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+              studyUpdateData.workflowStatus = normalizedStatus;
+          }
 
-            if (updateData.clinicalInfo?.clinicalHistory) {
-                studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
-            }
+          if (updateData.studyInfo?.caseType) {
+              studyUpdateData.caseType = sanitizeInput(updateData.studyInfo.caseType);
+          }
 
-            if (Object.keys(studyUpdateData).length > 0) {
-                await DicomStudy.updateMany(
-                    { patient: patient._id },
-                    { $set: studyUpdateData }
-                );
-            }
-        }
+          if (updateData.clinicalInfo?.clinicalHistory) {
+              studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
+          }
 
-        // 🔧 PERFORMANCE: Clear cache
-        cache.del(`patient_detail_${patientId}`);
+          // 🆕 NEW: Update referring physician in studies
+          if (referringPhysicianUpdated && referringPhysicianData.name) {
+              studyUpdateData.referringPhysician = {
+                  name: referringPhysicianData.name,
+                  institution: referringPhysicianData.institution,
+                  contactInfo: referringPhysicianData.contactInfo
+              };
+              
+              // Also update the simple name field for backward compatibility
+              studyUpdateData.referringPhysicianName = referringPhysicianData.name;
+              
+              console.log(`📋 Updating referring physician in studies:`, studyUpdateData.referringPhysician);
+          }
 
-        const processingTime = Date.now() - startTime;
+          if (Object.keys(studyUpdateData).length > 0) {
+              const studyUpdateResult = await DicomStudy.updateMany(
+                  { patient: patient._id },
+                  { $set: studyUpdateData }
+              );
+              
+              console.log(`📊 Updated ${studyUpdateResult.modifiedCount} studies with new information`);
+          }
+      }
 
-        console.log('✅ Patient updated successfully');
+      // 🔧 PERFORMANCE: Clear cache
+      cache.del(`patient_detail_${patientId}`);
 
-        const responseData = {
-            patientInfo: {
-                patientID: updatedPatient.patientID,
-                firstName: updatedPatient.firstName || '',
-                lastName: updatedPatient.lastName || '',
-                age: updatedPatient.ageString || '',
-                gender: updatedPatient.gender || '',
-                dateOfBirth: updatedPatient.dateOfBirth || '',
-                contactNumber: updatedPatient.contactInformation?.phone || '',
-                email: updatedPatient.contactInformation?.email || ''
-            },
-            clinicalInfo: {
-                clinicalHistory: updatedPatient.clinicalInfo?.clinicalHistory || '',
-                previousInjury: updatedPatient.clinicalInfo?.previousInjury || '',
-                previousSurgery: updatedPatient.clinicalInfo?.previousSurgery || '',
-                lastModifiedBy: updatedPatient.clinicalInfo?.lastModifiedBy || null,
-                lastModifiedAt: updatedPatient.clinicalInfo?.lastModifiedAt || null
-            },
-            medicalHistory: {
-                clinicalHistory: updatedPatient.medicalHistory?.clinicalHistory || '',
-                previousInjury: updatedPatient.medicalHistory?.previousInjury || '',
-                previousSurgery: updatedPatient.medicalHistory?.previousSurgery || ''
-            },
-            referralInfo: updatedPatient.referralInfo || '',
-            physicianInfo: updateData.physicianInfo || {}
-        };
+      const processingTime = Date.now() - startTime;
 
-        console.log('📤 Sending response:', JSON.stringify(responseData, null, 2));
-        console.log('=== UPDATE COMPLETE ===');
+      console.log('✅ Patient updated successfully');
 
-        res.json({
-            success: true,
-            message: 'Patient information updated successfully',
-            data: responseData
-        });
+      // 🔧 ENHANCED: Include referring physician in response
+      const responseData = {
+          patientInfo: {
+              patientID: updatedPatient.patientID,
+              firstName: updatedPatient.firstName || '',
+              lastName: updatedPatient.lastName || '',
+              age: updatedPatient.ageString || '',
+              gender: updatedPatient.gender || '',
+              dateOfBirth: updatedPatient.dateOfBirth || '',
+              contactNumber: updatedPatient.contactInformation?.phone || '',
+              email: updatedPatient.contactInformation?.email || ''
+          },
+          clinicalInfo: {
+              clinicalHistory: updatedPatient.clinicalInfo?.clinicalHistory || '',
+              previousInjury: updatedPatient.clinicalInfo?.previousInjury || '',
+              previousSurgery: updatedPatient.clinicalInfo?.previousSurgery || '',
+              lastModifiedBy: updatedPatient.clinicalInfo?.lastModifiedBy || null,
+              lastModifiedAt: updatedPatient.clinicalInfo?.lastModifiedAt || null
+          },
+          medicalHistory: {
+              clinicalHistory: updatedPatient.medicalHistory?.clinicalHistory || '',
+              previousInjury: updatedPatient.medicalHistory?.previousInjury || '',
+              previousSurgery: updatedPatient.medicalHistory?.previousSurgery || ''
+          },
+          referralInfo: updatedPatient.referralInfo || '',
+          // 🆕 NEW: Enhanced physician info response
+          physicianInfo: {
+              referringPhysicianName: updatedPatient.referringPhysician?.name || updateData.physicianInfo?.referringPhysicianName || '',
+              referringPhysician: updatedPatient.referringPhysician?.name || updateData.physicianInfo?.referringPhysician || '',
+              referringPhysicianInstitution: updatedPatient.referringPhysician?.institution || updateData.physicianInfo?.referringPhysicianInstitution || '',
+              referringPhysicianContact: updatedPatient.referringPhysician?.contactInfo || updateData.physicianInfo?.referringPhysicianContact || '',
+              lastUpdatedBy: updatedPatient.referringPhysician?.lastUpdatedBy || null,
+              lastUpdatedAt: updatedPatient.referringPhysician?.lastUpdatedAt || null,
+              source: updatedPatient.referringPhysician?.source || 'manual_entry'
+          },
+          // 🆕 NEW: Update summary
+          updateSummary: {
+              patientInfoUpdated: !!updateData.patientInfo,
+              clinicalInfoUpdated: !!updateData.clinicalInfo,
+              referringPhysicianUpdated: referringPhysicianUpdated,
+              studiesUpdated: !!(updateData.studyInfo || nameChanged || referringPhysicianUpdated),
+              processingTimeMs: processingTime
+          }
+      };
 
-    } catch (error) {
-        console.error('❌ Error updating patient details:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            error: error.message
-        });
-    }
+      console.log('📤 Sending response:', JSON.stringify(responseData, null, 2));
+      console.log('=== UPDATE COMPLETE ===');
+
+      res.json({
+          success: true,
+          message: `Patient information updated successfully${referringPhysicianUpdated ? ' (including referring physician)' : ''}`,
+          data: responseData
+      });
+
+  } catch (error) {
+      console.error('❌ Error updating patient details:', error);
+      res.status(500).json({
+          success: false,
+          message: 'Internal server error',
+          error: error.message
+      });
+  }
 };
 
 // 🔧 UPDATED: Upload document to Wasabi instead of MongoDB

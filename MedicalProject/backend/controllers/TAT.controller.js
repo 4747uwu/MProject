@@ -280,7 +280,7 @@ export const getTATReport = async (req, res) => {
             }
         });
 
-        // 🔧 PERFORMANCE: Project only needed fields and calculate TAT
+        // 🔧 FIXED: Project only needed fields and calculate TAT with corrected $type syntax
         pipeline.push({
             $project: {
                 // Basic study info
@@ -314,10 +314,17 @@ export const getTATReport = async (req, res) => {
                 lab: { $arrayElemAt: ['$labData', 0] },
                 doctor: { $arrayElemAt: ['$doctorData', 0] },
                 
-                // 🔧 PERFORMANCE: Calculate TAT fields in aggregation
+                // 🔧 FIXED: Calculate TAT fields with proper $type syntax
                 studyToReportTAT: {
                     $cond: [
-                        { $and: ['$studyDate', '$reportInfo.finalizedAt'] },
+                        { 
+                            $and: [
+                                { $ne: ['$studyDate', null] },
+                                { $ne: ['$studyDate', ''] },
+                                { $ne: ['$reportInfo.finalizedAt', null] },
+                                { $eq: [{ $type: '$studyDate' }, 'string'] } // 🔧 FIXED: Correct $type syntax
+                            ]
+                        },
                         {
                             $divide: [
                                 { 
@@ -326,14 +333,21 @@ export const getTATReport = async (req, res) => {
                                         { 
                                             $dateFromString: { 
                                                 dateString: {
-                                                    $concat: [
-                                                        { $substr: ['$studyDate', 0, 4] },
-                                                        '-',
-                                                        { $substr: ['$studyDate', 4, 2] },
-                                                        '-',
-                                                        { $substr: ['$studyDate', 6, 2] }
+                                                    $cond: [
+                                                        { $gte: [{ $strLenCP: '$studyDate' }, 8] },
+                                                        {
+                                                            $concat: [
+                                                                { $substr: ['$studyDate', 0, 4] },
+                                                                '-',
+                                                                { $substr: ['$studyDate', 4, 2] },
+                                                                '-',
+                                                                { $substr: ['$studyDate', 6, 2] }
+                                                            ]
+                                                        },
+                                                        '$studyDate'
                                                     ]
-                                                }
+                                                },
+                                                onError: null
                                             }
                                         }
                                     ]
@@ -347,7 +361,7 @@ export const getTATReport = async (req, res) => {
                 
                 uploadToReportTAT: {
                     $cond: [
-                        { $and: ['$createdAt', '$reportInfo.finalizedAt'] },
+                        { $and: [{ $ne: ['$createdAt', null] }, { $ne: ['$reportInfo.finalizedAt', null] }] },
                         {
                             $divide: [
                                 { $subtract: ['$reportInfo.finalizedAt', '$createdAt'] },
@@ -360,7 +374,7 @@ export const getTATReport = async (req, res) => {
                 
                 assignToReportTAT: {
                     $cond: [
-                        { $and: ['$assignment.assignedAt', '$reportInfo.finalizedAt'] },
+                        { $and: [{ $ne: ['$assignment.assignedAt', null] }, { $ne: ['$reportInfo.finalizedAt', null] }] },
                         {
                             $divide: [
                                 { $subtract: ['$reportInfo.finalizedAt', '$assignment.assignedAt'] },
@@ -395,7 +409,36 @@ export const getTATReport = async (req, res) => {
 
         console.log(`✅ Retrieved ${studies.length} studies out of ${totalCount} total`);
 
-        // 🔧 OPTIMIZED: Process studies efficiently
+        // 🔧 FIXED: Helper function to safely format study date
+        const formatStudyDate = (studyDate) => {
+            if (!studyDate) return null;
+            
+            try {
+                // Convert to string if it's not already
+                const dateStr = String(studyDate);
+                
+                // Check if it's in YYYYMMDD format (8 digits)
+                if (dateStr.length === 8 && /^\d{8}$/.test(dateStr)) {
+                    const year = dateStr.substring(0, 4);
+                    const month = dateStr.substring(4, 6);
+                    const day = dateStr.substring(6, 8);
+                    return new Date(`${year}-${month}-${day}`).toISOString();
+                }
+                
+                // If it's already a valid date string, parse it
+                const parsedDate = new Date(dateStr);
+                if (!isNaN(parsedDate.getTime())) {
+                    return parsedDate.toISOString();
+                }
+                
+                return null;
+            } catch (error) {
+                console.warn('⚠️ Error formatting study date:', studyDate, error.message);
+                return null;
+            }
+        };
+
+        // 🔧 OPTIMIZED: Process studies efficiently with proper error handling
         const processedStudies = studies.map(study => {
             // Patient info
             const patient = study.patient || {};
@@ -413,7 +456,7 @@ export const getTATReport = async (req, res) => {
                            study.modalitiesInStudy.join(', ') : 
                            study.modality || '-';
 
-            // Date formatting
+            // Date formatting helper
             const formatDate = (date) => {
                 if (!date) return null;
                 try {
@@ -423,10 +466,8 @@ export const getTATReport = async (req, res) => {
                 }
             };
 
-            // Study date formatting (YYYYMMDD to ISO)
-            const studyDateFormatted = study.studyDate ? 
-                formatDate(`${study.studyDate.substring(0,4)}-${study.studyDate.substring(4,6)}-${study.studyDate.substring(6,8)}`) :
-                null;
+            // 🔧 FIXED: Study date formatting with proper error handling
+            const studyDateFormatted = formatStudyDate(study.studyDate);
 
             return {
                 _id: study._id,
@@ -444,17 +485,17 @@ export const getTATReport = async (req, res) => {
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.assignedAt),
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
-                diffStudyAndReportTAT: study.studyToReportTAT ? 
+                diffStudyAndReportTAT: study.studyToReportTAT && study.studyToReportTAT > 0 ? 
                                      `${Math.round(study.studyToReportTAT)} Minutes` : '-',
-                diffUploadAndReportTAT: study.uploadToReportTAT ? 
+                diffUploadAndReportTAT: study.uploadToReportTAT && study.uploadToReportTAT > 0 ? 
                                       `${Math.round(study.uploadToReportTAT)} Minutes` : '-',
-                diffAssignAndReportTAT: study.assignToReportTAT ? 
+                diffAssignAndReportTAT: study.assignToReportTAT && study.assignToReportTAT > 0 ? 
                                       `${Math.round(study.assignToReportTAT)} Minutes` : '-',
                 reportedBy
             };
         });
 
-        // 🔧 PERFORMANCE: Calculate summary statistics
+        // 🔧 PERFORMANCE: Calculate summary statistics with null checks
         const reportedStudies = studies.filter(s => s.reportInfo?.finalizedAt);
         const summary = {
             totalStudies: totalCount,
@@ -643,6 +684,63 @@ export const exportTATReport = async (req, res) => {
         // Style header
         worksheet.getRow(1).font = { bold: true };
 
+        // 🔧 FIXED: Helper function to safely format study date
+        const formatStudyDateSafe = (studyDate) => {
+            if (!studyDate) return '';
+            
+            try {
+                // Convert to string if it's not already
+                const dateStr = String(studyDate);
+                
+                // Check if it's in YYYYMMDD format (8 digits)
+                if (dateStr.length >= 8 && /^\d{8}/.test(dateStr)) {
+                    const year = dateStr.substring(0, 4);
+                    const month = dateStr.substring(4, 6);
+                    const day = dateStr.substring(6, 8);
+                    return new Date(`${year}-${month}-${day}`).toLocaleString();
+                }
+                
+                // If it's already a valid date string, parse it
+                const parsedDate = new Date(dateStr);
+                if (!isNaN(parsedDate.getTime())) {
+                    return parsedDate.toLocaleString();
+                }
+                
+                return '';
+            } catch (error) {
+                console.warn('⚠️ Error formatting study date for Excel:', studyDate, error.message);
+                return '';
+            }
+        };
+
+        // 🔧 FIXED: Helper function to safely calculate study to report TAT
+        const calculateStudyToReportTATSafe = (studyDate, reportDate) => {
+            if (!studyDate || !reportDate) return '';
+            
+            try {
+                const dateStr = String(studyDate);
+                let studyDateObj;
+                
+                // Parse YYYYMMDD format
+                if (dateStr.length >= 8 && /^\d{8}/.test(dateStr)) {
+                    const year = dateStr.substring(0, 4);
+                    const month = dateStr.substring(4, 6);
+                    const day = dateStr.substring(6, 8);
+                    studyDateObj = new Date(`${year}-${month}-${day}`);
+                } else {
+                    studyDateObj = new Date(dateStr);
+                }
+                
+                if (isNaN(studyDateObj.getTime())) return '';
+                
+                const diff = (new Date(reportDate) - studyDateObj) / (1000 * 60); // minutes
+                return diff > 0 ? `${Math.round(diff)} Minutes` : '';
+            } catch (error) {
+                console.warn('⚠️ Error calculating study to report TAT:', studyDate, reportDate, error.message);
+                return '';
+            }
+        };
+
         // 🔧 PERFORMANCE: Stream data processing
         const cursor = DicomStudy.aggregate(pipeline).cursor({ batchSize: 100 });
         let processedCount = 0;
@@ -668,18 +766,19 @@ export const exportTATReport = async (req, res) => {
                 }
             };
 
-            // Calculate TAT values
+            // Calculate TAT values with safety checks
             const calculateTAT = (startDate, endDate) => {
                 if (!startDate || !endDate) return '';
                 try {
                     const diff = (new Date(endDate) - new Date(startDate)) / (1000 * 60); // minutes
-                    return `${Math.round(diff)} Minutes`;
+                    return diff > 0 ? `${Math.round(diff)} Minutes` : '';
                 } catch (error) {
                     return '';
                 }
             };
 
-            worksheet.addRow({
+            // 🔧 FIXED: Safe row data with proper error handling
+            const rowData = {
                 studyStatus: study.workflowStatus || '',
                 patientId: patient.patientID || '',
                 patientName,
@@ -690,27 +789,29 @@ export const exportTATReport = async (req, res) => {
                 modality: study.modality || study.modalitiesInStudy?.join(', ') || '',
                 seriesImages: `${study.numberOfSeries || '0'}/${study.numberOfImages || '0'}`,
                 institutionName: lab.name || '',
-                billedOnStudyDate: study.studyDate ? 
-                    formatDate(`${study.studyDate.substring(0,4)}-${study.studyDate.substring(4,6)}-${study.studyDate.substring(6,8)}`) : '',
+                billedOnStudyDate: formatStudyDateSafe(study.studyDate),
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.assignedAt),
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
-                diffStudyAndReportTAT: study.studyDate && study.reportInfo?.finalizedAt ? 
-                    calculateTAT(
-                        `${study.studyDate.substring(0,4)}-${study.studyDate.substring(4,6)}-${study.studyDate.substring(6,8)}`,
-                        study.reportInfo.finalizedAt
-                    ) : '',
+                diffStudyAndReportTAT: calculateStudyToReportTATSafe(study.studyDate, study.reportInfo?.finalizedAt),
                 diffUploadAndReportTAT: calculateTAT(study.createdAt, study.reportInfo?.finalizedAt),
                 diffAssignAndReportTAT: calculateTAT(study.assignment?.assignedAt, study.reportInfo?.finalizedAt),
                 reportedBy
-            });
+            };
 
-            processedCount++;
-            
-            // 🔧 PERFORMANCE: Commit in batches for better memory management
-            if (processedCount % 100 === 0) {
-                await worksheet.commit();
-                console.log(`📊 Processed ${processedCount} records...`);
+            try {
+                worksheet.addRow(rowData);
+                processedCount++;
+                
+                // 🔧 PERFORMANCE: Commit in batches for better memory management
+                if (processedCount % 100 === 0) {
+                    await worksheet.commit();
+                    console.log(`📊 Processed ${processedCount} records...`);
+                }
+            } catch (rowError) {
+                console.error('❌ Error adding row to Excel:', rowError.message);
+                console.error('Row data:', JSON.stringify(rowData, null, 2));
+                // Continue processing other rows
             }
         }
 
@@ -723,6 +824,7 @@ export const exportTATReport = async (req, res) => {
 
     } catch (error) {
         console.error('❌ Error exporting TAT report:', error);
+        console.error('Error stack:', error.stack);
         
         if (!res.headersSent) {
             return res.status(500).json({
