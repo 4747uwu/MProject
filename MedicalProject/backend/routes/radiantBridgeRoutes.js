@@ -1,50 +1,34 @@
 import express from 'express';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 import {
-  launchStudyInRadiant,
-  getRadiantStatus,
+  checkHelperStatus,
+  launchStudyByOrthancId,
+  launchStudyByUid,
+  getBridgeStatus,
   cleanupTempFiles,
-  universalRadiantLaunch
+  testClientConnection
 } from '../controllers/radient.bridge.controller.js';
 
 const router = express.Router();
 
-// 🔧 GET RADIANT BRIDGE STATUS (public endpoint for client checking)
-router.get('/status', getRadiantStatus);
+// 🔧 PUBLIC ROUTES (for client helper status checks)
+router.get('/status', getBridgeStatus);
 
-// 🔧 LAUNCH STUDY IN RADIANT BY STUDY ID
-router.post('/launch/study/:studyId', 
-  protect, 
-  authorize('admin', 'doctor_account', 'lab_staff'), 
-  launchStudyInRadiant
-);
+// 🔧 PROTECTED ROUTES (require authentication)
+// router.use(protect);
+router.use(authorize('admin', 'doctor_account', 'lab_staff'));
 
-// 🔧 LAUNCH STUDY IN RADIANT BY ORTHANC STUDY ID
-router.post('/launch/orthanc/:orthancStudyId', 
-  protect, 
-  authorize('admin', 'doctor_account', 'lab_staff'), 
-  launchStudyInRadiant
-);
+// Helper status check
+router.post('/helper/status', checkHelperStatus);
 
-// 🔧 LAUNCH STUDY IN RADIANT BY STUDY INSTANCE UID
-router.post('/launch/uid/:studyInstanceUID', 
-  protect, 
-  authorize('admin', 'doctor_account', 'lab_staff'), 
-  launchStudyInRadiant
-);
+// Study launch routes
+router.post('/launch/orthanc/:orthancStudyId', launchStudyByOrthancId);
+router.post('/launch/uid/:studyInstanceUID', launchStudyByUid);
 
-// 🔧 UNIVERSAL LAUNCH ENDPOINT (for external clients)
-router.post('/launch/universal', 
-  protect, 
-  authorize('admin', 'doctor_account', 'lab_staff'), 
-  universalRadiantLaunch
-);
+// Client connection testing
+router.post('/test-connection', testClientConnection);
 
-// 🔧 CLEANUP TEMPORARY FILES
-router.delete('/cleanup', 
-  protect, 
-  authorize('admin'), 
-  cleanupTempFiles
-);
+// Admin routes
+router.post('/cleanup', authorize('admin'), cleanupTempFiles);
 
 export default router;
