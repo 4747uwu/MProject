@@ -15,7 +15,7 @@ const router = express.Router();
 // POST /api/sharing/generate-link
 router.post('/generate-link', 
   protect, 
-  authorize('admin', 'doctor', 'lab_staff'), 
+  // authorize('admin', 'doctor', 'lab_staff'), 
   generateShareableLink
 );
 
@@ -23,7 +23,7 @@ router.post('/generate-link',
 // POST /api/sharing/generate-qr
 router.post('/generate-qr', 
   protect, 
-  authorize('admin', 'doctor', 'lab_staff'), 
+  // authorize('admin', 'doctor', 'lab_staff'), 
   generateQRCode
 );
 

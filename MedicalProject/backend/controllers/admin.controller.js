@@ -3,15 +3,32 @@ import DicomStudy from '../models/dicomStudyModel.js';
 import User from '../models/userModel.js';
 import Doctor from '../models/doctorModel.js';
 import Lab from '../models/labModel.js';
-import transporter from '../config/nodemailer.js';
+import transporter from '../config/resend.js';
 import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import NodeCache from 'node-cache';
 import mongoose from 'mongoose';
 import WasabiService from '../services/wasabi.service.js';
 import multer from 'multer';
 import sharp from 'sharp'; // For image optimization
-// import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
 
+// import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
+const storage = multer.memoryStorage();
+
+const signatureUpload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit
+        files: 1
+    },
+    fileFilter: (req, file, cb) => {
+        // Accept images only
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed for signatures'), false);
+        }
+    }
+});
 
 // 🔧 PERFORMANCE: Advanced caching with different TTLs
 const cache = new NodeCache({ 
@@ -712,9 +729,28 @@ export const assignDoctorToStudy = async (req, res) => {
             }
 
             // Validate doctor
-            const doctor = await Doctor.findById(doctorId)
-                .populate('userAccount', 'fullName isActive')
-                .session(session);
+            // const doctor = await Doctor.findById(doctorId)
+            //     .populate('userAccount', 'fullName isActive')
+            //     .session(session);
+
+            const [doctor, study] = await Promise.all([
+                Doctor.findById(doctorId)
+                    .populate({
+                        path: 'userAccount',
+                        select: 'fullName isActive',
+                        options: { session, readPreference: 'primary' }
+                    })
+                    .session(session)
+                    .setOptions({ readPreference: 'primary' }),
+                DicomStudy.findById(studyId)
+                    .populate({
+                        path: 'patient',
+                        select: '_id patientID',
+                        options: { session, readPreference: 'primary' }
+                    })
+                    .session(session)
+                    .setOptions({ readPreference: 'primary' })
+            ]);
 
             if (!doctor || !doctor.userAccount?.isActive) {
                 throw new Error('Doctor not found or inactive');
@@ -753,6 +789,51 @@ export const assignDoctorToStudy = async (req, res) => {
 
             if (!updatedStudy) {
                 throw new Error('Study not found');
+            }
+
+            console.log(`📋 Adding study ${studyId} to doctor ${doctorId} assignedStudies array`);
+            
+            // Check if study is already in assignedStudies (to avoid duplicates)
+            const existingAssignment = doctor.assignedStudies.find(
+                assigned => assigned.study.toString() === studyId.toString()
+            );
+
+            if (!existingAssignment) {
+                // 🔧 SIMPLIFIED: Add only the essential fields you specified
+                const assignedStudyEntry = {
+                    study: studyId,
+                    patient: study.patient._id,
+                    assignedDate: currentTime,
+                    status: 'assigned'
+                };
+
+                await Doctor.findByIdAndUpdate(
+                    doctorId,
+                    {
+                        $push: { assignedStudies: assignedStudyEntry },
+                        assigned: true // Set doctor as having assignments
+                    },
+                    { session, runValidators: false }
+                );
+
+                console.log(`✅ Added study to doctor assignedStudies array with essential fields only`);
+            } else {
+                console.log(`ℹ️ Study already exists in doctor assignedStudies, updating status`);
+                
+                // Update existing assignment status if it was previously completed
+                await Doctor.findOneAndUpdate(
+                    { 
+                        _id: doctorId,
+                        'assignedStudies.study': studyId
+                    },
+                    {
+                        $set: {
+                            'assignedStudies.$.status': 'assigned',
+                            'assignedStudies.$.assignedDate': currentTime
+                        }
+                    },
+                    { session, runValidators: false }
+                );
             }
 
             // Calculate timing info
@@ -1301,156 +1382,156 @@ const generateRandomPassword = () => {
 };
 
 // 🔧 UTILITY: Send welcome email
-const sendWelcomeEmail = async (email, fullName, username, password, role) => {
-    try {
-        let subject, text, html;
+// const sendWelcomeEmail = async (email, fullName, username, password, role) => {
+//     try {
+//         let subject, text, html;
         
-        if (role === 'lab_staff') {
-            subject = 'Welcome to Medical Platform - Lab Staff Account Created';
-            text = `Hello ${fullName},\n\nYour lab staff account has been created successfully.\n\nUsername: ${username}\nTemporary Password: ${password}\n\nPlease login and change your password as soon as possible.\n\nRegards,\nMedical Platform Team`;
-            html = `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #2563eb;">Welcome to Medical Platform</h2>
-                    <p>Hello ${fullName},</p>
-                    <p>Your lab staff account has been created successfully.</p>
-                    <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                        <p style="margin: 5px 0;"><strong>Username:</strong> ${username}</p>
-                        <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${password}</p>
-                    </div>
-                    <p>Please login and change your password as soon as possible.</p>
-                    <p>Regards,<br>Medical Platform Team</p>
-                </div>
-            `;
-        } else if (role === 'doctor_account') {
-            subject = 'Welcome to Medical Platform - Doctor Account Created';
-            text = `Hello Dr. ${fullName},\n\nYour doctor account has been created successfully.\n\nUsername: ${username}\nTemporary Password: ${password}\n\nPlease login and change your password as soon as possible.\n\nRegards,\nMedical Platform Team`;
-            html = `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #10b981;">Welcome to Medical Platform</h2>
-                    <p>Hello Dr. ${fullName},</p>
-                    <p>Your doctor account has been created successfully.</p>
-                    <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                        <p style="margin: 5px 0;"><strong>Username:</strong> ${username}</p>
-                        <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${password}</p>
-                    </div>
-                    <p>Please login and change your password as soon as possible.</p>
-                    <p>Regards,<br>Medical Platform Team</p>
-                </div>
-            `;
-        }
+//         if (role === 'lab_staff') {
+//             subject = 'Welcome to Medical Platform - Lab Staff Account Created';
+//             text = `Hello ${fullName},\n\nYour lab staff account has been created successfully.\n\nUsername: ${username}\nTemporary Password: ${password}\n\nPlease login and change your password as soon as possible.\n\nRegards,\nMedical Platform Team`;
+//             html = `
+//                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+//                     <h2 style="color: #2563eb;">Welcome to Medical Platform</h2>
+//                     <p>Hello ${fullName},</p>
+//                     <p>Your lab staff account has been created successfully.</p>
+//                     <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
+//                         <p style="margin: 5px 0;"><strong>Username:</strong> ${username}</p>
+//                         <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${password}</p>
+//                     </div>
+//                     <p>Please login and change your password as soon as possible.</p>
+//                     <p>Regards,<br>Medical Platform Team</p>
+//                 </div>
+//             `;
+//         } else if (role === 'doctor_account') {
+//             subject = 'Welcome to Medical Platform - Doctor Account Created';
+//             text = `Hello Dr. ${fullName},\n\nYour doctor account has been created successfully.\n\nUsername: ${username}\nTemporary Password: ${password}\n\nPlease login and change your password as soon as possible.\n\nRegards,\nMedical Platform Team`;
+//             html = `
+//                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+//                     <h2 style="color: #10b981;">Welcome to Medical Platform</h2>
+//                     <p>Hello Dr. ${fullName},</p>
+//                     <p>Your doctor account has been created successfully.</p>
+//                     <div style="background-color: #f3f4f6; padding: 15px; border-radius: 5px; margin: 20px 0;">
+//                         <p style="margin: 5px 0;"><strong>Username:</strong> ${username}</p>
+//                         <p style="margin: 5px 0;"><strong>Temporary Password:</strong> ${password}</p>
+//                     </div>
+//                     <p>Please login and change your password as soon as possible.</p>
+//                     <p>Regards,<br>Medical Platform Team</p>
+//                 </div>
+//             `;
+//         }
 
-        await transporter.sendMail({
-            from: '"Medical Platform" <no-reply@medicalplatform.com>',
-            to: email,
-            subject,
-            text,
-            html
-        });
+//         await transporter.sendMail({
+//             from: '"Medical Platform" <no-reply@medicalplatform.com>',
+//             to: email,
+//             subject,
+//             text,
+//             html
+//         });
         
-        console.log(`✅ Welcome email sent to ${email} successfully`);
-        return true;
-    } catch (error) {
-        console.error('❌ Error sending welcome email:', error);
-        return false;
-    }
-};
+//         console.log(`✅ Welcome email sent to ${email} successfully`);
+//         return true;
+//     } catch (error) {
+//         console.error('❌ Error sending welcome email:', error);
+//         return false;
+//     }
+// };
 
 // 🔧 FIXED: Register lab and staff
-export const registerLabAndStaff = async (req, res) => {
-    const session = await mongoose.startSession();
+// export const registerLabAndStaff = async (req, res) => {
+//     const session = await mongoose.startSession();
     
-    try {
-        await session.withTransaction(async () => {
-            const {
-                labName, labIdentifier, contactPerson, contactEmail, contactPhone, 
-                address, labNotes, labIsActive, staffUsername, staffEmail, staffFullName
-            } = req.body;
+//     try {
+//         await session.withTransaction(async () => {
+//             const {
+//                 labName, labIdentifier, contactPerson, contactEmail, contactPhone, 
+//                 address, labNotes, labIsActive, staffUsername, staffEmail, staffFullName
+//             } = req.body;
 
-            // Validation
-            if (!labName || !labIdentifier) {
-                throw new Error('Laboratory name and identifier are required.');
-            }
-            if (!staffUsername || !staffEmail || !staffFullName) {
-                throw new Error('Staff username, email, and full name are required.');
-            }
+//             // Validation
+//             if (!labName || !labIdentifier) {
+//                 throw new Error('Laboratory name and identifier are required.');
+//             }
+//             if (!staffUsername || !staffEmail || !staffFullName) {
+//                 throw new Error('Staff username, email, and full name are required.');
+//             }
 
-            const staffPassword = generateRandomPassword();
+//             const staffPassword = generateRandomPassword();
 
-            // Check for existing records
-            const [labExists, staffUserExists] = await Promise.all([
-                Lab.findOne({ $or: [{ name: labName }, { identifier: labIdentifier }] }).session(session),
-                User.findOne({ $or: [{ email: staffEmail }, { username: staffUsername }] }).session(session)
-            ]);
+//             // Check for existing records
+//             const [labExists, staffUserExists] = await Promise.all([
+//                 Lab.findOne({ $or: [{ name: labName }, { identifier: labIdentifier }] }).session(session),
+//                 User.findOne({ $or: [{ email: staffEmail }, { username: staffUsername }] }).session(session)
+//             ]);
 
-            if (labExists) {
-                throw new Error('Laboratory with this name or identifier already exists.');
-            }
-            if (staffUserExists) {
-                throw new Error('A user with the provided staff email or username already exists.');
-            }
+//             if (labExists) {
+//                 throw new Error('Laboratory with this name or identifier already exists.');
+//             }
+//             if (staffUserExists) {
+//                 throw new Error('A user with the provided staff email or username already exists.');
+//             }
 
-            // Create lab and staff user
-            const labData = {
-                name: labName, 
-                identifier: labIdentifier, 
-                contactPerson, 
-                contactEmail,
-                contactPhone, 
-                address, 
-                notes: labNotes,
-                isActive: labIsActive !== undefined ? labIsActive : true,
-            };
+//             // Create lab and staff user
+//             const labData = {
+//                 name: labName, 
+//                 identifier: labIdentifier, 
+//                 contactPerson, 
+//                 contactEmail,
+//                 contactPhone, 
+//                 address, 
+//                 notes: labNotes,
+//                 isActive: labIsActive !== undefined ? labIsActive : true,
+//             };
 
-            const [newLabDocument, staffUser] = await Promise.all([
-                Lab.create([labData], { session }),
-                User.create([{
-                    username: staffUsername, 
-                    email: staffEmail, 
-                    password: staffPassword,
-                    fullName: staffFullName, 
-                    role: 'lab_staff'
-                }], { session })
-            ]);
+//             const [newLabDocument, staffUser] = await Promise.all([
+//                 Lab.create([labData], { session }),
+//                 User.create([{
+//                     username: staffUsername, 
+//                     email: staffEmail, 
+//                     password: staffPassword,
+//                     fullName: staffFullName, 
+//                     role: 'lab_staff'
+//                 }], { session })
+//             ]);
 
-            // Update lab reference in staff user
-            staffUser[0].lab = newLabDocument[0]._id;
-            await staffUser[0].save({ session });
+//             // Update lab reference in staff user
+//             staffUser[0].lab = newLabDocument[0]._id;
+//             await staffUser[0].save({ session });
 
-            const staffUserResponse = staffUser[0].toObject();
-            delete staffUserResponse.password;
+//             const staffUserResponse = staffUser[0].toObject();
+//             delete staffUserResponse.password;
 
-            // Send email asynchronously
-            setImmediate(async () => {
-                await sendWelcomeEmail(staffEmail, staffFullName, staffUsername, staffPassword, 'lab_staff');
-            });
+//             // Send email asynchronously
+//             setImmediate(async () => {
+//                 await sendWelcomeEmail(staffEmail, staffFullName, staffUsername, staffPassword, 'lab_staff');
+//             });
 
-            return {
-                lab: newLabDocument[0].toObject(),
-                staffUser: staffUserResponse
-            };
-        });
+//             return {
+//                 lab: newLabDocument[0].toObject(),
+//                 staffUser: staffUserResponse
+//             };
+//         });
 
-        res.status(201).json({
-            success: true,
-            message: 'Laboratory and initial lab staff user registered successfully. A welcome email with login credentials has been sent.'
-        });
+//         res.status(201).json({
+//             success: true,
+//             message: 'Laboratory and initial lab staff user registered successfully. A welcome email with login credentials has been sent.'
+//         });
 
-    } catch (error) {
-        console.error('❌ Error registering lab and staff:', error);
+//     } catch (error) {
+//         console.error('❌ Error registering lab and staff:', error);
         
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(val => val.message);
-            return res.status(400).json({ success: false, message: messages.join(', ') });
-        }
+//         if (error.name === 'ValidationError') {
+//             const messages = Object.values(error.errors).map(val => val.message);
+//             return res.status(400).json({ success: false, message: messages.join(', ') });
+//         }
         
-        res.status(500).json({ 
-            success: false, 
-            message: error.message || 'Server error during lab and staff registration.' 
-        });
-    } finally {
-        await session.endSession();
-    }
-};
+//         res.status(500).json({ 
+//             success: false, 
+//             message: error.message || 'Server error during lab and staff registration.' 
+//         });
+//     } finally {
+//         await session.endSession();
+//     }
+// };
 
 export const deleteDoctor = async (req, res) => {
     const session = await mongoose.startSession();
@@ -1996,11 +2077,17 @@ export const updateDoctor = async (req, res) => {
     }
 };
 
+
+
 // export const registerDoctor = async (req, res) => {
+//     console.log('🔍 ===== REGISTER DOCTOR CALLED =====');
+//     console.log('📝 req.body:', req.body);
+//     console.log('📁 req.file:', req.file);
+    
 //     const session = await mongoose.startSession();
     
 //     try {
-//         await session.withTransaction(async () => {
+//         const result = await session.withTransaction(async () => {
 //             const {
 //                 username, email, fullName,
 //                 specialization, licenseNumber, department, qualifications, 
@@ -2013,7 +2100,7 @@ export const updateDoctor = async (req, res) => {
 
 //             const password = generateRandomPassword();
 
-//             // 🔧 OPTIMIZED: Parallel validation queries
+//             // Validation queries
 //             const [userExists, doctorWithLicenseExists] = await Promise.all([
 //                 User.findOne({ $or: [{ email }, { username }] }).session(session),
 //                 Doctor.findOne({ licenseNumber }).session(session)
@@ -2026,44 +2113,172 @@ export const updateDoctor = async (req, res) => {
 //                 throw new Error('A doctor with this license number already exists.');
 //             }
 
-//             // 🔧 PERFORMANCE: Create user and doctor profile in sequence
+//             // Create user
 //             const userDocument = await User.create([{
 //                 username, email, password, fullName, role: 'doctor_account'
 //             }], { session });
 
+//             console.log('✅ User created:', userDocument[0]._id);
+
+//             // 🔧 FIXED: Declare variables outside the try block
+//             let signatureUrl = '';
+//             let signatureKey = '';
+//             let signatureUploadSuccess = false;
+//             let optimizedSignature = null; // 🔧 CRITICAL FIX: Declare here
+//             let signatureFileSize = 0;
+//             let signatureOriginalName = '';
+            
+//             if (req.file) {
+//                 try {
+//                     console.log('📝 Processing doctor signature upload...');
+//                     console.log('📁 File details:', {
+//                         originalname: req.file.originalname,
+//                         mimetype: req.file.mimetype,
+//                         size: req.file.size
+//                     });
+                    
+//                     // 🔧 OPTIMIZE: Process signature image
+//                     optimizedSignature = await sharp(req.file.buffer)
+//                         .resize(400, 200, {
+//                             fit: 'contain',
+//                             background: { r: 255, g: 255, b: 255, alpha: 1 }
+//                         })
+//                         .png({ quality: 90, compressionLevel: 6 })
+//                         .toBuffer();
+
+//                     console.log('✅ Image optimized, size:', optimizedSignature.length);
+
+//                     // 🔧 STORE: File metadata for later use
+//                     signatureFileSize = req.file.size;
+//                     signatureOriginalName = req.file.originalname;
+
+//                     // 🔧 CLEAN METADATA: Ensure all values are strings
+//                     const signatureMetadata = {
+//                         doctorId: String(userDocument[0]._id),
+//                         licenseNumber: String(licenseNumber),
+//                         uploadedBy: String(req.user?._id || 'admin'),
+//                         doctorName: String(fullName),
+//                         signatureType: 'medical_signature',
+//                         originalFilename: String(req.file.originalname || 'signature.png'),
+//                         originalSize: String(req.file.size || 0),
+//                         optimizedSize: String(optimizedSignature.length),
+//                         mimeType: String(req.file.mimetype || 'image/png'),
+//                         uploadTimestamp: String(Date.now())
+//                     };
+
+//                     const signatureFileName = `signature_${licenseNumber}_${Date.now()}.png`;
+                    
+//                     console.log('📤 Uploading to Wasabi with metadata:', signatureMetadata);
+                    
+//                     const uploadResult = await WasabiService.uploadDocument(
+//                         optimizedSignature,
+//                         signatureFileName,
+//                         'signature',
+//                         signatureMetadata
+//                     );
+
+//                     console.log('📤 Upload result:', uploadResult);
+
+//                     if (uploadResult.success) {
+//                         signatureUrl = uploadResult.location;
+//                         signatureKey = uploadResult.key;
+//                         signatureUploadSuccess = true;
+//                         console.log(`✅ Signature uploaded successfully: ${signatureKey}`);
+//                     } else {
+//                         console.error('❌ Signature upload failed:', uploadResult.error);
+//                         throw new Error(`Signature upload failed: ${uploadResult.error}`);
+//                     }
+                    
+//                 } catch (signatureError) {
+//                     console.error('❌ Error uploading signature:', signatureError);
+//                     console.warn('⚠️ Continuing registration without signature');
+//                     signatureUploadSuccess = false;
+//                     // Reset variables on error
+//                     optimizedSignature = null;
+//                     signatureFileSize = 0;
+//                     signatureOriginalName = '';
+//                 }
+//             } else {
+//                 console.log('ℹ️ No signature file provided');
+//             }
+
+//             // 🔧 BUILD: Doctor profile data
 //             const doctorProfileData = {
 //                 userAccount: userDocument[0]._id, 
 //                 specialization, 
 //                 licenseNumber, 
-//                 department,
-//                 qualifications, 
-//                 yearsOfExperience, 
-//                 contactPhoneOffice,
-//                 isActiveProfile: isActiveProfile !== undefined ? isActiveProfile : true
+//                 department: department || '',
+//                 qualifications: qualifications ? 
+//                     qualifications.split(',').map(q => q.trim()).filter(q => q) : [],
+//                 yearsOfExperience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
+//                 contactPhoneOffice: contactPhoneOffice || '',
+//                 isActiveProfile: isActiveProfile !== undefined ? isActiveProfile === 'true' : true
 //             };
 
+//             // 🔧 FIXED: Add signature fields with proper null checks
+//             if (signatureUploadSuccess && optimizedSignature) {
+//                 doctorProfileData.signature = signatureUrl;
+//                 doctorProfileData.signatureWasabiKey = signatureKey;
+//                 doctorProfileData.signatureMetadata = {
+//                     uploadedAt: new Date(),
+//                     fileSize: signatureFileSize || 0,
+//                     originalName: signatureOriginalName || '',
+//                     mimeType: 'image/png',
+//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
+//                 };
+//                 console.log('✅ Added signature fields to doctor profile');
+//             } else {
+//                 // 🔧 SAFE: Set default signature fields
+//                 doctorProfileData.signature = '';
+//                 doctorProfileData.signatureWasabiKey = '';
+//                 doctorProfileData.signatureMetadata = null;
+//                 console.log('ℹ️ No signature added to doctor profile');
+//             }
+
+//             console.log('📋 Doctor profile data:', JSON.stringify(doctorProfileData, null, 2));
+
 //             const doctorProfile = await Doctor.create([doctorProfileData], { session });
+//             console.log('✅ Doctor profile created:', doctorProfile[0]._id);
 
-//             const userResponse = userDocument[0].toObject();
-//             delete userResponse.password;
-
-//             // Send welcome email asynchronously
+//             // Send welcome email
 //             setImmediate(async () => {
-            //     await sendWelcomeEmail(email, fullName, staffUsername, password, 'doctor_account');
-            // });
+//                 await sendWelcomeEmail(email, fullName, username, password, 'doctor_account');
+//             });
 
 //             // Clear caches
 //             cache.del('doctors_list_*');
 
 //             return {
 //                 user: userDocument[0].toObject(),
-                // doctorProfile: doctorProfile[0].toObject()
+//                 doctorProfile: doctorProfile[0].toObject(),
+//                 signatureUploaded: signatureUploadSuccess,
+//                 signatureDetails: signatureUploadSuccess ? {
+//                     key: signatureKey,
+//                     url: signatureUrl,
+//                     originalSize: signatureFileSize,
+//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
+//                 } : null
 //             };
 //         });
 
+//         console.log('✅ Transaction completed successfully');
+
+//         const baseMessage = 'Doctor registered successfully. A welcome email with login credentials has been sent.';
+//         const signatureMessage = req.file ? 
+//             (result.signatureUploaded ? ' Signature uploaded successfully.' : ' Signature upload failed but registration completed.') : 
+//             '';
+
 //         res.status(201).json({
 //             success: true,
-//             message: 'Doctor registered successfully. A welcome email with login credentials has been sent.'
+//             message: baseMessage + signatureMessage,
+//             signatureUploaded: result.signatureUploaded,
+//             data: {
+//                 doctorId: result.doctorProfile._id,
+//                 doctorRegistered: true,
+//                 signatureProcessed: !!req.file,
+//                 signatureSuccess: result.signatureUploaded,
+//                 signatureDetails: result.signatureDetails
+//             }
 //         });
 
 //     } catch (error) {
@@ -2083,10 +2298,211 @@ export const updateDoctor = async (req, res) => {
 //     }
 // };
 
+// 🔧 OPTIONAL MIDDLEWARE: Apply multer middleware for signature upload (optional)
+export const uploadDoctorSignature = (req, res, next) => {
+    const upload = signatureUpload.single('signature');
+    
+    upload(req, res, (err) => {
+        if (err instanceof multer.MulterError) {
+            if (err.code === 'LIMIT_FILE_SIZE') {
+                console.warn('⚠️ Signature file too large, proceeding without signature');
+                // Don't fail the request, just proceed without signature
+                return next();
+            }
+            console.warn('⚠️ Multer error:', err.message, 'proceeding without signature');
+            return next();
+        } else if (err) {
+            console.warn('⚠️ Upload error:', err.message, 'proceeding without signature');
+            return next();
+        }
+        
+        // Continue to next middleware/controller
+        next();
+    });
+};
 
+// 🆕 NEW: Optional signature-specific registration function (for new routes)
+export const registerDoctorWithSignature = async (req, res) => {
+    // Apply signature upload middleware inline
+    uploadDoctorSignature(req, res, async (err) => {
+        if (err) {
+            return res.status(400).json({
+                success: false,
+                message: 'Signature upload failed: ' + err.message
+            });
+        }
+        
+        // Call the main registration function
+        await registerDoctor(req, res);
+    });
+};
 
-// 🔧 ENHANCED: registerDoctor with proper metadata handling
-// 🔧 FIXED: registerDoctor with proper variable scope
+// 🔧 UPDATED: Send welcome email using Resend (replace the existing sendWelcomeEmail function)
+const sendWelcomeEmail = async (email, fullName, username, password, role) => {
+    try {
+        console.log(`📧 Sending welcome email to ${email} for role: ${role} via Resend`);
+        
+        if (role === 'doctor_account') {
+            const emailHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Welcome - Doctor Account</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                        .content { background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }
+                        .credentials { background-color: #d1fae5; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #10b981; }
+                        .button { display: inline-block; background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+                        .footer { text-align: center; padding: 20px; color: #6b7280; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1>🏥 Medical Platform</h1>
+                            <h2>Welcome Dr. ${fullName}!</h2>
+                        </div>
+                        <div class="content">
+                            <h3>Hello Dr. ${fullName}!</h3>
+                            <p>Your doctor account has been created successfully. You now have access to the Medical Platform's advanced diagnostic and reporting tools.</p>
+                            
+                            <div class="credentials">
+                                <p style="margin: 5px 0;"><strong>🔑 Username:</strong> ${username}</p>
+                                <p style="margin: 5px 0;"><strong>🔒 Temporary Password:</strong> ${password}</p>
+                            </div>
+                            
+                            <p><strong>⚠️ Important Security Notice:</strong></p>
+                            <ul>
+                                <li>Please login and change your password immediately</li>
+                                <li>This temporary password will expire in 24 hours</li>
+                                <li>Your account provides access to sensitive medical data</li>
+                                <li>Follow HIPAA compliance guidelines at all times</li>
+                            </ul>
+                            
+                            <div style="text-align: center;">
+                                <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="button">🚀 Access Doctor Portal</a>
+                            </div>
+                            
+                            <hr style="margin: 30px 0; border: none; border-top: 1px solid #d1d5db;">
+                            
+                            <p style="font-size: 14px; color: #6b7280;">
+                                <strong>Doctor Platform Features:</strong><br>
+                                • Review assigned DICOM studies<br>
+                                • Create and finalize medical reports<br>
+                                • Access RadiAnt DICOM Viewer integration<br>
+                                • Manage patient workflow status<br>
+                                • Secure communication with lab staff
+                            </p>
+                        </div>
+                        <div class="footer">
+                            <p>© 2025 Medical Platform. All rights reserved.</p>
+                            <p>For technical support, please contact system administrator.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            // 🔧 UPDATED: Use Resend transporter
+            const mailOptions = {
+                to: email,
+                name: fullName || username || 'User', // 🔧 ADDED: Proper name for Brevo
+                subject: `🎉 Welcome to Medical Platform - Your ${role} Account`,
+                html: emailHtml
+            };
+    
+            const result = await transporter.sendMail(mailOptions);
+            console.log(`✅ Welcome email sent via Brevo to ${email}`);
+            return true;
+            
+        } else if (role === 'lab_staff') {
+            const emailHtml = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Welcome - Lab Staff Account</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                        .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+                        .content { background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }
+                        .credentials { background-color: #dbeafe; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2563eb; }
+                        .button { display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+                        .footer { text-align: center; padding: 20px; color: #6b7280; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <div class="header">
+                            <h1>🏥 Medical Platform</h1>
+                            <h2>Welcome Lab Staff!</h2>
+                        </div>
+                        <div class="content">
+                            <h3>Hello ${fullName}!</h3>
+                            <p>Your lab staff account has been created successfully. You can now access the Medical Platform to manage DICOM studies and collaborate with medical professionals.</p>
+                            
+                            <div class="credentials">
+                                <p style="margin: 5px 0;"><strong>🔑 Username:</strong> ${username}</p>
+                                <p style="margin: 5px 0;"><strong>🔒 Temporary Password:</strong> ${password}</p>
+                            </div>
+                            
+                            <p><strong>⚠️ Important Security Notice:</strong></p>
+                            <ul>
+                                <li>Please login and change your password immediately</li>
+                                <li>This temporary password will expire in 24 hours</li>
+                                <li>Keep your login credentials secure</li>
+                            </ul>
+                            
+                            <div style="text-align: center;">
+                                <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="button">🚀 Login to Platform</a>
+                            </div>
+                            
+                            <hr style="margin: 30px 0; border: none; border-top: 1px solid #d1d5db;">
+                            
+                            <p style="font-size: 14px; color: #6b7280;">
+                                <strong>Lab Staff Features:</strong><br>
+                                • Upload and manage DICOM studies<br>
+                                • Track study workflow status<br>
+                                • Collaborate with radiologists<br>
+                                • Generate reports and analytics
+                            </p>
+                        </div>
+                        <div class="footer">
+                            <p>© 2025 Medical Platform. All rights reserved.</p>
+                            <p>If you need assistance, please contact system administrator.</p>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const mailOptions = {
+                to: email,
+                name: fullName || username || 'User', // 🔧 ADDED: Proper name for Brevo
+                subject: `🎉 Welcome to Medical Platform - Your ${role} Account`,
+                html: emailHtml
+            };
+
+            const result = await transporter.sendMail(mailOptions);
+            console.log(`✅ Welcome email sent via Brevo to ${email}`);
+            return true;
+
+           
+        }
+        
+    } catch (error) {
+        console.error('❌ Error sending welcome email via Resend:', error);
+        return false;
+    }
+};
+
+// 🔧 UPDATED: Register doctor function (replace your existing registerDoctor function)
 export const registerDoctor = async (req, res) => {
     console.log('🔍 ===== REGISTER DOCTOR CALLED =====');
     console.log('📝 req.body:', req.body);
@@ -2128,24 +2544,23 @@ export const registerDoctor = async (req, res) => {
 
             console.log('✅ User created:', userDocument[0]._id);
 
-            // 🔧 FIXED: Declare variables outside the try block
-            let signatureUrl = '';
-            let signatureKey = '';
-            let signatureUploadSuccess = false;
-            let optimizedSignature = null; // 🔧 CRITICAL FIX: Declare here
+            // 🔧 PROCESS SIGNATURE: Store in MongoDB instead of Wasabi
+            let signatureProcessed = false;
+            let optimizedSignature = null;
             let signatureFileSize = 0;
             let signatureOriginalName = '';
+            let signatureMimeType = '';
             
             if (req.file) {
                 try {
-                    console.log('📝 Processing doctor signature upload...');
+                    console.log('📝 Processing doctor signature for MongoDB storage...');
                     console.log('📁 File details:', {
                         originalname: req.file.originalname,
                         mimetype: req.file.mimetype,
                         size: req.file.size
                     });
                     
-                    // 🔧 OPTIMIZE: Process signature image
+                    // 🔧 OPTIMIZE: Process signature image for MongoDB storage
                     optimizedSignature = await sharp(req.file.buffer)
                         .resize(400, 200, {
                             fit: 'contain',
@@ -2154,63 +2569,28 @@ export const registerDoctor = async (req, res) => {
                         .png({ quality: 90, compressionLevel: 6 })
                         .toBuffer();
 
-                    console.log('✅ Image optimized, size:', optimizedSignature.length);
+                    console.log('✅ Image optimized for MongoDB, size:', optimizedSignature.length);
 
-                    // 🔧 STORE: File metadata for later use
+                    // 🔧 STORE: File metadata for MongoDB
                     signatureFileSize = req.file.size;
                     signatureOriginalName = req.file.originalname;
-
-                    // 🔧 CLEAN METADATA: Ensure all values are strings
-                    const signatureMetadata = {
-                        doctorId: String(userDocument[0]._id),
-                        licenseNumber: String(licenseNumber),
-                        uploadedBy: String(req.user?._id || 'admin'),
-                        doctorName: String(fullName),
-                        signatureType: 'medical_signature',
-                        originalFilename: String(req.file.originalname || 'signature.png'),
-                        originalSize: String(req.file.size || 0),
-                        optimizedSize: String(optimizedSignature.length),
-                        mimeType: String(req.file.mimetype || 'image/png'),
-                        uploadTimestamp: String(Date.now())
-                    };
-
-                    const signatureFileName = `signature_${licenseNumber}_${Date.now()}.png`;
-                    
-                    console.log('📤 Uploading to Wasabi with metadata:', signatureMetadata);
-                    
-                    const uploadResult = await WasabiService.uploadDocument(
-                        optimizedSignature,
-                        signatureFileName,
-                        'signature',
-                        signatureMetadata
-                    );
-
-                    console.log('📤 Upload result:', uploadResult);
-
-                    if (uploadResult.success) {
-                        signatureUrl = uploadResult.location;
-                        signatureKey = uploadResult.key;
-                        signatureUploadSuccess = true;
-                        console.log(`✅ Signature uploaded successfully: ${signatureKey}`);
-                    } else {
-                        console.error('❌ Signature upload failed:', uploadResult.error);
-                        throw new Error(`Signature upload failed: ${uploadResult.error}`);
-                    }
+                    signatureMimeType = req.file.mimetype;
+                    signatureProcessed = true;
                     
                 } catch (signatureError) {
-                    console.error('❌ Error uploading signature:', signatureError);
+                    console.error('❌ Error processing signature:', signatureError);
                     console.warn('⚠️ Continuing registration without signature');
-                    signatureUploadSuccess = false;
-                    // Reset variables on error
+                    signatureProcessed = false;
                     optimizedSignature = null;
                     signatureFileSize = 0;
                     signatureOriginalName = '';
+                    signatureMimeType = '';
                 }
             } else {
                 console.log('ℹ️ No signature file provided');
             }
 
-            // 🔧 BUILD: Doctor profile data
+            // 🔧 BUILD: Doctor profile data with MongoDB signature storage
             const doctorProfileData = {
                 userAccount: userDocument[0]._id, 
                 specialization, 
@@ -2223,35 +2603,39 @@ export const registerDoctor = async (req, res) => {
                 isActiveProfile: isActiveProfile !== undefined ? isActiveProfile === 'true' : true
             };
 
-            // 🔧 FIXED: Add signature fields with proper null checks
-            if (signatureUploadSuccess && optimizedSignature) {
-                doctorProfileData.signature = signatureUrl;
-                doctorProfileData.signatureWasabiKey = signatureKey;
+            // 🔧 STORE SIGNATURE IN MONGODB: Add signature fields with processed image
+            if (signatureProcessed && optimizedSignature) {
+                // Convert buffer to base64 for MongoDB storage
+                const signatureBase64 = optimizedSignature.toString('base64');
+                
+                doctorProfileData.signature = signatureBase64;
                 doctorProfileData.signatureMetadata = {
                     uploadedAt: new Date(),
-                    fileSize: signatureFileSize || 0,
-                    originalName: signatureOriginalName || '',
-                    mimeType: 'image/png',
-                    optimizedSize: optimizedSignature ? optimizedSignature.length : 0
+                    originalSize: signatureFileSize,
+                    optimizedSize: optimizedSignature.length,
+                    originalName: signatureOriginalName,
+                    mimeType: signatureMimeType || 'image/png',
+                    lastUpdated: new Date(),
+                    format: 'base64',
+                    width: 400,
+                    height: 200
                 };
-                console.log('✅ Added signature fields to doctor profile');
+                console.log('✅ Added signature to doctor profile for MongoDB storage');
             } else {
                 // 🔧 SAFE: Set default signature fields
                 doctorProfileData.signature = '';
-                doctorProfileData.signatureWasabiKey = '';
                 doctorProfileData.signatureMetadata = null;
                 console.log('ℹ️ No signature added to doctor profile');
             }
 
-            console.log('📋 Doctor profile data:', JSON.stringify(doctorProfileData, null, 2));
+            console.log('📋 Doctor profile data (excluding signature base64):', {
+                ...doctorProfileData,
+                signature: signatureProcessed ? '[Base64 Image Data]' : '',
+                signatureMetadata: doctorProfileData.signatureMetadata
+            });
 
             const doctorProfile = await Doctor.create([doctorProfileData], { session });
-            console.log('✅ Doctor profile created:', doctorProfile[0]._id);
-
-            // Send welcome email
-            setImmediate(async () => {
-                await sendWelcomeEmail(email, fullName, username, password, 'doctor_account');
-            });
+            console.log('✅ Doctor profile created with signature stored in MongoDB:', doctorProfile[0]._id);
 
             // Clear caches
             cache.del('doctors_list_*');
@@ -2259,33 +2643,60 @@ export const registerDoctor = async (req, res) => {
             return {
                 user: userDocument[0].toObject(),
                 doctorProfile: doctorProfile[0].toObject(),
-                signatureUploaded: signatureUploadSuccess,
-                signatureDetails: signatureUploadSuccess ? {
-                    key: signatureKey,
-                    url: signatureUrl,
+                signatureProcessed: signatureProcessed,
+                signatureDetails: signatureProcessed ? {
                     originalSize: signatureFileSize,
-                    optimizedSize: optimizedSignature ? optimizedSignature.length : 0
-                } : null
+                    optimizedSize: optimizedSignature ? optimizedSignature.length : 0,
+                    originalName: signatureOriginalName,
+                    mimeType: signatureMimeType,
+                    storageType: 'mongodb'
+                } : null,
+                emailData: {
+                    email,
+                    fullName,
+                    username,
+                    password
+                }
             };
         });
 
         console.log('✅ Transaction completed successfully');
 
-        const baseMessage = 'Doctor registered successfully. A welcome email with login credentials has been sent.';
+        // 🔧 SEND EMAIL: Welcome email asynchronously
+        setImmediate(async () => {
+            console.log('📧 Sending doctor welcome email...');
+            const emailSent = await sendWelcomeEmail(
+                result.emailData.email, 
+                result.emailData.fullName, 
+                result.emailData.username, 
+                result.emailData.password, 
+                'doctor_account'
+            );
+            
+            if (emailSent) {
+                console.log('✅ Doctor welcome email sent successfully');
+            } else {
+                console.error('❌ Failed to send doctor welcome email');
+            }
+        });
+
+        const baseMessage = 'Doctor registered successfully. A welcome email with login credentials is being sent.';
         const signatureMessage = req.file ? 
-            (result.signatureUploaded ? ' Signature uploaded successfully.' : ' Signature upload failed but registration completed.') : 
+            (result.signatureProcessed ? ' Signature stored successfully in database.' : ' Signature processing failed but registration completed.') : 
             '';
 
         res.status(201).json({
             success: true,
             message: baseMessage + signatureMessage,
-            signatureUploaded: result.signatureUploaded,
+            signatureProcessed: result.signatureProcessed,
             data: {
                 doctorId: result.doctorProfile._id,
                 doctorRegistered: true,
-                signatureProcessed: !!req.file,
-                signatureSuccess: result.signatureUploaded,
-                signatureDetails: result.signatureDetails
+                signatureProvided: !!req.file,
+                signatureStored: result.signatureProcessed,
+                signatureDetails: result.signatureDetails,
+                emailQueued: true,
+                storageType: 'mongodb'
             }
         });
 
@@ -2306,41 +2717,129 @@ export const registerDoctor = async (req, res) => {
     }
 };
 
-// 🔧 OPTIONAL MIDDLEWARE: Apply multer middleware for signature upload (optional)
-export const uploadDoctorSignature = (req, res, next) => {
-    const upload = signatureUpload.single('signature');
+// 🔧 UPDATED: Register lab and staff with Resend (aligned with registerDoctor pattern)
+export const registerLabAndStaff = async (req, res) => {
+    const session = await mongoose.startSession();
     
-    upload(req, res, (err) => {
-        if (err instanceof multer.MulterError) {
-            if (err.code === 'LIMIT_FILE_SIZE') {
-                console.warn('⚠️ Signature file too large, proceeding without signature');
-                // Don't fail the request, just proceed without signature
-                return next();
-            }
-            console.warn('⚠️ Multer error:', err.message, 'proceeding without signature');
-            return next();
-        } else if (err) {
-            console.warn('⚠️ Upload error:', err.message, 'proceeding without signature');
-            return next();
-        }
-        
-        // Continue to next middleware/controller
-        next();
-    });
-};
+    try {
+        const result = await session.withTransaction(async () => {
+            const {
+                labName, labIdentifier, contactPerson, contactEmail, contactPhone, 
+                address, labNotes, labIsActive, staffUsername, staffEmail, staffFullName
+            } = req.body;
 
-// 🆕 NEW: Optional signature-specific registration function (for new routes)
-export const registerDoctorWithSignature = async (req, res) => {
-    // Apply signature upload middleware inline
-    uploadDoctorSignature(req, res, async (err) => {
-        if (err) {
-            return res.status(400).json({
-                success: false,
-                message: 'Signature upload failed: ' + err.message
-            });
+            // Validation
+            if (!labName || !labIdentifier) {
+                throw new Error('Laboratory name and identifier are required.');
+            }
+            if (!staffUsername || !staffEmail || !staffFullName) {
+                throw new Error('Staff username, email, and full name are required.');
+            }
+
+            const staffPassword = generateRandomPassword();
+
+            // Check for existing records
+            const [labExists, staffUserExists] = await Promise.all([
+                Lab.findOne({ $or: [{ name: labName }, { identifier: labIdentifier }] }).session(session),
+                User.findOne({ $or: [{ email: staffEmail }, { username: staffUsername }] }).session(session)
+            ]);
+
+            if (labExists) {
+                throw new Error('Laboratory with this name or identifier already exists.');
+            }
+            if (staffUserExists) {
+                throw new Error('A user with the provided staff email or username already exists.');
+            }
+
+            // Create lab and staff user
+            const labData = {
+                name: labName, 
+                identifier: labIdentifier, 
+                contactPerson, 
+                contactEmail,
+                contactPhone, 
+                address, 
+                notes: labNotes,
+                isActive: labIsActive !== undefined ? labIsActive : true,
+            };
+
+            const [newLabDocument, staffUser] = await Promise.all([
+                Lab.create([labData], { session }),
+                User.create([{
+                    username: staffUsername, 
+                    email: staffEmail, 
+                    password: staffPassword,
+                    fullName: staffFullName, 
+                    role: 'lab_staff'
+                }], { session })
+            ]);
+
+            // Update lab reference in staff user
+            staffUser[0].lab = newLabDocument[0]._id;
+            await staffUser[0].save({ session });
+
+            const staffUserResponse = staffUser[0].toObject();
+            delete staffUserResponse.password;
+
+            return {
+                lab: newLabDocument[0].toObject(),
+                staffUser: staffUserResponse,
+                emailData: {
+                    email: staffEmail,
+                    fullName: staffFullName,
+                    username: staffUsername,
+                    password: staffPassword
+                }
+            };
+        });
+
+        console.log('✅ Lab and staff transaction completed successfully');
+
+        // 🔧 UPDATED: Send welcome email asynchronously using Resend (matching registerDoctor pattern)
+        setImmediate(async () => {
+            console.log('📧 Sending lab staff welcome email via Resend...');
+            const emailSent = await sendWelcomeEmail(
+                result.emailData.email, 
+                result.emailData.fullName, 
+                result.emailData.username, 
+                result.emailData.password, 
+                'lab_staff'
+            );
+            
+            if (emailSent) {
+                console.log('✅ Lab staff welcome email sent successfully via Resend');
+            } else {
+                console.error('❌ Failed to send lab staff welcome email via Resend');
+            }
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Laboratory and initial lab staff user registered successfully. A welcome email with login credentials is being sent via Resend.',
+            data: {
+                labId: result.lab._id,
+                labName: result.lab.name,
+                labIdentifier: result.lab.identifier,
+                staffUserId: result.staffUser._id,
+                staffName: result.staffUser.fullName,
+                staffUsername: result.staffUser.username,
+                emailQueued: true
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error registering lab and staff:', error);
+        
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({ success: false, message: messages.join(', ') });
         }
         
-        // Call the main registration function
-        await registerDoctor(req, res);
-    });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Server error during lab and staff registration.' 
+        });
+    } finally {
+        await session.endSession();
+    }
 };

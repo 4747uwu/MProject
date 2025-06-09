@@ -79,6 +79,13 @@ const DicomStudySchema = new mongoose.Schema({
         default: 'new_study_received',
         index: true
     },
+
+    technologist: {
+        name: { type: String, trim: true },
+        mobile: { type: String, trim: true },
+        comments: { type: String, trim: true },
+        reasonToSend: { type: String, trim: true }
+    },
     
     // 🔧 PERFORMANCE: Assignment tracking
     assignment: {
@@ -99,6 +106,17 @@ const DicomStudySchema = new mongoose.Schema({
             default: 'NORMAL',
             index: true
         }
+    },
+
+    studyPriority: {
+        type: String,
+        enum: ['SELECT',
+            'Emergency Case',
+            'Meet referral doctor', 
+            'MLC Case',
+            'Study Exception'],
+        default: 'SELECT', // Default to 'normal' if not specified
+        index: true // Index for quick access
     },
 
     // 🆕 ADD THIS FIELD - Legacy field for backward compatibility
@@ -238,7 +256,8 @@ const DicomStudySchema = new mongoose.Schema({
         type: String,
         enum: [
             'routine', 'urgent', 'stat', 'emergency',           // lowercase
-            'ROUTINE', 'URGENT', 'STAT', 'EMERGENCY'           // uppercase
+            'ROUTINE', 'URGENT', 'STAT', 'EMERGENCY',
+            'Billed Study', 'New Study'         // uppercase
         ],
         default: 'routine'
     },
@@ -253,7 +272,26 @@ const DicomStudySchema = new mongoose.Schema({
         type: String, 
         trim: true,
         index: true // For searching by referring physician
-    }
+    },
+
+    physicians: {
+        referring: {
+            name: { type: String, trim: true },
+            email: { type: String, trim: true },
+            mobile: { type: String, trim: true },
+            institution: { type: String, trim: true }
+        },
+        requesting: {
+            name: { type: String, trim: true },
+            email: { type: String, trim: true },
+            mobile: { type: String, trim: true },
+            institution: { type: String, trim: true }
+        }
+    },
+    modifiedDate: { type: Date },
+    modifiedTime: { type: String },
+    reportDate: { type: Date },
+    reportTime: { type: String },
     
 }, { 
     timestamps: true,

@@ -23,6 +23,8 @@ import StudySeries from './patients/StudySeries';
 import StatusLegend from './StatusLegend';
 import DropdownPagination from './DropdownPagination';
 import ShareButton from './ShareButton';
+import StudyCard from './StudyCard';
+import LaunchButton from './LaunchButton';
 
 // Status dot component to indicate workflow status
 const StatusDot = React.memo(({ status, priority }) => {
@@ -141,7 +143,7 @@ const EyeIconOHIFButton = React.memo(({ studyInstanceUID }) => {
 // Enhanced DownloadDropdown
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://64.227.187.164:3000';
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
 
   // 🆕 NEW: OHIF Viewer Functions
   const handleOpenOHIFLocal = () => {
@@ -438,28 +440,9 @@ const DownloadDropdown = ({ study }) => {
               </button>
 
               {/* Cloud OHIF Viewer */}
-              <button
-                onClick={handleOpenOHIFCloud}
-                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-blue-50 transition-colors"
-              >
-                <span className="text-lg mr-2">☁️</span>
-                <div className="text-left">
-                  <div className="font-medium">OHIF Viewer (Cloud)</div>
-                  <div className="text-xs text-gray-500">Public viewer.ohif.org</div>
-                </div>
-              </button>
-
+              
               {/* Stone Web Viewer */}
-              <button
-                onClick={handleOpenStoneViewer}
-                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-b border-gray-200"
-              >
-                <span className="text-lg mr-2"></span>
-                <div className="text-left">
-                  <div className="font-medium">Stone Web Viewer</div>
-                  <div className="text-xs text-gray-500">Orthanc built-in viewer</div>
-                </div>
-              </button>
+              
 
               {/* 🆕 Radiant Viewer Bridge Section */}
               <div className="px-3 py-2 text-xs font-semibold text-purple-600 bg-purple-50 border-b border-gray-100 flex items-center">
@@ -468,17 +451,16 @@ const DownloadDropdown = ({ study }) => {
                 </svg>
                 🖥️ Desktop Viewer
               </div>
+
+              {/* Enhanced Launch Button */}
+              <LaunchButton 
+                study={study}
+                variant="dropdown-item"
+                showModal={true}
+                onLaunchSuccess={() => setIsOpen(false)}
+              />
               
-              {/* Launch Radiant via Bridge */}
-              <button
-                onClick={handleLaunchRadiantViewer}
-                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 transition-colors border-b border-gray-200"
-              >
-                <svg className="h-4 w-4 mr-2 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                🚀 Launch Radiant Desktop
-              </button>
+             
 
               {/* Download Section */}
               <div className="px-3 py-2 text-xs font-semibold text-green-600 bg-green-50 border-b border-gray-100 flex items-center">
@@ -716,15 +698,16 @@ const WorklistTable = React.memo(({
   studies = [], 
   loading = false, 
   totalRecords = 0,
-  filteredRecords = 0, // 🆕 NEW: Separate filtered count
+  filteredRecords = 0,
   userRole = 'admin',
   onAssignmentComplete,
   recordsPerPage = 20,
   onRecordsPerPageChange,
-  usePagination = false // 🔧 DEFAULT: Single page mode
+  usePagination = false
 }) => {
   const [activeTab, setActiveTab] = useState('all');
   const [selectedStudies, setSelectedStudies] = useState([]);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false); // 🆕 NEW: Mobile menu state
 
   // Column visibility with defaults
   const getDefaultColumnVisibility = () => {
@@ -1015,7 +998,7 @@ const WorklistTable = React.memo(({
       }
       
       // Create download URLs for each study
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://64.227.187.164:3000';
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
       const downloadPromises = validStudies.map((study, index) => {
         return new Promise((resolve, reject) => {
           const downloadUrl = `${backendUrl}/api/orthanc-download/study/${study.orthancStudyID}/download`;
@@ -1229,56 +1212,161 @@ const WorklistTable = React.memo(({
     canAssignDoctors
   ]);
 
+  // 🔧 NEW: Card grid for mobile view
+  const cardGrid = useMemo(() => (
+    <div className="block lg:hidden h-full overflow-y-auto">
+      <div className="p-4 pb-20"> {/* Added bottom padding for footer */}
+        {filteredStudies.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <svg className="mx-auto h-20 w-20 text-gray-400 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 className="text-xl font-medium text-gray-900 mb-2">No studies found</h3>
+            <p className="text-gray-500">Try adjusting your search or filter criteria</p>
+          </div>
+        ) : (
+          <div className="space-y-3"> {/* Reduced space between cards */}
+            {filteredStudies.map((study, index) => (
+              <StudyCard
+                key={study._id}
+                study={study}
+                index={index}
+                visibleColumns={visibleColumns}
+                selectedStudies={selectedStudies}
+                onSelectStudy={handleSelectStudy}
+                onPatientClick={handlePatientClick}
+                onPatienIdClick={handlePatienIdClick}
+                onAssignDoctor={handleAssignDoctor}
+                canAssignDoctors={canAssignDoctors}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  ), [filteredStudies, visibleColumns, selectedStudies, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor, canAssignDoctors]);
+
   return (
     <div className="bg-white w-full h-[85vh] rounded-xl shadow-xl border border-gray-200 overflow-hidden flex flex-col">
-      {/* Header with Status Tabs */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200">
+      {/* Header section remains the same */}
+      <div className="bg-gradient-to-r h-[9] from-blue-50 to-indigo-50 border-b border-gray-200">
         <div className="bg-gray-400 text-white p-2">
           <div className="flex items-center justify-between">
-            <h1 className="text-lg text-black font-bold tracking-wide">WORKLIST</h1>
-            <div className="flex items-center space-x-2">
-              {/* Status Tabs */}
-              <div className="flex">
+            <h1 className="text-sm text-black font-bold tracking-wide flex-shrink-0">WORKLIST</h1>
+            
+            <div className="flex items-center space-x-2 min-w-0">
+              {/* 📱 MOBILE: Show 4 essential tabs with smaller text */}
+              <div className="flex items-center h-[30px] bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden lg:hidden">
                 <button
-                  className={`px-3 py-1 rounded-l ${activeTab === 'all' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  className={`px-1.5 py-1 text-xs rounded-l ${activeTab === 'all' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
                   onClick={() => setActiveTab('all')}
                 >
                   ALL({statusCounts.all})
                 </button>
                 <button
-                  className={`px-3 py-1 ${activeTab === 'pending' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  className={`px-1.5 py-1 text-xs ${activeTab === 'pending' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
                   onClick={() => setActiveTab('pending')}
                 >
                   Pending({statusCounts.pending})
                 </button>
                 <button
-                  className={`px-3 py-1 ${activeTab === 'inprogress' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  className={`px-1.5 py-1 text-xs ${activeTab === 'inprogress' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
                   onClick={() => setActiveTab('inprogress')}
                 >
-                  Inprogress({statusCounts.inprogress})
+                  Progress({statusCounts.inprogress})
                 </button>
                 <button
-                  className={`px-3 py-1 rounded-r ${activeTab === 'completed' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  className={`px-1.5 py-1 text-xs rounded-r ${activeTab === 'completed' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
                   onClick={() => setActiveTab('completed')}
                 >
-                  Completed({statusCounts.completed})
+                  Done({statusCounts.completed})
                 </button>
               </div>
 
-              <StatusLegend />
+              {/* 🖥️ DESKTOP: Full scrollable tab view - UNCHANGED */}
+              <div className="hidden lg:flex items-center h-[30px] bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <div className="flex overflow-x-auto scrollbar-hide">
+                  <button
+                    className={`px-3 py-1 rounded-l whitespace-nowrap ${activeTab === 'all' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                    onClick={() => setActiveTab('all')}
+                  >
+                    ALL({statusCounts.all})
+                  </button>
+                  <button
+                    className={`px-3 py-1 whitespace-nowrap ${activeTab === 'pending' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                    onClick={() => setActiveTab('pending')}
+                  >
+                    Pending({statusCounts.pending})
+                  </button>
+                  <button
+                    className={`px-3 py-1 whitespace-nowrap ${activeTab === 'inprogress' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                    onClick={() => setActiveTab('inprogress')}
+                  >
+                    In Progress({statusCounts.inprogress})
+                  </button>
+                  <button
+                    className={`px-3 py-1 rounded-r whitespace-nowrap ${activeTab === 'completed' ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                    onClick={() => setActiveTab('completed')}
+                  >
+                    Completed({statusCounts.completed})
+                  </button>
+                </div>
+              </div>
 
-              <ColumnConfigurator 
-                visibleColumns={visibleColumns}
-                onColumnChange={handleColumnChange}
-                onResetToDefault={handleResetColumnsToDefault}
-              />
+              {/* 📱 MOBILE: Simplified dropdown for additional options only */}
+              <div className="lg:hidden relative">
+                <button 
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  className="h-[30px] px-2 bg-white rounded-lg shadow-md border border-gray-200 flex items-center text-gray-700 hover:bg-gray-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+                  </svg>
+                </button>
+                
+                {mobileMenuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setMobileMenuOpen(false)}></div>
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-xl border border-gray-200 z-30">
+                      <div className="py-1">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-600 bg-gray-50">
+                          Tools & Settings
+                        </div>
+                        <div className="border-t border-gray-100 my-1"></div>
+                        <div className="px-3 py-2">
+                          <StatusLegend />
+                        </div>
+                        <div className="border-t border-gray-100 my-1"></div>
+                        <div className="px-3 py-2">
+                          <ColumnConfigurator 
+                            visibleColumns={visibleColumns}
+                            onColumnChange={handleColumnChange}
+                            onResetToDefault={handleResetColumnsToDefault}
+                            isMobile={true}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 🖥️ DESKTOP: Status Legend and Column Configurator */}
+              <div className="hidden lg:flex items-center space-x-2 h-[30px]">
+                <StatusLegend />
+                <ColumnConfigurator 
+                  visibleColumns={visibleColumns}
+                  onColumnChange={handleColumnChange}
+                  onResetToDefault={handleResetColumnsToDefault}
+                />
+              </div>
             </div>
           </div>
         </div>
       </div>
       
-      {/* Table Container - 🔧 UPDATED: Remove pagination space */}
-      <div className="flex-1 overflow-hidden pb-8">
+      {/* 🔧 FIXED: Container for both mobile cards and desktop table */}
+      <div className="flex-1 overflow-hidden relative"> {/* Added relative positioning */}
         {loading ? (
           <div className="flex justify-center items-center h-full bg-gray-50">
             <div className="text-center">
@@ -1287,16 +1375,22 @@ const WorklistTable = React.memo(({
             </div>
           </div>
         ) : (
-          <div className="w-full h-full overflow-auto">
-            <table className="w-full border-collapse min-w-full">
-              {tableHeader}
-              {tableBody}
-            </table>
-          </div>
+          <>
+            {/* 📱 MOBILE: Card View with FIXED SCROLLING */}
+            {cardGrid}
+            
+            {/* 🖥️ DESKTOP: Table View */}
+            <div className="hidden lg:block w-full h-full overflow-auto">
+              <table className="w-full border-collapse min-w-full">
+                {tableHeader}
+                {tableBody}
+              </table>
+            </div>
+          </>
         )}
       </div>
       
-      {/* 🆕 NEW: Single page footer with record controls */}
+      {/* Footer sections remain the same */}
       <div className="bg-gradient-to-r from-green-50 to-emerald-100 px-6 py-3 border-t border-green-200 flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
@@ -1323,8 +1417,8 @@ const WorklistTable = React.memo(({
         />
       </div>
 
-      {/* Fixed Footer with Action Buttons */}
-      <div className="bg-gray-800 text-white w-full py-2 px-3 flex items-center justify-between border-t border-gray-700 fixed bottom-0 left-0 right-0 z-30">
+      {/* Bottom action bar - MAKE SURE IT'S NOT BLOCKING CONTENT */}
+      <div className="bg-gray-800 text-white w-full py-0 px-3 flex items-center justify-between border-t border-gray-700 fixed bottom-0 left-0 right-0 z-30">
         <div className="flex items-center">
           {/* Logo */}
           <div className="pr-4 flex items-center">
@@ -1397,7 +1491,7 @@ const WorklistTable = React.memo(({
         </div>
       </div>
       
-      {/* Assignment Modal */}
+      {/* Modals remain the same */}
       {assignmentModalOpen && selectedStudy && (
         <DoctorAssignmentModal
           study={selectedStudy}
@@ -1409,7 +1503,6 @@ const WorklistTable = React.memo(({
         />
       )}
       
-      {/* Patient Detail Modal */}
       {patientDetailModalOpen && selectedPatientId && (
         <PatientDetailModal
           patientId={selectedPatientId}
@@ -1625,7 +1718,7 @@ const StudyRow = React.memo(({
       )}
       
       {/* ✨ UPDATED: Study Date with emergency styling */}
-      {visibleColumns.studyDate && (
+           {visibleColumns.studyDate && (
         <td className={`px-2 py-2 text-center border-r ${isEmergency ? 'border-red-200' : 'border-gray-200'}`}>
           <div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>
             <div className="font-medium" title={formatMonthDayYear(study.studyDateTime)}>

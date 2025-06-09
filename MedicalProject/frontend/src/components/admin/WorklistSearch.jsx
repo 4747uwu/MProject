@@ -3,7 +3,7 @@ import { debounce } from 'lodash';
 import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 
-// 🔧 UPDATED: WorklistSearch.jsx - Remove pagination props, focus on single-page mode
+// 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
   loading = false, 
@@ -16,7 +16,6 @@ const WorklistSearch = React.memo(({
   categoryStats,
   recordsPerPage,
   onRecordsPerPageChange,
-  // 🆕 NEW: Backend date filter props
   dateFilter = 'last24h',
   onDateFilterChange,
   customDateFrom = '',
@@ -40,10 +39,6 @@ const WorklistSearch = React.memo(({
   // Enhanced filters matching the UI design
   const [refName, setRefName] = useState('');
   const [workflowStatus, setWorkflowStatus] = useState('all');
-  // 🔧 REMOVED: Local date state - now using props from Dashboard
-  // const [dateType, setDateType] = useState('StudyDate');
-  // const [dateFrom, setDateFrom] = useState('');
-  // const [dateTo, setDateTo] = useState('');
   const [emergencyCase, setEmergencyCase] = useState(false);
   const [mlcCase, setMlcCase] = useState(false);
   const [studyType, setStudyType] = useState('all');
@@ -155,9 +150,6 @@ const WorklistSearch = React.memo(({
       );
     }
 
-    // 🔧 REMOVED: Date filtering - now handled by backend
-    // Date filtering is now handled by the backend through API parameters
-
     // Modality filter
     const selectedModalities = Object.entries(modalities)
       .filter(([key, value]) => value)
@@ -192,7 +184,6 @@ const WorklistSearch = React.memo(({
     allStudies, quickSearchTerm, searchType, selectedLocation, 
     patientName, patientId, refName, accessionNumber, description,
     workflowStatus, modalities, emergencyCase, mlcCase, studyType
-    // 🔧 REMOVED: Date dependencies - now handled by backend
   ]);
 
   // 🔧 DEBOUNCED SEARCH
@@ -340,186 +331,242 @@ const WorklistSearch = React.memo(({
   ]);
 
   return (
-    <div className="space-y-6">
-      {/* Enhanced Search Controls */}
+    <div className="space-y-2">
+      {/* 🎨 COMPACT UI: Enhanced Search Controls */}
       <div className="relative">
         {/* Main Search Header */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-4 shadow-sm">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-3 shadow-sm">
+          {/* 📊 COMPACT: Results Summary */}
           {hasActiveFilters && (
-            <div className="flex items-center space-x-2 mb-4">
-              <span className="px-3 py-1 bg-blue-100 text-blue-800 text-sm font-medium rounded-full">
-                {filteredStudies.length} results from {allStudies.length} total
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                {filteredStudies.length}/{allStudies.length}
               </span>
               <button
                 onClick={handleClear}
-                className="px-3 py-1 bg-red-100 text-red-700 text-sm font-medium rounded-full hover:bg-red-200 transition-colors"
+                className="inline-flex items-center px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full hover:bg-red-200 transition-all"
               >
-                Clear All
+                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear
               </button>
             </div>
           )}
 
-          {/* Top Search Bar - remains the same */}
-          <div className="flex items-center space-x-3 flex-wrap gap-y-2">
-            {/* Search Type Selector */}
-            <div className="relative">
+          {/* 🎨 CONSISTENT HEIGHT: Main Search Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            
+            {/* Search Type Dropdown */}
+            <div className="relative min-w-0 sm:w-20">
               <select 
-                className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
+                className="appearance-none bg-white border border-gray-300 rounded px-2 py-2 pr-6 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all w-full h-9 shadow-sm"
                 value={searchType}
                 onChange={(e) => setSearchType(e.target.value)}
               >
-                <option value="">All Fields</option>
-                <option value="patientName">Patient Name</option>
-                <option value="patientId">Patient ID</option>
-                <option value="accession">Accession</option>
+                <option value="">All</option>
+                <option value="patientName">Name</option>
+                <option value="patientId">ID</option>
+                <option value="accession">Acc#</option>
               </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-1 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
             
             {/* Search Input */}
-            <form onSubmit={handleQuickSearch} className="flex-1 min-w-64">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search by Patient ID, Name and Accession"
-                  className="w-full bg-white border border-gray-300 rounded-lg px-4 py-2 pr-12 text-sm placeholder-gray-500 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all"
-                  onChange={(e) => debouncedSetQuickSearchTerm(e.target.value)}
-                />
-                <button 
-                  type="submit" 
-                  className="absolute right-1 top-1 bottom-1 px-3 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
-                >
-                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex-1 sm:max-w-xs">
+              <form onSubmit={handleQuickSearch} className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                </button>
-              </div>
-            </form>
-            
-            {/* Location Filter */}
-            <div className="relative">
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search patients..."
+                  className="w-full bg-white border border-gray-300 rounded pl-9 pr-3 py-2 text-sm placeholder-gray-500 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all h-9 shadow-sm"
+                  onChange={(e) => debouncedSetQuickSearchTerm(e.target.value)}
+                />
+              </form>
+            </div>
+
+            {/* All Labs Dropdown */}
+            <div className="relative min-w-0 sm:w-24">
               <select 
-                className="appearance-none bg-white border border-gray-300 rounded-lg px-4 py-2 pr-8 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all min-w-48"
+                className="appearance-none bg-white border border-gray-300 rounded px-2 py-2 pr-6 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all w-full h-9 shadow-sm"
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
               >
-                <option value="ALL">Work Station-Less Labs</option>
+                <option value="ALL">All Labs</option>
                 {locations.map(loc => (
                   <option key={loc.id} value={loc.id}>{loc.name}</option>
                 ))}
               </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-1 pointer-events-none">
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
             </div>
-            
-            {/* Action Buttons */}
-            <div className="flex space-x-2">
+
+            {/* Consistent Button Group */}
+            <div className="flex gap-2">
+              {/* Search Button */}
+              <button
+                type="button"
+                onClick={handleBackendSearch}
+                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all shadow-sm h-9"
+                title="Search"
+              >
+                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                Search
+              </button>
+
+              {/* Advanced Button */}
               <button 
-                className={`px-4 py-2 border rounded-lg transition-all text-sm font-medium ${
+                className={`inline-flex items-center justify-center px-4 py-2 border text-sm font-medium rounded transition-all h-9 shadow-sm ${
                   isExpanded 
-                    ? 'bg-blue-500 border-blue-500 text-white shadow-md' 
-                    : 'bg-white border-gray-300 text-gray-600 hover:bg-blue-50 hover:border-blue-400'
+                    ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700' 
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-blue-400'
                 }`}
                 onClick={toggleExpanded}
-                title="Advanced Search"
               >
+                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                </svg>
                 Advanced
               </button>
               
+              {/* Clear Button */}
               <button 
                 onClick={handleClear}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                className="inline-flex items-center justify-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 focus:ring-1 focus:ring-red-200 focus:outline-none transition-all shadow-sm h-9"
               >
+                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
                 Clear
               </button>
             </div>
           </div>
         </div>
 
-        {/* Advanced Search Panel */}
+        {/* 🎨 FIXED ADVANCED SEARCH PANEL - Now properly positioned and expands space */}
         {isExpanded && (
-          <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white border border-gray-200 rounded-xl shadow-xl">
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-6 py-4 border-b border-gray-200 rounded-t-xl">
+          <div className="mt-2 bg-white border border-gray-200 rounded-lg shadow-xl transition-all duration-300 ease-in-out">
+            {/* Compact Header */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-4 py-2 border-b border-gray-200 rounded-t-lg">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-800">Advanced Search Options</h3>
-                <button onClick={toggleExpanded} className="p-1 text-gray-400 hover:text-gray-600 transition-colors">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center">
+                  <svg className="w-4 h-4 text-indigo-600 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <h3 className="text-sm font-semibold text-gray-800">Advanced Search</h3>
+                </div>
+                <button 
+                  onClick={toggleExpanded} 
+                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
             </div>
             
-            <div className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* Patient Info Section - remains the same */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2">
+            {/* Compact Content */}
+            <div className="p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {/* Patient Info Section */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
+                    <svg className="w-3 h-3 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
                     Patient Info
                   </h3>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Patient ID</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Patient ID</label>
                     <input
                       type="text"
                       value={patientId}
                       onChange={(e) => setPatientId(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      placeholder="Enter ID..."
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Patient Name</label>
                     <input
                       type="text"
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      placeholder="Enter name..."
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Ref Name</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Referring Doctor</label>
                     <input
                       type="text"
                       value={refName}
                       onChange={(e) => setRefName(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      placeholder="Enter doctor..."
                     />
                   </div>
                 </div>
 
-                {/* Study Info Section - remains the same */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2">
+                {/* Study Info Section */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
+                    <svg className="w-3 h-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
                     Study Info
                   </h3>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Accession#</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Accession Number</label>
                     <input
                       type="text"
                       value={accessionNumber}
                       onChange={(e) => setAccessionNumber(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      placeholder="Enter accession..."
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Study Description</label>
                     <input
                       type="text"
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      placeholder="Enter description..."
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Workflow Status</label>
                     <select
                       value={workflowStatus}
                       onChange={(e) => setWorkflowStatus(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
                     >
-                      <option value="all">All selected</option>
+                      <option value="all">All Status</option>
                       <option value="pending">Pending</option>
                       <option value="inprogress">In Progress</option>
                       <option value="completed">Completed</option>
@@ -527,56 +574,52 @@ const WorklistSearch = React.memo(({
                   </div>
                 </div>
 
-                {/* 🔧 UPDATED: Date Range & Other Filters */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2">
-                    Date Range
+                {/* Date Range & Filters */}
+                <div className="space-y-3 md:col-span-2 xl:col-span-1">
+                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
+                    <svg className="w-3 h-3 mr-1 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Date & Filters
                   </h3>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date Type</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Date Type</label>
                     <select
                       value={dateType}
                       onChange={(e) => onDateTypeChange && onDateTypeChange(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 mb-2"
+                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all mb-2"
                     >
                       <option value="StudyDate">Study Date</option>
                       <option value="UploadDate">Upload Date</option>
-                      <option value="DOB">DOB</option>
+                      <option value="DOB">Date of Birth</option>
                     </select>
                     
-                    {/* 🔧 UPDATED: Quick Date Presets with backend integration */}
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {['today', 'yesterday', 'thisWeek', 'thisMonth', 'thisYear'].map(preset => (
+                    {/* Compact Date Presets */}
+                    <div className="grid grid-cols-3 gap-1 mb-2">
+                      {['today', 'yesterday', 'thisWeek', 'thisMonth', 'thisYear', 'custom'].map(preset => (
                         <button
                           key={preset}
                           onClick={() => setDatePreset(preset)}
-                          className={`px-2 py-1 text-xs rounded transition-colors ${
+                          className={`px-1 py-1 text-xs rounded transition-all font-medium ${
                             dateFilter === preset 
-                              ? 'bg-blue-500 text-white' 
+                              ? preset === 'custom'
+                                ? 'bg-purple-600 text-white shadow-sm'
+                                : 'bg-blue-600 text-white shadow-sm'
                               : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                           }`}
                         >
                           {preset === 'today' ? 'Today' : 
                            preset === 'yesterday' ? 'Yesterday' :
-                           preset === 'thisWeek' ? 'This Week' : 
-                           preset === 'thisMonth' ? 'This Month' : 'This Year'}
+                           preset === 'thisWeek' ? 'Week' : 
+                           preset === 'thisMonth' ? 'Month' : 
+                           preset === 'thisYear' ? 'Year' : 'Custom'}
                         </button>
                       ))}
-                      <button
-                        onClick={() => setDatePreset('custom')}
-                        className={`px-2 py-1 text-xs rounded transition-colors ${
-                          dateFilter === 'custom' 
-                            ? 'bg-purple-500 text-white' 
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        Custom
-                      </button>
                     </div>
                   </div>
                   
-                  {/* 🔧 UPDATED: Custom date inputs with backend integration */}
+                  {/* Compact Custom date inputs */}
                   {dateFilter === 'custom' && (
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -585,7 +628,7 @@ const WorklistSearch = React.memo(({
                           type="date"
                           value={customDateFrom}
                           onChange={(e) => handleCustomDateFromChange(e.target.value)}
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
                         />
                       </div>
                       <div>
@@ -594,64 +637,64 @@ const WorklistSearch = React.memo(({
                           type="date"
                           value={customDateTo}
                           onChange={(e) => handleCustomDateToChange(e.target.value)}
-                          className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
                         />
                       </div>
                     </div>
                   )}
 
-                  {/* Modality Checkboxes */}
+                  {/* Compact Modality Checkboxes */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Modality</label>
-                    <div className="grid grid-cols-2 gap-1">
+                    <label className="block text-xs font-medium text-gray-700 mb-2">Modality</label>
+                    <div className="grid grid-cols-3 gap-1">
                       {Object.entries(modalities).map(([modality, checked]) => (
-                        <label key={modality} className="flex items-center text-sm">
+                        <label key={modality} className="flex items-center text-xs">
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={(e) => handleModalityChange(modality, e.target.checked)}
-                            className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            className="mr-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3 h-3"
                           />
-                          {modality}
+                          <span className="font-medium text-gray-700">{modality}</span>
                         </label>
                       ))}
                     </div>
                   </div>
 
-                  {/* Emergency & Study Type */}
+                  {/* Compact Additional Filters */}
                   <div className="space-y-2">
-                    <div className="space-y-1">
-                      <label className="flex items-center text-sm">
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="flex items-center text-xs">
                         <input
                           type="checkbox"
                           checked={emergencyCase}
                           onChange={(e) => setEmergencyCase(e.target.checked)}
-                          className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="mr-1 rounded border-gray-300 text-red-600 focus:ring-red-500 w-3 h-3"
                         />
-                        Emergency
+                        <span className="font-medium text-red-700">Emergency</span>
                       </label>
-                      <label className="flex items-center text-sm">
+                      <label className="flex items-center text-xs">
                         <input
                           type="checkbox"
                           checked={mlcCase}
                           onChange={(e) => setMlcCase(e.target.checked)}
-                          className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="mr-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3 h-3"
                         />
-                        MLC
+                        <span className="font-medium text-orange-700">MLC Case</span>
                       </label>
                     </div>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Study Type</label>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Study Type</label>
                       <select
                         value={studyType}
                         onChange={(e) => setStudyType(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
                       >
-                        <option value="all">None selected</option>
+                        <option value="all">All Types</option>
                         <option value="routine">Routine</option>
                         <option value="urgent">Urgent</option>
-                        <option value="stat">Stat</option>
+                        <option value="stat">STAT</option>
                       </select>
                     </div>
                   </div>
@@ -659,26 +702,41 @@ const WorklistSearch = React.memo(({
               </div>
             </div>
 
-            {/* 🔧 UPDATED: Action Buttons with backend search */}
-            <div className="flex justify-between items-center border-t border-gray-200 p-4 bg-gray-50 rounded-b-xl">
-              <div className="text-sm text-gray-600">
-                {hasActiveFilters ? `${filteredStudies.length} studies found` : 'No filters applied'}
+            {/* Compact Action Buttons */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t border-gray-200 p-3 bg-gray-50 rounded-b-lg space-y-2 sm:space-y-0">
+              <div className="text-xs text-gray-600 text-center sm:text-left">
+                {hasActiveFilters ? (
+                  <span className="flex items-center justify-center sm:justify-start">
+                    <svg className="w-3 h-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    {filteredStudies.length} studies found
+                  </span>
+                ) : (
+                  'No filters applied'
+                )}
               </div>
-              <div className="flex space-x-3">
+              <div className="flex space-x-2 justify-center sm:justify-end">
                 <button
                   onClick={handleClear}
-                  className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors text-sm font-medium"
+                  className="inline-flex items-center px-3 py-1.5 text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 focus:ring-1 focus:ring-gray-200 focus:outline-none transition-all text-xs font-medium"
                 >
-                  Reset All
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Reset
                 </button>
                 <button
                   onClick={() => {
                     handleBackendSearch();
                     toggleExpanded();
                   }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors"
+                  className="inline-flex items-center px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-all focus:ring-1 focus:ring-blue-200 focus:outline-none shadow-sm"
                 >
-                  Search
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  Apply
                 </button>
               </div>
             </div>
@@ -686,18 +744,20 @@ const WorklistSearch = React.memo(({
         )}
       </div>
 
-      {/* 🔧 UPDATED: Pass only necessary props to WorklistTable */}
-      <WorklistTable 
-        studies={filteredStudies}
-        loading={loading}
-        totalRecords={allStudies.length}
-        filteredRecords={filteredStudies.length}
-        userRole={userRole}
-        onAssignmentComplete={onAssignmentComplete}
-        recordsPerPage={recordsPerPage}
-        onRecordsPerPageChange={onRecordsPerPageChange}
-        usePagination={false}
-      />
+      {/* 🎨 WORKLIST TABLE - Now properly positioned and shifts down when advanced search is open */}
+      <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'mt-2' : 'mt-0'}`}>
+        <WorklistTable 
+          studies={filteredStudies}
+          loading={loading}
+          totalRecords={allStudies.length}
+          filteredRecords={filteredStudies.length}
+          userRole={userRole}
+          onAssignmentComplete={onAssignmentComplete}
+          recordsPerPage={recordsPerPage}
+          onRecordsPerPageChange={onRecordsPerPageChange}
+          usePagination={false}
+        />
+      </div>
     </div>
   );
 });

@@ -24,7 +24,8 @@ import mongoose from 'mongoose';
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        const mongoURI = 'mongodb://alice:alicePassword@64.227.187.164:27017/medical_project?authSource=admin&replicaSet=rs0'
+        const conn = await mongoose.connect(mongoURI, {
             maxPoolSize: 10,
             serverSelectionTimeoutMS: 5000,
             socketTimeoutMS: 45000,

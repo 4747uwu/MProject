@@ -47,13 +47,48 @@ const DoctorSchema = new mongoose.Schema({
         type: String,
         trim: true,
         default: '',
+        // Store as base64 string for MongoDB storage
     },
     
-    // 🆕 NEW: Enhanced signature storage fields
-    signatureWasabiKey: {
-        type: String,
-        trim: true,
-        default: ''
+    // 🔧 ENHANCED: Comprehensive signature metadata
+    signatureMetadata: {
+        uploadedAt: {
+            type: Date,
+            default: Date.now
+        },
+        originalSize: {
+            type: Number,
+            default: 0
+        },
+        optimizedSize: {
+            type: Number,
+            default: 0
+        },
+        originalName: {
+            type: String,
+            default: ''
+        },
+        mimeType: {
+            type: String,
+            default: 'image/png'
+        },
+        lastUpdated: {
+            type: Date,
+            default: Date.now
+        },
+        format: {
+            type: String,
+            default: 'base64',
+            enum: ['base64', 'buffer']
+        },
+        width: {
+            type: Number,
+            default: 400
+        },
+        height: {
+            type: Number,
+            default: 200
+        }
     },
     
     signatureMetadata: {

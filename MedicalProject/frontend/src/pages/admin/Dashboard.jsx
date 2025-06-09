@@ -218,48 +218,63 @@ const AdminDashboard = React.memo(() => {
     <div className="min-h-screen bg-gray-50">
       <UniversalNavbar />
 
-      <div className="max-w-8xl mx-auto p-4">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Studies Worklist</h1>
-              <div className="flex items-center space-x-4 mt-1">
-                <span className="text-sm text-gray-600">{totalRecords} total studies</span>
-                <span className="text-sm text-gray-500">
-                  ({recordsPerPage} per page - Single page mode)
+      {/* 🔧 ULTRA COMPACT: Much tighter container */}
+      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3">
+        {/* 🔧 COMPACT: Header with minimal spacing */}
+        <div className="mb-1 sm:mb-2">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-1 lg:gap-2 mb-1">
+            {/* Title and Info Section */}
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 truncate">
+                Studies Worklist
+              </h1>
+              
+              {/* 🔧 ULTRA COMPACT: Tighter info badges */}
+              <div className="flex flex-wrap items-center gap-0.5 sm:gap-1 mt-0.5 text-xs">
+                <span className="text-gray-600 whitespace-nowrap">
+                  {totalRecords.toLocaleString()} total studies
                 </span>
-                {/* 🆕 NEW: Date filter indicator */}
-                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                <span className="text-gray-500 whitespace-nowrap hidden sm:inline">
+                  ({recordsPerPage} per page)
+                </span>
+                
+                {/* Date filter indicator */}
+                <span className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
                   📅 {dateFilter === 'custom' 
-                    ? `Custom: ${customDateFrom || 'start'} - ${customDateTo || 'end'}` 
-                    : dateFilter === 'last24h' ? 'Last 24 hours' 
+                    ? `Custom Range` 
+                    : dateFilter === 'last24h' ? '24h' 
                     : dateFilter}
                 </span>
-                <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                  📜 All records loaded
+                
+                <span className="bg-green-100 text-green-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
+                  📜 All loaded
                 </span>
-                <div className="flex items-center space-x-1">
-                  <div className={`w-2 h-2 rounded-full ${statusDisplay.color}`}></div>
-                  <span className={`text-xs ${statusDisplay.textColor}`}>{statusDisplay.text}</span>
+                
+                {/* Connection status */}
+                <div className="flex items-center gap-0.5">
+                  <div className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${statusDisplay.color}`}></div>
+                  <span className={`text-xs ${statusDisplay.textColor} whitespace-nowrap`}>
+                    {statusDisplay.text}
+                  </span>
                 </div>
+                
                 {newStudyCount > 0 && (
-                  <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full font-semibold animate-pulse">
+                  <span className="bg-red-500 text-white text-xs px-1 py-0.5 rounded-full font-semibold animate-pulse whitespace-nowrap">
                     {newStudyCount} new
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Quick Date Filter Controls */}
-            <div className="flex items-center space-x-3">
-              {/* Quick date filter buttons */}
-              <div className="flex items-center space-x-1 bg-white rounded-lg border border-gray-200 p-1">
+            {/* 🔧 ULTRA COMPACT: Controls section */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 lg:gap-2">
+              {/* Quick Date Filter Controls */}
+              <div className="flex items-center gap-0.5 bg-white rounded border border-gray-200 p-0.5 overflow-x-auto">
                 {['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => handleDateFilterChange(filter)}
-                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                    className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
                       dateFilter === filter 
                         ? 'bg-blue-500 text-white' 
                         : 'text-gray-600 hover:bg-gray-100'
@@ -273,7 +288,7 @@ const AdminDashboard = React.memo(() => {
                 ))}
                 <button
                   onClick={() => handleDateFilterChange('custom')}
-                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                  className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
                     dateFilter === 'custom' 
                       ? 'bg-purple-500 text-white' 
                       : 'text-gray-600 hover:bg-gray-100'
@@ -284,39 +299,97 @@ const AdminDashboard = React.memo(() => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-1">
                 <button 
                   onClick={handleManualRefresh}
                   disabled={loading}
-                  className="p-2 bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 hover:border-gray-300 transition-all duration-200 disabled:opacity-50"
+                  className="inline-flex items-center px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all duration-200 text-xs font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed h-6"
                   title="Refresh data"
                 >
-                  <svg className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
                   </svg>
+                  <span className="hidden sm:inline">Refresh</span>
+                  <span className="sm:hidden">↻</span>
                 </button>
 
                 <Link 
                   to="/admin/new-lab" 
-                  className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 text-sm font-medium"
+                  className="inline-flex items-center px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
                 >
-                  + Lab
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span className="hidden sm:inline">Lab</span>
+                  <span className="sm:hidden">Lab</span>
                 </Link>
 
                 <Link 
                   to="/admin/new-doctor" 
-                  className="px-3 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-all duration-200 text-sm font-medium"
+                  className="inline-flex items-center px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
                 >
-                  + Doctor
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  <span className="hidden sm:inline">Doctor</span>
+                  <span className="sm:hidden">Doc</span>
                 </Link>
               </div>
             </div>
           </div>
+
+          {dateFilter === 'custom' && (
+            <div className="bg-purple-50 border border-purple-200 rounded p-1 sm:p-2 mt-1">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs">
+                <select
+                  value={dateType}
+                  onChange={(e) => handleDateTypeChange(e.target.value)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                >
+                  <option value="UploadDate">Upload Date</option>
+                  <option value="StudyDate">Study Date</option>
+                </select>
+                
+                <input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(e) => handleCustomDateChange(e.target.value, customDateTo)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                  placeholder="From"
+                />
+                
+                <span className="text-purple-600 hidden sm:inline">to</span>
+                
+                <input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(e) => handleCustomDateChange(customDateFrom, e.target.value)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                  placeholder="To"
+                />
+                
+                <button
+                  onClick={() => {
+                    setCustomDateFrom('');
+                    setCustomDateTo('');
+                    setDateFilter('last24h');
+                  }}
+                  className="px-1 py-0.5 text-xs text-purple-600 hover:text-purple-800 underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+        
+
         </div>
 
-        {/* Main Content */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-          <div className="p-6">
+        
+
+        {/* 🔧 ULTRA COMPACT: Main Content with minimal padding */}
+        <div className="bg-white rounded border border-gray-200 overflow-hidden">
+          <div className="p-1 sm:p-2 lg:p-3">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
@@ -342,23 +415,34 @@ const AdminDashboard = React.memo(() => {
           </div>
         </div>
 
-        {/* Mobile Stats */}
-        <div className="md:hidden mt-4">
-          <details className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50">
-              View Statistics
+        {/* 🔧 ULTRA COMPACT: Mobile Stats */}
+        <div className="lg:hidden mt-1 sm:mt-2">
+          <details className="bg-white rounded border border-gray-200 shadow-sm">
+            <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
+              <span className="flex items-center justify-between">
+                View Statistics
+                <svg className="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
             </summary>
-            <div className="px-4 pb-4 grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-blue-50 rounded-lg">
-                <div className="text-lg font-semibold text-blue-600">{dashboardStats.pendingStudies}</div>
+            <div className="px-2 pb-2 grid grid-cols-3 gap-1 sm:gap-2">
+              <div className="text-center p-1.5 bg-blue-50 rounded">
+                <div className="text-sm font-semibold text-blue-600">
+                  {dashboardStats.pendingStudies.toLocaleString()}
+                </div>
                 <div className="text-xs text-gray-500">Pending</div>
               </div>
-              <div className="text-center p-3 bg-orange-50 rounded-lg">
-                <div className="text-lg font-semibold text-orange-600">{dashboardStats.inProgressStudies}</div>
+              <div className="text-center p-1.5 bg-orange-50 rounded">
+                <div className="text-sm font-semibold text-orange-600">
+                  {dashboardStats.inProgressStudies.toLocaleString()}
+                </div>
                 <div className="text-xs text-gray-500">In Progress</div>
               </div>
-              <div className="text-center p-3 bg-green-50 rounded-lg">
-                <div className="text-lg font-semibold text-green-600">{dashboardStats.completedStudies}</div>
+              <div className="text-center p-1.5 bg-green-50 rounded">
+                <div className="text-sm font-semibold text-green-600">
+                  {dashboardStats.completedStudies.toLocaleString()}
+                </div>
                 <div className="text-xs text-gray-500">Completed</div>
               </div>
             </div>

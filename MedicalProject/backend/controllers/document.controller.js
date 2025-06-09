@@ -18,13 +18,16 @@ import Document from '../models/documentModal.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// 🔧 FIX: Define TEMPLATES_DIR constant
+const TEMPLATES_DIR = path.join(__dirname, '../templates');
+
 class DocumentController {
   // Generate and download patient report (NO STORAGE)
   static async generatePatientReport(req, res) {
     try {
         const { studyId } = req.params;
         
-        // 🔧 ENHANCED: Populate all necessary fields based on your actual schema
+        // 🔧 ENHANCED: Populate all necessary fields INCLUDING doctor signatures
         const study = await DicomStudy.findById(studyId)
             .populate({
                 path: 'assignment.assignedTo',
@@ -41,7 +44,7 @@ class DocumentController {
                 }
             })
             .populate('sourceLab', 'name identifier')
-            .populate('patient', 'firstName lastName patientNameRaw patientID computed age gender dateOfBirth');
+            .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
         
         if (!study) {
             return res.status(404).json({ 
@@ -52,51 +55,72 @@ class DocumentController {
 
         console.log('🔍 Study data for report generation:', {
             studyId: study._id,
-            patientInfo: study.patientInfo,
-            patient: study.patient,
-            modality: study.modality,
-            modalitiesInStudy: study.modalitiesInStudy,
-            examDescription: study.examDescription,
             assignment: study.assignment,
-            lastAssignedDoctor: study.lastAssignedDoctor
+            lastAssignedDoctor: study.lastAssignedDoctor,
+            patient: study.patient,
+            examDescription: study.examDescription,
+            studyDescription: study.studyDescription
         });
 
-        // 🔧 ENHANCED: Get patient name with better fallback logic
+        // 🔧 GET PATIENT INFORMATION with proper age handling
         let patientName = 'Unknown Patient';
         let patientAge = 'Unknown';
         let patientGender = 'Unknown';
         
         if (study.patient) {
-            // Try computed.fullName first
+            // Handle patient name
             if (study.patient.computed?.fullName) {
                 patientName = study.patient.computed.fullName;
-            }
-            // Then try firstName + lastName
-            else if (study.patient.firstName || study.patient.lastName) {
+            } else if (study.patient.firstName || study.patient.lastName) {
                 const firstName = study.patient.firstName || '';
                 const lastName = study.patient.lastName || '';
                 patientName = `${firstName} ${lastName}`.trim();
-            }
-            // Then try patientNameRaw (DICOM format)
-            else if (study.patient.patientNameRaw) {
+            } else if (study.patient.patientNameRaw) {
                 const nameParts = study.patient.patientNameRaw.split('^');
                 const lastName = nameParts[0] || '';
                 const firstName = nameParts[1] || '';
                 patientName = `${firstName} ${lastName}`.trim();
-            }
-            // Fallback to patientID
-            else if (study.patient.patientID) {
+            } else if (study.patient.patientID) {
                 patientName = `Patient ${study.patient.patientID}`;
             }
             
-            // Get age
-            if (study.patient.age) {
-                patientAge = study.patient.age;
+            // 🔧 FIXED: Handle age from patient model ageString field
+            if (study.patient.ageString) {
+                // Parse DICOM age format like "065Y", "045M", "021D"
+                const ageString = study.patient.ageString;
+                const ageNumber = parseInt(ageString.substring(0, 3));
+                const ageUnit = ageString.substring(3);
+                
+                switch(ageUnit) {
+                    case 'Y':
+                        patientAge = `${ageNumber} years`;
+                        break;
+                    case 'M':
+                        patientAge = `${ageNumber} months`;
+                        break;
+                    case 'D':
+                        patientAge = `${ageNumber} days`;
+                        break;
+                    default:
+                        patientAge = ageString;
+                }
+            } else if (study.patient.dateOfBirth) {
+                // Calculate age from date of birth
+                const birthDate = new Date(study.patient.dateOfBirth);
+                const today = new Date();
+                const age = today.getFullYear() - birthDate.getFullYear();
+                const monthDiff = today.getMonth() - birthDate.getMonth();
+                
+                if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                    patientAge = `${age - 1} years`;
+                } else {
+                    patientAge = `${age} years`;
+                }
             } else if (study.patientInfo?.age) {
                 patientAge = study.patientInfo.age;
             }
             
-            // Get gender
+            // Handle gender
             if (study.patient.gender) {
                 patientGender = study.patient.gender === 'M' ? 'Male' : 
                               study.patient.gender === 'F' ? 'Female' : 
@@ -108,36 +132,85 @@ class DocumentController {
             }
         }
         
-        // 🔧 ENHANCED: Try patientInfo as fallback if patient object is empty
+        // Fallback to patientInfo if patient data is incomplete
         if (patientName === 'Unknown Patient' && study.patientInfo?.patientName) {
             patientName = study.patientInfo.patientName;
         }
-        if (patientAge === 'Unknown' && study.patientInfo?.age) {
-            patientAge = study.patientInfo.age;
-        }
-        if (patientGender === 'Unknown' && study.patientInfo?.gender) {
-            patientGender = study.patientInfo.gender === 'M' ? 'Male' : 
-                           study.patientInfo.gender === 'F' ? 'Female' : 
-                           study.patientInfo.gender;
-        }
 
-        // 🔧 ENHANCED: Get doctor name with multiple fallbacks
-        let doctorName = 'Not Assigned';
+        // 🔧 GET DOCTOR INFORMATION AND SIGNATURE FROM MONGODB
+        let doctorInfo = {
+            name: 'Not Assigned',
+            specialization: 'Unknown',
+            licenseNumber: 'Unknown',
+            signature: null,
+            doctorId: null
+        };
+        
+        let assignedDoctor = null;
         
         // Try assignment.assignedTo first
-        if (study.assignment?.assignedTo?.userAccount?.fullName) {
-            doctorName = study.assignment.assignedTo.userAccount.fullName;
+        if (study.assignment?.assignedTo) {
+            assignedDoctor = study.assignment.assignedTo;
+            if (assignedDoctor.userAccount?.fullName) {
+                doctorInfo.name = assignedDoctor.userAccount.fullName;
+            }
         }
         // Try lastAssignedDoctor (your legacy field)
-        else if (study.lastAssignedDoctor?.userAccount?.fullName) {
-            doctorName = study.lastAssignedDoctor.userAccount.fullName;
-        }
-        // Try reportInfo.reporterName
-        else if (study.reportInfo?.reporterName) {
-            doctorName = study.reportInfo.reporterName;
+        else if (study.lastAssignedDoctor) {
+            assignedDoctor = study.lastAssignedDoctor;
+            if (assignedDoctor.userAccount?.fullName) {
+                doctorInfo.name = assignedDoctor.userAccount.fullName;
+            }
         }
 
-        // 🔧 ENHANCED: Get modality with fallbacks
+        // 🔧 FETCH FULL DOCTOR DETAILS INCLUDING MONGODB SIGNATURE
+        let signatureBuffer = null;
+        if (assignedDoctor) {
+            try {
+                console.log('🔍 Fetching doctor details for:', assignedDoctor._id);
+                
+                const doctorDetails = await Doctor.findById(assignedDoctor._id)
+                    .populate('userAccount', 'fullName email')
+                    .select('specialization licenseNumber signature signatureMetadata userAccount')
+                    .lean();
+                
+                if (doctorDetails) {
+                    console.log('✅ Doctor details found:', {
+                        id: doctorDetails._id,
+                        name: doctorDetails.userAccount?.fullName,
+                        specialization: doctorDetails.specialization,
+                        licenseNumber: doctorDetails.licenseNumber,
+                        hasSignature: !!doctorDetails.signature
+                    });
+                    
+                    doctorInfo = {
+                        name: doctorDetails.userAccount?.fullName || 'Not Assigned',
+                        specialization: doctorDetails.specialization || 'Unknown',
+                        licenseNumber: doctorDetails.licenseNumber || 'Unknown',
+                        doctorId: doctorDetails._id
+                    };
+                    
+                    // 🔧 CONVERT MONGODB BASE64 SIGNATURE TO BUFFER
+                    if (doctorDetails.signature) {
+                        try {
+                            signatureBuffer = Buffer.from(doctorDetails.signature, 'base64');
+                            console.log('✅ Signature converted from MongoDB base64, size:', signatureBuffer.length, 'bytes');
+                        } catch (signatureError) {
+                            console.error('❌ Error converting signature from base64:', signatureError);
+                            signatureBuffer = null;
+                        }
+                    } else {
+                        console.log('ℹ️ No signature found in MongoDB for doctor');
+                    }
+                } else {
+                    console.warn('⚠️ Doctor details not found for ID:', assignedDoctor._id);
+                }
+            } catch (doctorError) {
+                console.error('❌ Error fetching doctor details:', doctorError);
+            }
+        }
+
+        // 🔧 GET MODALITY AND DESCRIPTION
         let modality = 'Unknown';
         if (study.modality) {
             modality = study.modality;
@@ -145,13 +218,14 @@ class DocumentController {
             modality = study.modalitiesInStudy.join(', ');
         }
 
-        // 🔧 ENHANCED: Get study description
+        // 🔧 FIXED: Get description from examDescription field in DicomStudy
         let studyDescription = 'No description available';
         if (study.examDescription) {
             studyDescription = study.examDescription;
+        } else if (study.studyDescription) {
+            studyDescription = study.studyDescription;
         }
 
-        // 🔧 ENHANCED: Get study date
         let studyDate = 'Unknown';
         if (study.studyDate) {
             studyDate = new Date(study.studyDate).toLocaleDateString('en-US', {
@@ -161,13 +235,11 @@ class DocumentController {
             });
         }
 
-        // 🔧 ENHANCED: Get accession number
         let accessionNumber = 'Not available';
         if (study.accessionNumber) {
             accessionNumber = study.accessionNumber;
         }
 
-        // 🔧 ENHANCED: Get lab name
         let labName = 'Unknown Laboratory';
         if (study.sourceLab?.name) {
             labName = study.sourceLab.name;
@@ -175,7 +247,6 @@ class DocumentController {
             labName = study.sourceLab.identifier;
         }
 
-        // 🔧 ENHANCED: Get referring physician
         let referringPhysician = 'Not specified';
         if (study.referringPhysician?.name) {
             referringPhysician = study.referringPhysician.name;
@@ -183,37 +254,52 @@ class DocumentController {
             referringPhysician = study.referringPhysicianName;
         }
 
-        // 🔧 ENHANCED: Prepare comprehensive template data
+        // 🔧 ENHANCED: Prepare template data matching your template fields
         const templateData = {
+            // 🔧 FIXED: Map to exact template field names
             PatientName: patientName,
-            PatientAge: patientAge,
-            PatientGender: patientGender,
-            PatientID: study.patient?.patientID || study.patientInfo?.patientID || 'Unknown',
-            DoctorName: doctorName,
-            LabName: labName,
+            Age: patientAge,
+            Sex: patientGender,
             Modality: modality,
-            StudyDescription: studyDescription,
-            StudyDate: studyDate,
-            AccessionNumber: accessionNumber,
-            ReferringPhysician: referringPhysician,
+            Description: studyDescription,
+            DoctorName: doctorInfo.name,
+            LabName: labName,
             ReportDate: new Date().toLocaleDateString('en-US', {
                 year: 'numeric',
                 month: 'long',
                 day: 'numeric'
             }),
-            // 🆕 NEW: Additional fields that might be useful
+            
+            // Additional fields for completeness
+            PatientID: study.patient?.patientID || study.patientInfo?.patientID || 'Unknown',
+            DoctorSpecialization: doctorInfo.specialization,
+            DoctorLicenseNumber: doctorInfo.licenseNumber,
+            StudyDate: studyDate,
+            AccessionNumber: accessionNumber,
+            ReferringPhysician: referringPhysician,
             StudyTime: study.studyTime || 'Unknown',
             InstitutionName: study.institutionName || 'Unknown',
             CaseType: study.caseType?.toUpperCase() || 'ROUTINE',
             WorkflowStatus: study.workflowStatus || 'Unknown',
             SeriesCount: study.seriesCount || 0,
-            InstanceCount: study.instanceCount || 0
+            InstanceCount: study.instanceCount || 0,
+            
+            // 🔧 CRITICAL FIX: Use SignatureImage to match your template
+            SignatureImage: signatureBuffer ? 'SIGNATURE_IMAGE' : 'No signature available',
+            HasSignature: !!signatureBuffer
         };
 
-        console.log('📋 Template data prepared:', templateData);
+        console.log('📋 Template data prepared:', {
+            ...templateData,
+            SignatureImage: signatureBuffer ? `Buffer(${signatureBuffer.length} bytes)` : 'No signature'
+        });
 
-        // Generate document (but don't store it)
-        const documentBuffer = await DocumentController.generateDocument('Patient Report.docx', templateData);
+        // 🔧 ENHANCED: Generate document WITH SIGNATURE from MongoDB
+        const documentBuffer = await DocumentController.generateDocumentWithSignature(
+            'Patient Report.docx', 
+            templateData,
+            signatureBuffer
+        );
         
         // Create filename using patient name and study info
         const safePatientName = patientName.replace(/[^a-zA-Z0-9]/g, '_');
@@ -221,37 +307,29 @@ class DocumentController {
         const timestamp = Date.now();
         const filename = `Patient_Report_${safePatientName}_${safeModality}_${timestamp}.docx`;
         
-        // 🔧 ENHANCED: UPDATE WORKFLOW STATUS with better error handling
+        // 🔧 UPDATE WORKFLOW STATUS
         try {
-            let doctorId = null;
-            if (study.assignment?.assignedTo?._id) {
-                doctorId = study.assignment.assignedTo._id;
-            } else if (study.lastAssignedDoctor?._id) {
-                doctorId = study.lastAssignedDoctor._id;
-            }
-
             await updateWorkflowStatus({
                 studyId: studyId,
                 status: 'report_in_progress',
-                doctorId: doctorId,
-                note: `Report template generated for ${doctorName} - Patient: ${patientName}`,
+                doctorId: doctorInfo.doctorId,
+                note: `Report template generated for ${doctorInfo.name} - Patient: ${patientName}`,
                 user: req.user || null
             });
             
             console.log('✅ Workflow status updated successfully');
         } catch (workflowError) {
-            console.warn('⚠️ Workflow status update failed (continuing with document generation):', workflowError.message);
-            // Don't fail the entire request if workflow update fails
+            console.warn('⚠️ Workflow status update failed:', workflowError.message);
         }
         
         // Set response headers for download
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         
-        // Send the document (direct download, no storage)
+        // Send the document
         res.send(documentBuffer);
         
-        console.log(`✅ Patient report generated successfully: ${filename}`);
+        console.log(`✅ Patient report generated successfully with ${signatureBuffer ? 'MongoDB signature' : 'no signature'}: ${filename}`);
         
     } catch (error) {
         console.error('❌ Error generating patient report:', error);
@@ -947,6 +1025,192 @@ static async getStudyReports(req, res) {
         error: error.message 
       });
     }
+  }
+
+  // Add this new method to your DocumentController class
+
+static async generateDocumentWithSignature(templateName, templateData, signatureBuffer = null) {
+    try {
+        console.log('📄 Generating document with signature support:', templateName);
+        
+        const templatePath = path.join(TEMPLATES_DIR, templateName);
+        
+        if (!fs.existsSync(templatePath)) {
+            throw new Error(`Template not found: ${templateName}`);
+        }
+
+        // Read template
+        const templateBuffer = fs.readFileSync(templatePath);
+        
+        // 🔧 ENHANCED: Check if image module is available
+        let ImageModule;
+        try {
+            const imageModuleImport = await import('docxtemplater-image-module-free');
+            ImageModule = imageModuleImport.default;
+            console.log('✅ Using docxtemplater-image-module-free');
+        } catch (importError) {
+            console.warn('⚠️ No image module available for signatures');
+            console.warn('Install with: npm install docxtemplater-image-module-free');
+            
+            // Fallback without image module
+            return await DocumentController.generateDocument(templateName, {
+                ...templateData,
+                SignatureImage: signatureBuffer ? '[Digital Signature Available - Image Module Required]' : '[No Signature Available]',
+                HasSignature: !!signatureBuffer
+            });
+        }
+        
+        // Create PizZip instance
+        const zip = new PizZip(templateBuffer);
+        
+        // 🔧 FIXED: Configure image module for SignatureImage tag
+        const modules = [];
+        
+        if (ImageModule && signatureBuffer) {
+            console.log('🖼️ Adding image module for signature processing');
+            console.log('🖼️ Signature buffer size:', signatureBuffer.length, 'bytes');
+            
+            modules.push(new ImageModule({
+                centered: false,
+                fileType: "docx",
+                getImage: function(tagValue, tagName) {
+                    console.log('🖼️ Image module getImage called:', {
+                        tagName: tagName,
+                        tagValue: tagValue,
+                        signatureBufferExists: !!signatureBuffer,
+                        signatureBufferSize: signatureBuffer ? signatureBuffer.length : 0
+                    });
+                    
+                    // 🔧 CRITICAL FIX: Match your template's SignatureImage tag
+                    if (tagName === 'SignatureImage') {
+                        if (signatureBuffer && Buffer.isBuffer(signatureBuffer)) {
+                            console.log('✅ Returning signature buffer for SignatureImage tag');
+                            return signatureBuffer;
+                        } else {
+                            console.error('❌ Signature buffer is not valid:', typeof signatureBuffer);
+                            return null;
+                        }
+                    }
+                    
+                    console.log('ℹ️ Tag not matched:', tagName, '- Expected: SignatureImage');
+                    return null;
+                },
+                getSize: function(img, tagValue, tagName) {
+                    console.log('📏 Image module getSize called for:', tagName);
+                    
+                    if (tagName === 'SignatureImage') {
+                        console.log('📏 Setting signature size: 200x100');
+                        return [200, 100]; // Width: 200px, Height: 100px
+                    }
+                    
+                    return [150, 150];
+                },
+                getProps: function(img, tagValue, tagName) {
+                    console.log('🔧 Image module getProps called for:', tagName);
+                    
+                    return {
+                        centered: false,
+                        fileType: "png"
+                    };
+                }
+            }));
+            
+            console.log('✅ Image module configured successfully');
+        }
+        
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+            modules: modules,
+            delimiters: {
+                start: '{',
+                end: '}'
+            }
+        });
+
+        // 🔧 CRITICAL FIX: Use SignatureImage to match your template
+        const processedData = { ...templateData };
+        
+        if (signatureBuffer && ImageModule) {
+            // 🔧 KEY CHANGE: Use empty string to trigger image replacement
+            processedData.SignatureImage = '';
+            processedData.HasSignatureImage = true;
+            processedData.SignatureText = '';
+            console.log('🖼️ Set SignatureImage to empty string for image processing');
+        } else if (signatureBuffer) {
+            processedData.SignatureImage = '[Digital Signature Available - Image Module Required]';
+            processedData.HasSignatureImage = false;
+            processedData.SignatureText = 'Digital signature captured but image module not available';
+        } else {
+            processedData.SignatureImage = '[No Digital Signature Available]';
+            processedData.HasSignatureImage = false;
+            processedData.SignatureText = 'No digital signature provided';
+        }
+
+        console.log('📋 Final template data for processing:', {
+            ...processedData,
+            SignatureImage: signatureBuffer && ImageModule ? '[EMPTY_STRING_FOR_IMAGE]' : processedData.SignatureImage
+        });
+
+        // 🔧 RENDER: Process the document
+        try {
+            doc.render(processedData);
+            console.log('✅ Document template rendered successfully');
+        } catch (renderError) {
+            console.error('❌ Error rendering document template:', renderError);
+            
+            // Try fallback without signature
+            console.log('🔄 Retrying without signature...');
+            processedData.SignatureImage = signatureBuffer ? 
+                '[Digital Signature Processing Error]' : 
+                '[No Digital Signature]';
+            processedData.HasSignatureImage = false;
+            
+            doc.render(processedData);
+        }
+
+        // Generate buffer
+        const buffer = doc.getZip().generate({
+            type: 'nodebuffer',
+            compression: 'DEFLATE',
+            compressionOptions: {
+                level: 9
+            }
+        });
+
+        console.log('✅ Document generated successfully with signature support');
+        return buffer;
+
+    } catch (error) {
+        console.error('❌ Error generating document with signature:', error);
+        
+        // Fallback to basic document generation
+        try {
+            console.log('🔄 Generating fallback document without signature...');
+            return await DocumentController.generateDocument(templateName, {
+                ...templateData,
+                SignatureImage: signatureBuffer ? 
+                    '[Digital Signature Captured - Processing Error]' : 
+                    '[No Digital Signature]',
+                HasSignature: !!signatureBuffer
+            });
+        } catch (fallbackError) {
+            console.error('❌ Fallback document generation also failed:', fallbackError);
+            throw new Error(`Document generation failed: ${error.message}`);
+        }
+    }
+}
+
+  // 🔧 UTILITY: Check if image module is available
+  static async ensureImageModuleInstalled() {
+      try {
+          await import('docxtemplater-image-module-free');
+          return true;
+      } catch (error) {
+          console.error('❌ docxtemplater-image-module-free not installed. Install with:');
+          console.error('npm install docxtemplater-image-module-free');
+          return false;
+      }
   }
 }
 

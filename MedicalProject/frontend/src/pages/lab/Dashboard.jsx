@@ -258,42 +258,57 @@ const LabDashboard = React.memo(() => {
     <div className="min-h-screen bg-gray-50">
       <UniversalNavbar />
 
-      <div className="max-w-8xl mx-auto p-4">
-        {/* Enhanced Header with Auto-Refresh Info and Date Filters */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-4">
-            {/* Left side - Title and basic info */}
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Lab Dashboard</h1>
-              <div className="flex items-center space-x-4 mt-1">
-                <span className="text-sm text-gray-600">Welcome, {currentUser?.firstName || 'Lab Staff'}</span>
-                <span className="text-sm text-gray-600">•</span>
-                <span className="text-sm text-gray-600">{totalRecords} total studies</span>
-                <span className="text-sm text-gray-500">
-                  ({recordsPerPage} per page - Single page mode)
+      {/* 🔧 ULTRA COMPACT: Much tighter container (matching admin/doctor) */}
+      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3">
+        {/* 🔧 COMPACT: Header with minimal spacing (matching admin/doctor) */}
+        <div className="mb-1 sm:mb-2">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-1 lg:gap-2 mb-1">
+            {/* Title and Info Section */}
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 truncate">
+                Lab Studies Dashboard
+              </h1>
+              
+              {/* 🔧 ULTRA COMPACT: Tighter info badges (matching admin/doctor) */}
+              <div className="flex flex-wrap items-center gap-0.5 sm:gap-1 mt-0.5 text-xs">
+                <span className="text-gray-600 whitespace-nowrap">
+                  {totalRecords.toLocaleString()} total studies
                 </span>
-                {/* 🆕 NEW: Date filter indicator */}
-                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                <span className="text-gray-500 whitespace-nowrap hidden sm:inline">
+                  ({recordsPerPage} per page)
+                </span>
+                
+                {/* Date filter indicator */}
+                <span className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
                   📅 {dateFilter === 'custom' 
-                    ? `Custom: ${customDateFrom || 'start'} - ${customDateTo || 'end'}` 
-                    : dateFilter === 'last24h' ? 'Last 24 hours' 
+                    ? `Custom Range` 
+                    : dateFilter === 'last24h' ? '24h' 
                     : dateFilter}
                 </span>
                 
-                {/* 🔧 AUTO-REFRESH STATUS */}
+                <span className="bg-green-100 text-green-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
+                  📜 All loaded
+                </span>
                 
+                {/* Auto-refresh status indicator */}
+                <div className="flex items-center gap-0.5">
+                  <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
+                  <span className="text-xs text-blue-700 whitespace-nowrap">
+                    Auto-refresh: {formatRefreshTime}
+                  </span>
+                </div>
               </div>
             </div>
 
-            {/* Right side - Date Filter Controls and Actions */}
-            <div className="flex items-center space-x-3">
-              {/* Quick Date Filter Controls (matching admin/doctor) */}
-              <div className="flex items-center space-x-1 bg-white rounded-lg border border-gray-200 p-1">
+            {/* 🔧 ULTRA COMPACT: Controls section (matching admin/doctor) */}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 lg:gap-2">
+              {/* Quick Date Filter Controls */}
+              <div className="flex items-center gap-0.5 bg-white rounded border border-gray-200 p-0.5 overflow-x-auto">
                 {['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => handleDateFilterChange(filter)}
-                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                    className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
                       dateFilter === filter 
                         ? 'bg-blue-500 text-white' 
                         : 'text-gray-600 hover:bg-gray-100'
@@ -307,7 +322,7 @@ const LabDashboard = React.memo(() => {
                 ))}
                 <button
                   onClick={() => handleDateFilterChange('custom')}
-                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                  className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
                     dateFilter === 'custom' 
                       ? 'bg-purple-500 text-white' 
                       : 'text-gray-600 hover:bg-gray-100'
@@ -317,45 +332,95 @@ const LabDashboard = React.memo(() => {
                 </button>
               </div>
 
-              {/* Quick Stats - Horizontal - LAB SPECIFIC */}
-              <div className="hidden md:flex items-center space-x-4 px-4 py-2 bg-white rounded-lg border border-gray-200 shadow-sm">
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-yellow-600">{dashboardStats.pendingUpload}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-blue-600">{dashboardStats.uploadedToday}</div>
-                  <div className="text-xs text-gray-500">Today</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-orange-600">{dashboardStats.processingStudies}</div>
-                  <div className="text-xs text-gray-500">Processing</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-green-600">{dashboardStats.completedStudies}</div>
-                  <div className="text-xs text-gray-500">Completed</div>
-                </div>
-                <div className="w-px h-8 bg-gray-200"></div>
-                <div className="text-center">
-                  <div className="text-lg font-semibold text-red-600">{dashboardStats.urgentStudies}</div>
-                  <div className="text-xs text-gray-500">Urgent</div>
-                </div>
-              </div>
+              {/* Action Buttons */}
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={handleManualRefresh}
+                  disabled={loading}
+                  className="inline-flex items-center px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all duration-200 text-xs font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed h-6"
+                  title={`Manual refresh (Auto-refresh in ${formatRefreshTime})`}
+                >
+                  <svg className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
+                  </svg>
+                  <span className="hidden sm:inline">Refresh</span>
+                  <span className="sm:hidden">↻</span>
+                </button>
 
-              
+                <Link 
+                  to="/lab/upload" 
+                  className="inline-flex items-center px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                  </svg>
+                  <span className="hidden sm:inline">Upload</span>
+                  <span className="sm:hidden">↑</span>
+                </Link>
+
+                <Link 
+                  to="/lab/reports" 
+                  className="inline-flex items-center px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span className="hidden sm:inline">Reports</span>
+                  <span className="sm:hidden">📊</span>
+                </Link>
+              </div>
             </div>
           </div>
 
-          
+          {/* 🆕 NEW: Custom Date Range Picker (matching admin/doctor) */}
+          {dateFilter === 'custom' && (
+            <div className="bg-purple-50 border border-purple-200 rounded p-1 sm:p-2 mt-1">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs">
+                <select
+                  value={dateType}
+                  onChange={(e) => handleDateTypeChange(e.target.value)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                >
+                  <option value="UploadDate">Upload Date</option>
+                  <option value="StudyDate">Study Date</option>
+                </select>
+                
+                <input
+                  type="date"
+                  value={customDateFrom}
+                  onChange={(e) => handleCustomDateChange(e.target.value, customDateTo)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                  placeholder="From"
+                />
+                
+                <span className="text-purple-600 hidden sm:inline">to</span>
+                
+                <input
+                  type="date"
+                  value={customDateTo}
+                  onChange={(e) => handleCustomDateChange(customDateFrom, e.target.value)}
+                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                  placeholder="To"
+                />
+                
+                <button
+                  onClick={() => {
+                    setCustomDateFrom('');
+                    setCustomDateTo('');
+                    setDateFilter('last24h');
+                  }}
+                  className="px-1 py-0.5 text-xs text-purple-600 hover:text-purple-800 underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* PRIMARY FOCUS: Enhanced Worklist Section */}
-        <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-          {/* Worklist Content - Maximum Focus */}
-          <div className="p-6">
+        {/* 🔧 ULTRA COMPACT: Main Content with minimal padding (matching admin/doctor) */}
+        <div className="bg-white rounded border border-gray-200 overflow-hidden">
+          <div className="p-1 sm:p-2 lg:p-3">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
@@ -381,23 +446,23 @@ const LabDashboard = React.memo(() => {
           </div>
         </div>
 
-        {/* Secondary Information - Collapsible Mobile Stats - LAB SPECIFIC */}
-        <div className="md:hidden mt-4">
-          <details className="bg-white rounded-lg border border-gray-200 shadow-sm">
-            <summary className="px-4 py-3 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50 flex items-center justify-between">
-              <span>View Lab Statistics</span>
-              <span className="text-xs text-blue-600">
-                Auto-refresh: {formatRefreshTime}
+        {/* 🔧 ULTRA COMPACT: Mobile Stats (matching admin/doctor but with lab-specific stats) */}
+        <div className="lg:hidden mt-1 sm:mt-2">
+          <details className="bg-white rounded border border-gray-200 shadow-sm">
+            <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
+              <span className="flex items-center justify-between">
+                <span>View Lab Statistics</span>
+                <span className="text-blue-600">Auto-refresh: {formatRefreshTime}</span>
               </span>
             </summary>
-            <div className="px-4 pb-4">
-              {/* Mobile Auto-Refresh Info */}
-              <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                <div className="flex items-center justify-between text-sm">
+            <div className="px-2 pb-2">
+              {/* Auto-refresh info section */}
+              <div className="mb-2 p-2 bg-blue-50 rounded text-xs">
+                <div className="flex items-center justify-between">
                   <span className="text-blue-700 font-medium">Auto-refresh enabled</span>
                   <span className="text-blue-600">{formatRefreshTime}</span>
                 </div>
-                <div className="w-full bg-blue-200 rounded-full h-1 mt-2 overflow-hidden">
+                <div className="w-full bg-blue-200 rounded-full h-1 mt-1 overflow-hidden">
                   <div 
                     className="h-full bg-blue-500 transition-all duration-1000 ease-linear"
                     style={{ 
@@ -410,68 +475,43 @@ const LabDashboard = React.memo(() => {
                 </div>
               </div>
 
-              {/* Date Filter Mobile Controls */}
-              <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                <div className="text-sm font-medium text-gray-700 mb-2">Date Filter</div>
-                <div className="flex flex-wrap gap-1">
-                  {['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth', 'custom'].map(filter => (
-                    <button
-                      key={filter}
-                      onClick={() => handleDateFilterChange(filter)}
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        dateFilter === filter 
-                          ? 'bg-blue-500 text-white' 
-                          : 'bg-white text-gray-600 border border-gray-200'
-                      }`}
-                    >
-                      {filter === 'last24h' ? '24h' : 
-                       filter === 'today' ? 'Today' :
-                       filter === 'yesterday' ? 'Yesterday' :
-                       filter === 'thisWeek' ? 'Week' : 
-                       filter === 'thisMonth' ? 'Month' : 'Custom'}
-                    </button>
-                  ))}
+              {/* Stats Grid - Lab specific */}
+              <div className="grid grid-cols-3 gap-1 sm:gap-2">
+                <div className="text-center p-1.5 bg-yellow-50 rounded">
+                  <div className="text-sm font-semibold text-yellow-600">
+                    {dashboardStats.pendingUpload.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Pending</div>
                 </div>
-              </div>
-
-              {/* Quick Upload Button */}
-              <div className="mb-4">
-                <Link 
-                  to="/lab/upload" 
-                  className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-all duration-200 text-sm font-medium shadow-sm"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <span>Upload New Study</span>
-                </Link>
-              </div>
-
-              {/* Stats Grid - LAB SPECIFIC */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="text-center p-3 bg-yellow-50 rounded-lg">
-                  <div className="text-lg font-semibold text-yellow-600">{dashboardStats.pendingUpload}</div>
-                  <div className="text-xs text-gray-500">Pending Upload</div>
+                <div className="text-center p-1.5 bg-blue-50 rounded">
+                  <div className="text-sm font-semibold text-blue-600">
+                    {dashboardStats.uploadedToday.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Today</div>
                 </div>
-                <div className="text-center p-3 bg-blue-50 rounded-lg">
-                  <div className="text-lg font-semibold text-blue-600">{dashboardStats.uploadedToday}</div>
-                  <div className="text-xs text-gray-500">Uploaded Today</div>
-                </div>
-                <div className="text-center p-3 bg-orange-50 rounded-lg">
-                  <div className="text-lg font-semibold text-orange-600">{dashboardStats.processingStudies}</div>
+                <div className="text-center p-1.5 bg-orange-50 rounded">
+                  <div className="text-sm font-semibold text-orange-600">
+                    {dashboardStats.processingStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">Processing</div>
                 </div>
-                <div className="text-center p-3 bg-green-50 rounded-lg">
-                  <div className="text-lg font-semibold text-green-600">{dashboardStats.completedStudies}</div>
+                <div className="text-center p-1.5 bg-green-50 rounded">
+                  <div className="text-sm font-semibold text-green-600">
+                    {dashboardStats.completedStudies.toLocaleString()}
+                  </div>
                   <div className="text-xs text-gray-500">Completed</div>
                 </div>
-                <div className="text-center p-3 bg-red-50 rounded-lg">
-                  <div className="text-lg font-semibold text-red-600">{dashboardStats.urgentStudies}</div>
-                  <div className="text-xs text-gray-500">Urgent Cases</div>
+                <div className="text-center p-1.5 bg-red-50 rounded">
+                  <div className="text-sm font-semibold text-red-600">
+                    {dashboardStats.urgentStudies.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Urgent</div>
                 </div>
-                <div className="text-center p-3 bg-gray-50 rounded-lg">
-                  <div className="text-lg font-semibold text-gray-600">{dashboardStats.totalStudies}</div>
-                  <div className="text-xs text-gray-500">Total Studies</div>
+                <div className="text-center p-1.5 bg-gray-50 rounded">
+                  <div className="text-sm font-semibold text-gray-600">
+                    {dashboardStats.totalStudies.toLocaleString()}
+                  </div>
+                  <div className="text-xs text-gray-500">Total</div>
                 </div>
               </div>
             </div>

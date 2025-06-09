@@ -57,7 +57,7 @@ export const getPatientDetailedView = async (req, res) => {
           });
       }
 
-      // 🔧 ENHANCED: More comprehensive parallel queries
+      // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS
       const [patient, allStudies] = await Promise.all([
           Patient.findOne({ patientID: patientId })
               .populate('clinicalInfo.lastModifiedBy', 'fullName email')
@@ -69,7 +69,8 @@ export const getPatientDetailedView = async (req, res) => {
                   sourceLab uploadedReports createdAt referringPhysician referringPhysicianName
                   assignment.assignedAt assignment.assignedTo reportInfo.finalizedAt
                   reportInfo.startedAt timingInfo numberOfSeries numberOfImages
-                  institutionName patientInfo
+                  institutionName patientInfo studyPriority
+                  technologist physicians modifiedDate modifiedTime reportDate reportTime
               `)
               .populate('sourceLab', 'name identifier')
               .populate({
@@ -146,17 +147,30 @@ export const getPatientDetailedView = async (req, res) => {
           }
       };
 
-      // 🔧 ENHANCED: Get referring physician information
+      // 🆕 NEW: Enhanced getReferringPhysician to include new physician structure
       const getReferringPhysician = (study) => {
-          if (!study) return 'N/A';
+          if (!study) return getEmptyPhysician();
           
-          // Check structured referring physician object first
+          // 🆕 NEW: Check structured physicians object first
+          if (study.physicians?.referring?.name) {
+              return {
+                  name: study.physicians.referring.name,
+                  email: study.physicians.referring.email || 'N/A',
+                  mobile: study.physicians.referring.mobile || 'N/A',
+                  institution: study.physicians.referring.institution || 'N/A',
+                  source: 'dicom_structured'
+              };
+          }
+          
+          // Check legacy referring physician object
           if (study.referringPhysician?.name) {
               return {
                   name: study.referringPhysician.name,
+                  email: 'N/A',
+                  mobile: 'N/A',
                   institution: study.referringPhysician.institution || 'N/A',
                   contactInfo: study.referringPhysician.contactInfo || 'N/A',
-                  source: 'structured'
+                  source: 'legacy_structured'
               };
           }
           
@@ -164,36 +178,32 @@ export const getPatientDetailedView = async (req, res) => {
           if (study.referringPhysicianName) {
               return {
                   name: study.referringPhysicianName,
+                  email: 'N/A',
+                  mobile: 'N/A',
                   institution: 'N/A',
                   contactInfo: 'N/A',
                   source: 'name_only'
               };
           }
           
+          return getEmptyPhysician();
+      };
+
+      // 🆕 NEW: Get requesting physician information
+      const getRequestingPhysician = (study) => {
+          if (!study?.physicians?.requesting?.name) {
+              return getEmptyPhysician();
+          }
+          
           return {
-              name: 'N/A',
-              institution: 'N/A',
-              contactInfo: 'N/A',
-              source: 'not_available'
+              name: study.physicians.requesting.name,
+              email: study.physicians.requesting.email || 'N/A',
+              mobile: study.physicians.requesting.mobile || 'N/A',
+              institution: study.physicians.requesting.institution || 'N/A',
+              source: 'dicom_structured'
           };
       };
 
-      // 🔧 ENHANCED: Process current study TAT
-      const currentStudyTAT = calculateTAT(currentStudy);
-      if (currentStudyTAT.studyToReportTAT) {
-          currentStudyTAT.studyToReportTATFormatted = formatTAT(currentStudyTAT.studyToReportTAT);
-      }
-      if (currentStudyTAT.uploadToReportTAT) {
-          currentStudyTAT.uploadToReportTATFormatted = formatTAT(currentStudyTAT.uploadToReportTAT);
-      }
-      if (currentStudyTAT.assignmentToReportTAT) {
-          currentStudyTAT.assignmentToReportTATFormatted = formatTAT(currentStudyTAT.assignmentToReportTAT);
-      }
-      if (currentStudyTAT.totalTATDays !== null) {
-          currentStudyTAT.totalTATFormatted = `${currentStudyTAT.totalTATDays} days`;
-      }
-
-      // 🔧 NEW: Extract study reports separately (don't merge)
       const studyReports = [];
       allStudies.forEach(study => {
           if (study.uploadedReports && study.uploadedReports.length > 0) {
@@ -221,8 +231,54 @@ export const getPatientDetailedView = async (req, res) => {
 
       console.log(`📋 Found ${patient.documents?.length || 0} patient documents and ${studyReports.length} study reports`);
 
-      // 🔧 ENHANCED: Get referring physician for current study
+      // 🆕 NEW: Get technologist information
+      const getTechnologistInfo = (study) => {
+          if (!study?.technologist) {
+              return {
+                  name: 'N/A',
+                  mobile: 'N/A',
+                  comments: 'N/A',
+                  reasonToSend: 'N/A',
+                  source: 'not_available'
+              };
+          }
+          
+          return {
+              name: study.technologist.name || 'N/A',
+              mobile: study.technologist.mobile || 'N/A',
+              comments: study.technologist.comments || 'N/A',
+              reasonToSend: study.technologist.reasonToSend || 'N/A',
+              source: 'dicom_extracted'
+          };
+      };
+
+      const getEmptyPhysician = () => ({
+          name: 'N/A',
+          email: 'N/A',
+          mobile: 'N/A',
+          institution: 'N/A',
+          contactInfo: 'N/A',
+          source: 'not_available'
+      });
+
+      const currentStudyTAT = calculateTAT(currentStudy);
+      if (currentStudyTAT.studyToReportTAT) {
+          currentStudyTAT.studyToReportTATFormatted = formatTAT(currentStudyTAT.studyToReportTAT);
+      }
+      if (currentStudyTAT.uploadToReportTAT) {
+          currentStudyTAT.uploadToReportTATFormatted = formatTAT(currentStudyTAT.uploadToReportTAT);
+      }
+      if (currentStudyTAT.assignmentToReportTAT) {
+          currentStudyTAT.assignmentToReportTATFormatted = formatTAT(currentStudyTAT.assignmentToReportTAT);
+      }
+      if (currentStudyTAT.totalTATDays !== null) {
+          currentStudyTAT.totalTATFormatted = `${currentStudyTAT.totalTATDays} days`;
+      }
+
+      // 🔧 ENHANCED: Get comprehensive physician and technologist info for current study
       const currentStudyReferringPhysician = getReferringPhysician(currentStudy);
+      const currentStudyRequestingPhysician = getRequestingPhysician(currentStudy);
+      const currentStudyTechnologist = getTechnologistInfo(currentStudy);
 
       // 🔧 ENHANCED: Process all referring physicians from all studies
       const allReferringPhysicians = [];
@@ -246,7 +302,7 @@ export const getPatientDetailedView = async (req, res) => {
       const responseData = {
           patientInfo: {
               patientId: patient.patientID,
-              patientID: patient.patientID, // Add both for compatibility
+              patientID: patient.patientID,
               fullName: patient.computed?.fullName || 
                        `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Unknown',
               firstName: patient.firstName || '',
@@ -270,7 +326,7 @@ export const getPatientDetailedView = async (req, res) => {
               previousInjury: patient.medicalHistory?.previousInjury || patient.clinicalInfo?.previousInjury || '',
               previousSurgery: patient.medicalHistory?.previousSurgery || patient.clinicalInfo?.previousSurgery || ''
           },
-          // 🔧 ENHANCED: More comprehensive study info
+          // 🔧 ENHANCED: More comprehensive study info with NEW FIELDS
           studyInfo: currentStudy ? {
               studyId: currentStudy.studyInstanceUID,
               studyDate: currentStudy.studyDate,
@@ -286,16 +342,35 @@ export const getPatientDetailedView = async (req, res) => {
               numberOfSeries: currentStudy.numberOfSeries || 0,
               numberOfImages: currentStudy.numberOfImages || 0,
               seriesImages: `${currentStudy.numberOfSeries || 0}/${currentStudy.numberOfImages || 0}`,
+              
+              // 🆕 NEW: Priority and case information
+              studyPriority: currentStudy.studyPriority || 'SELECT',
+              priorityLevel: currentStudy.assignment?.priority || 'NORMAL',
+              
+              // 🆕 NEW: Time tracking information
+              modifiedDate: currentStudy.modifiedDate || null,
+              modifiedTime: currentStudy.modifiedTime || 'N/A',
+              reportDate: currentStudy.reportDate || null,
+              reportTime: currentStudy.reportTime || 'N/A',
+              
+              // 🆕 NEW: Technologist information
+              technologist: currentStudyTechnologist,
+              
+              // 🆕 NEW: Enhanced physician information
+              physicians: {
+                  referring: currentStudyReferringPhysician,
+                  requesting: currentStudyRequestingPhysician
+              },
+              
               images: [],
-              // 🔧 NEW: TAT information
               tat: currentStudyTAT,
-              // 🔧 NEW: Assignment information
               assignedDoctor: currentStudy.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
               assignedAt: currentStudy.assignment?.assignedAt || null,
               reportStartedAt: currentStudy.reportInfo?.startedAt || null,
               reportFinalizedAt: currentStudy.reportInfo?.finalizedAt || null
           } : {},
-          // 🔧 ENHANCED: Visit info with more details
+          
+          // 🔧 ENHANCED: Visit info with NEW FIELDS
           visitInfo: {
               examDescription: currentStudy?.examDescription || 'N/A',
               examType: currentStudy?.examType || 'N/A',
@@ -307,15 +382,43 @@ export const getPatientDetailedView = async (req, res) => {
               studyStatus: currentStudy?.workflowStatus || 'N/A',
               orderDate: currentStudy?.createdAt || 'N/A',
               reportDate: currentStudy?.reportInfo?.finalizedAt || 'N/A',
-              // 🔧 NEW: Referring physician in visit info
+              
+              // 🆕 NEW: Enhanced physician info in visit
               referringPhysician: currentStudyReferringPhysician.name,
+              referringPhysicianEmail: currentStudyReferringPhysician.email,
+              referringPhysicianMobile: currentStudyReferringPhysician.mobile,
               referringPhysicianInstitution: currentStudyReferringPhysician.institution,
-              referringPhysicianContact: currentStudyReferringPhysician.contactInfo
+              referringPhysicianContact: currentStudyReferringPhysician.contactInfo || 'N/A',
+              
+              // 🆕 NEW: Requesting physician info
+              requestingPhysician: currentStudyRequestingPhysician.name,
+              requestingPhysicianEmail: currentStudyRequestingPhysician.email,
+              requestingPhysicianMobile: currentStudyRequestingPhysician.mobile,
+              requestingPhysicianInstitution: currentStudyRequestingPhysician.institution,
+              
+              // 🆕 NEW: Priority information
+              studyPriority: currentStudy?.studyPriority || 'SELECT',
+              priorityLevel: currentStudy?.assignment?.priority || 'NORMAL',
+              
+              // 🆕 NEW: Time information
+              modifiedDate: currentStudy?.modifiedDate || 'N/A',
+              modifiedTime: currentStudy?.modifiedTime || 'N/A',
+              reportDate: currentStudy?.reportDate || 'N/A',
+              reportTime: currentStudy?.reportTime || 'N/A',
+              
+              // 🆕 NEW: Technologist info
+              technologistName: currentStudyTechnologist.name,
+              technologistMobile: currentStudyTechnologist.mobile,
+              technologistComments: currentStudyTechnologist.comments,
+              technologistReasonToSend: currentStudyTechnologist.reasonToSend
           },
-          // 🔧 ENHANCED: All studies with TAT calculations
+          
+          // 🔧 ENHANCED: All studies with NEW FIELDS
           allStudies: allStudies.map(study => {
               const studyTAT = calculateTAT(study);
               const studyReferringPhysician = getReferringPhysician(study);
+              const studyRequestingPhysician = getRequestingPhysician(study);
+              const studyTechnologist = getTechnologistInfo(study);
               
               return {
                   studyId: study.studyInstanceUID,
@@ -326,7 +429,28 @@ export const getPatientDetailedView = async (req, res) => {
                   status: study.workflowStatus,
                   examDescription: study.examDescription || 'N/A',
                   caseType: study.caseType || 'routine',
+                  
+                  // 🆕 NEW: Priority information
+                  studyPriority: study.studyPriority || 'SELECT',
+                  priorityLevel: study.assignment?.priority || 'NORMAL',
+                  
+                  // 🆕 NEW: Time information
+                  modifiedDate: study.modifiedDate || null,
+                  modifiedTime: study.modifiedTime || 'N/A',
+                  reportDate: study.reportDate || null,
+                  reportTime: study.reportTime || 'N/A',
+                  
+                  // 🆕 NEW: Enhanced physician information
                   referringPhysician: studyReferringPhysician.name,
+                  referringPhysicianEmail: studyReferringPhysician.email,
+                  referringPhysicianMobile: studyReferringPhysician.mobile,
+                  referringPhysicianInstitution: studyReferringPhysician.institution,
+                  requestingPhysician: studyRequestingPhysician.name,
+                  requestingPhysicianEmail: studyRequestingPhysician.email,
+                  
+                  // 🆕 NEW: Technologist information
+                  technologist: studyTechnologist,
+                  
                   assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
                   tat: {
                       totalDays: studyTAT.totalTATDays,
@@ -336,10 +460,13 @@ export const getPatientDetailedView = async (req, res) => {
                   }
               };
           }),
-          // 🔧 ENHANCED: Include studies array for compatibility with more details
+          
+          // 🔧 ENHANCED: Include studies array for compatibility with NEW FIELDS
           studies: allStudies.map(study => {
               const studyTAT = calculateTAT(study);
               const studyReferringPhysician = getReferringPhysician(study);
+              const studyRequestingPhysician = getRequestingPhysician(study);
+              const studyTechnologist = getTechnologistInfo(study);
               
               return {
                   _id: study._id,
@@ -355,25 +482,71 @@ export const getPatientDetailedView = async (req, res) => {
                   location: study.sourceLab?.name || 'Default Lab',
                   assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
                   reportFinalizedAt: study.reportInfo?.finalizedAt,
-                  referringPhysician: studyReferringPhysician.name,
-                  referringPhysicianInstitution: studyReferringPhysician.institution,
                   numberOfSeries: study.numberOfSeries || 0,
                   numberOfImages: study.numberOfImages || 0,
+                  
+                  // 🆕 NEW: Enhanced study information
+                  studyPriority: study.studyPriority || 'SELECT',
+                  priorityLevel: study.assignment?.priority || 'NORMAL',
+                  modifiedDate: study.modifiedDate,
+                  modifiedTime: study.modifiedTime,
+                  reportDate: study.reportDate,
+                  reportTime: study.reportTime,
+                  
+                  // 🆕 NEW: Complete physician information
+                  physicians: {
+                      referring: studyReferringPhysician,
+                      requesting: studyRequestingPhysician
+                  },
+                  referringPhysician: studyReferringPhysician.name,
+                  referringPhysicianInstitution: studyReferringPhysician.institution,
+                  referringPhysicianEmail: studyReferringPhysician.email,
+                  referringPhysicianMobile: studyReferringPhysician.mobile,
+                  requestingPhysician: studyRequestingPhysician.name,
+                  
+                  // 🆕 NEW: Technologist information
+                  technologist: studyTechnologist,
+                  
                   tat: studyTAT
               };
           }),
-          // 🔧 NEW: Comprehensive referring physician information
+          
+          // 🆕 NEW: Enhanced referring physicians with requesting physicians
           referringPhysicians: {
-              current: currentStudyReferringPhysician,
+              current: {
+                  referring: currentStudyReferringPhysician,
+                  requesting: currentStudyRequestingPhysician
+              },
               all: allReferringPhysicians,
               count: allReferringPhysicians.length
           },
-          // 🔧 SEPARATE: Keep patient documents and study reports separate
+          
+          // 🆕 NEW: Technologist information summary
+          technologists: {
+              current: currentStudyTechnologist,
+              all: allStudies.map(study => getTechnologistInfo(study))
+                           .filter(tech => tech.name !== 'N/A')
+                           .reduce((unique, tech) => {
+                               if (!unique.find(t => t.name === tech.name)) {
+                                   unique.push(tech);
+                               }
+                               return unique;
+                           }, [])
+          },
+          
+          // 🆕 NEW: Priority and case type summary
+          prioritySummary: {
+              currentStudyPriority: currentStudy?.studyPriority || 'SELECT',
+              currentPriorityLevel: currentStudy?.assignment?.priority || 'NORMAL',
+              currentCaseType: currentStudy?.caseType || 'routine',
+              allPriorities: [...new Set(allStudies.map(s => s.studyPriority).filter(Boolean))],
+              allCaseTypes: [...new Set(allStudies.map(s => s.caseType).filter(Boolean))]
+          },
+          
           documents: patient.documents || [],
-          studyReports: studyReports, // 🔧 NEW: Study reports as separate array
+          studyReports: studyReports,
           referralInfo: patient.referralInfo || '',
           
-          // 🔧 NEW: Summary statistics
           summary: {
               totalStudies: allStudies.length,
               completedStudies: allStudies.filter(s => ['report_finalized', 'report_downloaded', 'final_report_downloaded'].includes(s.workflowStatus)).length,
@@ -382,15 +555,22 @@ export const getPatientDetailedView = async (req, res) => {
                   Math.round(allStudies.reduce((sum, study) => {
                       const tat = calculateTAT(study);
                       return sum + (tat.totalTATDays || 0);
-                  }, 0) / allStudies.length) : 0
+                  }, 0) / allStudies.length) : 0,
+              
+              // 🆕 NEW: Enhanced summary statistics
+              emergencyCases: allStudies.filter(s => s.studyPriority === 'Emergency Case').length,
+              mlcCases: allStudies.filter(s => s.studyPriority === 'MLC Case').length,
+              referralCases: allStudies.filter(s => s.studyPriority === 'Meet referral doctor').length,
+              uniqueTechnologists: [...new Set(allStudies.map(s => s.technologist?.name).filter(Boolean))].length,
+              uniqueReferringPhysicians: [...new Set(allStudies.map(s => getReferringPhysician(s).name).filter(name => name !== 'N/A'))].length
           }
       };
 
       // 🔧 PERFORMANCE: Cache the result
       cache.set(cacheKey, responseData, 180); // 3 minutes
 
-      console.log('✅ Patient detailed view fetched successfully with enhanced details');
-      console.log(`📊 Summary: ${responseData.summary.totalStudies} studies, ${responseData.summary.completedStudies} completed, Avg TAT: ${responseData.summary.averageTAT} days`);
+      console.log('✅ Patient detailed view fetched successfully with ALL NEW FIELDS');
+      console.log(`📊 Enhanced Summary: ${responseData.summary.totalStudies} studies, ${responseData.summary.emergencyCases} emergency, ${responseData.summary.uniqueTechnologists} technologists`);
 
       res.json({
           success: true,
@@ -476,8 +656,24 @@ export const updatePatientDetails = async (req, res) => {
           if (updateData.patientInfo.gender !== undefined) {
               patientUpdateData.gender = sanitizeInput(updateData.patientInfo.gender);
           }
+          // 🔧 FIX: Replace the existing dateOfBirth handling with proper validation:
+
           if (updateData.patientInfo.dateOfBirth !== undefined) {
-              patientUpdateData.dateOfBirth = sanitizeInput(updateData.patientInfo.dateOfBirth);
+              const dobInput = updateData.patientInfo.dateOfBirth;
+              if (dobInput && dobInput !== 'N/A' && dobInput.trim() !== '') {
+                  const validDOB = parseValidDate(dobInput);
+                  if (validDOB) {
+                      patientUpdateData.dateOfBirth = validDOB;
+                      console.log(`✅ Valid dateOfBirth: ${validDOB}`);
+                  } else {
+                      console.log(`⚠️ Invalid dateOfBirth provided: ${dobInput}, keeping existing value`);
+                      // Don't update if invalid, keep existing value
+                  }
+              } else {
+                  // Handle empty/null case
+                  patientUpdateData.dateOfBirth = null;
+                  console.log(`📝 DateOfBirth set to null (empty input)`);
+              }
           }
           
           // Handle contact information
@@ -508,26 +704,30 @@ export const updatePatientDetails = async (req, res) => {
           };
       }
 
-      // 🆕 NEW: Handle referring physician information
+      // 🆕 ENHANCED: Handle comprehensive referring physician information
       let referringPhysicianUpdated = false;
       let referringPhysicianData = {};
       
       if (updateData.physicianInfo) {
-          console.log(`👨‍⚕️ Processing referring physician updates...`);
+          console.log(`👨‍⚕️ Processing physician updates...`);
           
           // Check if any referring physician fields are provided
-          const hasPhysicianName = updateData.physicianInfo.referringPhysicianName || updateData.physicianInfo.referringPhysician;
-          const hasPhysicianInstitution = updateData.physicianInfo.referringPhysicianInstitution;
-          const hasPhysicianContact = updateData.physicianInfo.referringPhysicianContact;
+          const hasReferringPhysicianName = updateData.physicianInfo.referringPhysicianName || updateData.physicianInfo.referringPhysician;
+          const hasReferringPhysicianEmail = updateData.physicianInfo.referringPhysicianEmail;
+          const hasReferringPhysicianMobile = updateData.physicianInfo.referringPhysicianMobile;
+          const hasReferringPhysicianInstitution = updateData.physicianInfo.referringPhysicianInstitution;
+          const hasReferringPhysicianContact = updateData.physicianInfo.referringPhysicianContact;
           
-          if (hasPhysicianName || hasPhysicianInstitution || hasPhysicianContact) {
+          if (hasReferringPhysicianName || hasReferringPhysicianEmail || hasReferringPhysicianMobile || hasReferringPhysicianInstitution || hasReferringPhysicianContact) {
               referringPhysicianUpdated = true;
               
               // Build structured referring physician object
               referringPhysicianData = {
-                  name: sanitizeInput(hasPhysicianName) || '',
-                  institution: sanitizeInput(hasPhysicianInstitution) || '',
-                  contactInfo: sanitizeInput(hasPhysicianContact) || '',
+                  name: sanitizeInput(hasReferringPhysicianName) || '',
+                  email: sanitizeInput(hasReferringPhysicianEmail) || '',
+                  mobile: sanitizeInput(hasReferringPhysicianMobile) || '',
+                  institution: sanitizeInput(hasReferringPhysicianInstitution) || '',
+                  contactInfo: sanitizeInput(hasReferringPhysicianContact) || '',
                   lastUpdatedBy: userId,
                   lastUpdatedAt: new Date(),
                   source: 'manual_entry'
@@ -568,34 +768,59 @@ export const updatePatientDetails = async (req, res) => {
           });
       }
 
-      // 🔧 ENHANCED: Update related studies efficiently (including referring physician)
-      if (updateData.studyInfo || nameChanged || referringPhysicianUpdated) {
+      // 🆕 ENHANCED: Update related studies with ALL NEW FIELDS
+      let studyUpdateRequired = false;
+      let technologistUpdated = false;
+      let requestingPhysicianUpdated = false;
+      let priorityInfoUpdated = false;
+      let timeInfoUpdated = false;
+
+      // Check what needs updating in studies
+      if (updateData.studyInfo || nameChanged || referringPhysicianUpdated || 
+          updateData.technologistInfo || updateData.priorityInfo || updateData.timeInfo ||
+          updateData.physicianInfo?.requestingPhysician) {
+          
+          studyUpdateRequired = true;
           const studyUpdateData = {};
           
+          // 🔧 EXISTING: Name changes
           if (nameChanged) {
               studyUpdateData['patientInfo.patientName'] = `${newFirstName} ${newLastName}`.trim();
               studyUpdateData.patientName = `${newFirstName} ${newLastName}`.trim();
           }
 
+          // 🔧 EXISTING: Workflow status
           if (updateData.studyInfo?.workflowStatus) {
               const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
               studyUpdateData.workflowStatus = normalizedStatus;
+              studyUpdateData.currentCategory = normalizedStatus;
           }
 
+          // 🔧 EXISTING: Case type
           if (updateData.studyInfo?.caseType) {
-              studyUpdateData.caseType = sanitizeInput(updateData.studyInfo.caseType);
+              studyUpdateData.caseType = sanitizeInput(updateData.studyInfo.caseType).toLowerCase();
           }
 
+          // 🔧 EXISTING: Clinical history
           if (updateData.clinicalInfo?.clinicalHistory) {
               studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
           }
 
-          // 🆕 NEW: Update referring physician in studies
+          // 🆕 NEW: Enhanced referring physician in studies
           if (referringPhysicianUpdated && referringPhysicianData.name) {
+              // Update structured referring physician
               studyUpdateData.referringPhysician = {
                   name: referringPhysicianData.name,
                   institution: referringPhysicianData.institution,
                   contactInfo: referringPhysicianData.contactInfo
+              };
+              
+              // Update structured physicians.referring
+              studyUpdateData['physicians.referring'] = {
+                  name: referringPhysicianData.name,
+                  email: referringPhysicianData.email,
+                  mobile: referringPhysicianData.mobile,
+                  institution: referringPhysicianData.institution
               };
               
               // Also update the simple name field for backward compatibility
@@ -604,13 +829,134 @@ export const updatePatientDetails = async (req, res) => {
               console.log(`📋 Updating referring physician in studies:`, studyUpdateData.referringPhysician);
           }
 
+          // 🆕 NEW: Requesting physician information
+          if (updateData.physicianInfo?.requestingPhysician || 
+              updateData.physicianInfo?.requestingPhysicianEmail ||
+              updateData.physicianInfo?.requestingPhysicianMobile ||
+              updateData.physicianInfo?.requestingPhysicianInstitution) {
+              
+              requestingPhysicianUpdated = true;
+              studyUpdateData['physicians.requesting'] = {
+                  name: sanitizeInput(updateData.physicianInfo.requestingPhysician) || '',
+                  email: sanitizeInput(updateData.physicianInfo.requestingPhysicianEmail) || '',
+                  mobile: sanitizeInput(updateData.physicianInfo.requestingPhysicianMobile) || '',
+                  institution: sanitizeInput(updateData.physicianInfo.requestingPhysicianInstitution) || ''
+              };
+              
+              console.log(`👨‍⚕️ Updating requesting physician in studies:`, studyUpdateData['physicians.requesting']);
+          }
+
+          // 🆕 NEW: Technologist information
+          if (updateData.technologistInfo) {
+              const hasName = updateData.technologistInfo.name;
+              const hasMobile = updateData.technologistInfo.mobile;
+              const hasComments = updateData.technologistInfo.comments;
+              const hasReasonToSend = updateData.technologistInfo.reasonToSend;
+              
+              if (hasName || hasMobile || hasComments || hasReasonToSend) {
+                  technologistUpdated = true;
+                  studyUpdateData.technologist = {
+                      name: sanitizeInput(hasName) || '',
+                      mobile: sanitizeInput(hasMobile) || '',
+                      comments: sanitizeInput(hasComments) || '',
+                      reasonToSend: sanitizeInput(hasReasonToSend) || ''
+                  };
+                  
+                  console.log(`🔧 Updating technologist in studies:`, studyUpdateData.technologist);
+              }
+          }
+
+          // 🆕 NEW: Priority information
+          if (updateData.priorityInfo) {
+              const hasStudyPriority = updateData.priorityInfo.studyPriority;
+              const hasPriorityLevel = updateData.priorityInfo.priorityLevel;
+              const hasCaseType = updateData.priorityInfo.caseType;
+              
+              if (hasStudyPriority || hasPriorityLevel || hasCaseType) {
+                  priorityInfoUpdated = true;
+                  
+                  if (hasStudyPriority) {
+                      studyUpdateData.studyPriority = sanitizeInput(hasStudyPriority);
+                  }
+                  
+                  if (hasPriorityLevel) {
+                      studyUpdateData['assignment.priority'] = sanitizeInput(hasPriorityLevel);
+                  }
+                  
+                  if (hasCaseType) {
+                      studyUpdateData.caseType = sanitizeInput(hasCaseType).toLowerCase();
+                  }
+                  
+                  console.log(`⚡ Updating priority info in studies:`, {
+                      studyPriority: studyUpdateData.studyPriority,
+                      assignmentPriority: studyUpdateData['assignment.priority'],
+                      caseType: studyUpdateData.caseType
+                  });
+              }
+          }
+
+          // 🆕 NEW: Time information (with proper date validation)
+          if (updateData.timeInfo) {
+              const hasModifiedDate = updateData.timeInfo.modifiedDate;
+              const hasModifiedTime = updateData.timeInfo.modifiedTime;
+              const hasReportDate = updateData.timeInfo.reportDate;
+              const hasReportTime = updateData.timeInfo.reportTime;
+              
+              if (hasModifiedDate || hasModifiedTime || hasReportDate || hasReportTime) {
+                  timeInfoUpdated = true;
+                  
+                  // 🔧 CRITICAL FIX: Validate dates before setting them
+                  if (hasModifiedDate) {
+                      const validModifiedDate = parseValidDate(hasModifiedDate);
+                      if (validModifiedDate) {
+                          studyUpdateData.modifiedDate = validModifiedDate;
+                          console.log(`✅ Valid modifiedDate: ${validModifiedDate}`);
+                      } else {
+                          console.log(`⚠️ Invalid modifiedDate provided: ${hasModifiedDate}, skipping`);
+                      }
+                  }
+                  
+                  if (hasModifiedTime && hasModifiedTime !== 'N/A' && hasModifiedTime.trim() !== '') {
+                      studyUpdateData.modifiedTime = sanitizeInput(hasModifiedTime);
+                      console.log(`✅ Valid modifiedTime: ${hasModifiedTime}`);
+                  }
+                  
+                  if (hasReportDate) {
+                      const validReportDate = parseValidDate(hasReportDate);
+                      if (validReportDate) {
+                          studyUpdateData.reportDate = validReportDate;
+                          console.log(`✅ Valid reportDate: ${validReportDate}`);
+                      } else {
+                          console.log(`⚠️ Invalid reportDate provided: ${hasReportDate}, skipping`);
+                      }
+                  }
+                  
+                  if (hasReportTime && hasReportTime !== 'N/A' && hasReportTime.trim() !== '') {
+                      studyUpdateData.reportTime = sanitizeInput(hasReportTime);
+                      console.log(`✅ Valid reportTime: ${hasReportTime}`);
+                  }
+                  
+                  // Only log if we actually have valid time data
+                  const timeUpdates = {
+                      modifiedDate: studyUpdateData.modifiedDate ? 'updated' : 'skipped (invalid)',
+                      modifiedTime: studyUpdateData.modifiedTime ? 'updated' : 'skipped (invalid)',
+                      reportDate: studyUpdateData.reportDate ? 'updated' : 'skipped (invalid)',
+                      reportTime: studyUpdateData.reportTime ? 'updated' : 'skipped (invalid)'
+                  };
+                  
+                  console.log(`⏰ Time info processing results:`, timeUpdates);
+              }
+          }
+
+          // Execute study updates if there are changes
           if (Object.keys(studyUpdateData).length > 0) {
               const studyUpdateResult = await DicomStudy.updateMany(
                   { patient: patient._id },
                   { $set: studyUpdateData }
               );
               
-              console.log(`📊 Updated ${studyUpdateResult.modifiedCount} studies with new information`);
+              console.log(`📊 Updated ${studyUpdateResult.modifiedCount} studies with enhanced information`);
+              console.log(`📋 Updated fields:`, Object.keys(studyUpdateData).join(', '));
           }
       }
 
@@ -619,9 +965,9 @@ export const updatePatientDetails = async (req, res) => {
 
       const processingTime = Date.now() - startTime;
 
-      console.log('✅ Patient updated successfully');
+      console.log('✅ Patient updated successfully with enhanced fields');
 
-      // 🔧 ENHANCED: Include referring physician in response
+      // 🆕 ENHANCED: Include all new fields in response
       const responseData = {
           patientInfo: {
               patientID: updatedPatient.patientID,
@@ -646,32 +992,86 @@ export const updatePatientDetails = async (req, res) => {
               previousSurgery: updatedPatient.medicalHistory?.previousSurgery || ''
           },
           referralInfo: updatedPatient.referralInfo || '',
-          // 🆕 NEW: Enhanced physician info response
+          
+          // 🆕 ENHANCED: Complete physician info response
           physicianInfo: {
+              // Referring physician
               referringPhysicianName: updatedPatient.referringPhysician?.name || updateData.physicianInfo?.referringPhysicianName || '',
               referringPhysician: updatedPatient.referringPhysician?.name || updateData.physicianInfo?.referringPhysician || '',
+              referringPhysicianEmail: updatedPatient.referringPhysician?.email || updateData.physicianInfo?.referringPhysicianEmail || '',
+              referringPhysicianMobile: updatedPatient.referringPhysician?.mobile || updateData.physicianInfo?.referringPhysicianMobile || '',
               referringPhysicianInstitution: updatedPatient.referringPhysician?.institution || updateData.physicianInfo?.referringPhysicianInstitution || '',
               referringPhysicianContact: updatedPatient.referringPhysician?.contactInfo || updateData.physicianInfo?.referringPhysicianContact || '',
+              
+              // Requesting physician
+              requestingPhysician: updateData.physicianInfo?.requestingPhysician || '',
+              requestingPhysicianEmail: updateData.physicianInfo?.requestingPhysicianEmail || '',
+              requestingPhysicianMobile: updateData.physicianInfo?.requestingPhysicianMobile || '',
+              requestingPhysicianInstitution: updateData.physicianInfo?.requestingPhysicianInstitution || '',
+              
+              // Metadata
               lastUpdatedBy: updatedPatient.referringPhysician?.lastUpdatedBy || null,
               lastUpdatedAt: updatedPatient.referringPhysician?.lastUpdatedAt || null,
               source: updatedPatient.referringPhysician?.source || 'manual_entry'
           },
-          // 🆕 NEW: Update summary
+          
+          // 🆕 NEW: Technologist info response
+          technologistInfo: {
+              name: updateData.technologistInfo?.name || '',
+              mobile: updateData.technologistInfo?.mobile || '',
+              comments: updateData.technologistInfo?.comments || '',
+              reasonToSend: updateData.technologistInfo?.reasonToSend || ''
+          },
+          
+          // 🆕 NEW: Priority info response
+          priorityInfo: {
+              studyPriority: updateData.priorityInfo?.studyPriority || 'SELECT',
+              priorityLevel: updateData.priorityInfo?.priorityLevel || 'NORMAL',
+              caseType: updateData.priorityInfo?.caseType || 'routine'
+          },
+          
+          // 🆕 NEW: Time info response
+          timeInfo: {
+              modifiedDate: updateData.timeInfo?.modifiedDate || null,
+              modifiedTime: updateData.timeInfo?.modifiedTime || '',
+              reportDate: updateData.timeInfo?.reportDate || null,
+              reportTime: updateData.timeInfo?.reportTime || ''
+          },
+          
+          // 🆕 ENHANCED: Comprehensive update summary
           updateSummary: {
               patientInfoUpdated: !!updateData.patientInfo,
               clinicalInfoUpdated: !!updateData.clinicalInfo,
               referringPhysicianUpdated: referringPhysicianUpdated,
-              studiesUpdated: !!(updateData.studyInfo || nameChanged || referringPhysicianUpdated),
+              requestingPhysicianUpdated: requestingPhysicianUpdated,
+              technologistUpdated: technologistUpdated,
+              priorityInfoUpdated: priorityInfoUpdated,
+              timeInfoUpdated: timeInfoUpdated,
+              studiesUpdated: studyUpdateRequired,
               processingTimeMs: processingTime
           }
       };
 
-      console.log('📤 Sending response:', JSON.stringify(responseData, null, 2));
-      console.log('=== UPDATE COMPLETE ===');
+      console.log('📤 Sending enhanced response:', JSON.stringify(responseData, null, 2));
+      console.log('=== ENHANCED UPDATE COMPLETE ===');
+
+      // 🆕 ENHANCED: Success message with details
+      let successMessage = 'Patient information updated successfully';
+      const updatedFields = [];
+      
+      if (referringPhysicianUpdated) updatedFields.push('referring physician');
+      if (requestingPhysicianUpdated) updatedFields.push('requesting physician');
+      if (technologistUpdated) updatedFields.push('technologist');
+      if (priorityInfoUpdated) updatedFields.push('priority settings');
+      if (timeInfoUpdated) updatedFields.push('time information');
+      
+      if (updatedFields.length > 0) {
+          successMessage += ` (including ${updatedFields.join(', ')})`;
+      }
 
       res.json({
           success: true,
-          message: `Patient information updated successfully${referringPhysicianUpdated ? ' (including referring physician)' : ''}`,
+          message: successMessage,
           data: responseData
       });
 
@@ -1531,7 +1931,7 @@ export const downloadStudyReport = async (req, res) => {
     }
 
     console.log(`✅ Study found: ${study._id}`);
-    console.log(`📋 Study has ${study.uploadedReports?.length || 0} uploaded reports`);
+    console.log(`📋 Study has ${study.uploadedReports?.length ||  0} uploaded reports`);
 
     // Find report in study
     const report = study.uploadedReports?.find(r => r._id.toString() === reportId);
@@ -1691,6 +2091,32 @@ export const downloadStudyReport = async (req, res) => {
       });
     }
   }
+};
+
+// Add these helper functions right after the imports and before any other functions:
+
+// 🔧 DATE VALIDATION HELPERS
+const isValidDate = (dateString) => {
+    if (!dateString || dateString === '' || dateString === 'N/A' || dateString === null || dateString === undefined) {
+        return false;
+    }
+    const date = new Date(dateString);
+    return !isNaN(date.getTime());
+};
+
+const parseValidDate = (dateInput) => {
+    if (!dateInput || dateInput === '' || dateInput === 'N/A') {
+        return null;
+    }
+    
+    // If it's already a Date object, check if it's valid
+    if (dateInput instanceof Date) {
+        return isNaN(dateInput.getTime()) ? null : dateInput;
+    }
+    
+    // Try to parse the string
+    const date = new Date(dateInput);
+    return isNaN(date.getTime()) ? null : date;
 };
 
 export default {

@@ -31,7 +31,8 @@ export const loginUser = async (req, res) => {
         if (!user.isActive) {
             return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
         }
-
+        user.isLoggedIn = true;
+        await user.save();
         const token = generateToken(user._id, user.role);
 
         res.cookie(COOKIE_NAME, token, {
@@ -48,8 +49,9 @@ export const loginUser = async (req, res) => {
             fullName: user.fullName,
             role: user.role,
             isActive: user.isActive,
-            isLoggedIn: user.isLoggedIn, // Default to true if not set
+            isLoggedIn: true, // Default to true if not set
         };
+        console.log('User response data:', userResponseData);
 
         if (user.role === 'lab_staff' && user.lab) {
             userResponseData.lab = user.lab; 
@@ -97,12 +99,23 @@ export const getMe = async (req, res) => {
 // @desc    Log user out / clear cookie
 // @route   POST /api/auth/logout
 // @access  Private (user must be logged in to log out)
-export const logoutUser = (req, res) => {
-    res.cookie(COOKIE_NAME, '', { // Set cookie to empty
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        expires: new Date(0), // Expire immediately
-    });
-    res.status(200).json({ success: true, message: 'Logged out successfully.' });
+export const logoutUser = async (req, res) => {
+    try {
+        // 🔧 FIX: Update isLoggedIn to false when user logs out
+        if (req.user && req.user._id) {
+            await User.findByIdAndUpdate(req.user._id, { isLoggedIn: false });
+        }
+
+        res.cookie(COOKIE_NAME, '', { // Set cookie to empty
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            expires: new Date(0), // Expire immediately
+        });
+        
+        res.status(200).json({ success: true, message: 'Logged out successfully.' });
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(200).json({ success: true, message: 'Logged out successfully.' }); // Still clear cookie even if DB update fails
+    }
 };

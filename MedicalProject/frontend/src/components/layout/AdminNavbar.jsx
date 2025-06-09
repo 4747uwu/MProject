@@ -3,6 +3,8 @@ import { useAuth } from '../../hooks/useAuth';
 import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 // 🆕 ADD: Import the logo
 import starRadiologyLogo from '../../assets/starradiology_logo-1 (1).png';
+import RadiantStatus from '../../components/admin/RadiantStatus';
+
 
 const UniversalNavbar = () => {
   const { currentUser, logout } = useAuth();
@@ -347,6 +349,9 @@ const UniversalNavbar = () => {
 
             {/* Right - User Menu */}
             <div className="flex items-center space-x-4">
+            <div className="hidden md:block">
+              <RadiantStatus showDetails={true} />
+            </div>
               {/* Greeting (Desktop) */}
               <div className="hidden md:block text-right">
                 <p className="text-sm font-medium text-gray-900">

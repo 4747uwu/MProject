@@ -8,17 +8,17 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [assignmentFilter, setAssignmentFilter] = useState('');
-  const [selectedDoctorIds, setSelectedDoctorIds] = useState([]); // Array for checkboxes
+  const [selectedDoctorId, setSelectedDoctorId] = useState(''); // 🔧 CHANGED: Single string instead of array
   const [currentlyAssignedDoctor, setCurrentlyAssignedDoctor] = useState(null);
 
-  // Reset selected doctors when study changes
+  // 🔧 FIXED: Reset selected doctor when study changes (like copy file)
   useEffect(() => {
     console.log('🔄 Study changed, resetting selection:', study?.lastAssignedDoctor);
     
     if (study?.lastAssignedDoctor && typeof study.lastAssignedDoctor === 'string') {
-      setSelectedDoctorIds([study.lastAssignedDoctor]);
+      setSelectedDoctorId(study.lastAssignedDoctor);
     } else {
-      setSelectedDoctorIds([]); // 🔧 FIXED: Always start with empty array
+      setSelectedDoctorId('');
       setCurrentlyAssignedDoctor(null);
     }
   }, [study]);
@@ -50,8 +50,48 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
 
       if (response.data.success) {
         let allDoctorsList = response.data.doctors;
+        let assignedDoctor = null;
+
+        // 🔧 FIXED: Find and set the currently assigned doctor
+        if (study?.lastAssignedDoctor) {
+          assignedDoctor = allDoctorsList.find(
+            doc => doc._id === study.lastAssignedDoctor || doc.id === study.lastAssignedDoctor
+          );
+          
+          if (assignedDoctor) {
+            setCurrentlyAssignedDoctor(assignedDoctor);
+            console.log('✅ Found assigned doctor in list:', assignedDoctor);
+          } else {
+            // If assigned doctor is not in the current list, fetch their details
+            try {
+              const doctorResponse = await api.get(`/admin/doctors/${study.lastAssignedDoctor}`);
+              
+              if (doctorResponse.data.success && doctorResponse.data.doctor) {
+                assignedDoctor = doctorResponse.data.doctor;
+                setCurrentlyAssignedDoctor(assignedDoctor);
+                console.log('✅ Fetched assigned doctor details:', assignedDoctor);
+                
+                // Add the assigned doctor to the list if not already present
+                const doctorExists = allDoctorsList.some(
+                  doc => (doc._id === assignedDoctor._id || doc.id === assignedDoctor.id)
+                );
+                if (!doctorExists) {
+                  allDoctorsList = [...allDoctorsList, assignedDoctor];
+                  console.log('✅ Added assigned doctor to list');
+                }
+              }
+            } catch (err) {
+              console.error("❌ Could not fetch assigned doctor details", err);
+            }
+          }
+        } else {
+          setCurrentlyAssignedDoctor(null);
+          console.log('ℹ️ No currently assigned doctor');
+        }
+
         setAllDoctors(allDoctorsList);
         console.log('👨‍⚕️ Loaded doctors:', allDoctorsList.length);
+        console.log('👨‍⚕️ Currently assigned doctor:', assignedDoctor);
       }
     } catch (error) {
       console.error('❌ Error fetching doctors:', error);
@@ -64,6 +104,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   const applyFilters = () => {
     let filteredDoctors = [...allDoctors];
 
+    // Apply search filter first
     if (searchTerm.trim()) {
       const searchLower = searchTerm.toLowerCase();
       filteredDoctors = filteredDoctors.filter(doc => {
@@ -77,6 +118,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       });
     }
 
+    // 🔧 FIXED: Apply assignment filter exactly like the copy file
     if (assignmentFilter === 'assigned') {
       filteredDoctors = filteredDoctors.filter(doc => {
         if (!currentlyAssignedDoctor) return false;
@@ -84,6 +126,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
         const assignedId = currentlyAssignedDoctor._id || currentlyAssignedDoctor.id;
         return docId === assignedId;
       });
+      console.log('🔍 Filtering for assigned doctors:', filteredDoctors.length);
     } else if (assignmentFilter === 'unassigned') {
       filteredDoctors = filteredDoctors.filter(doc => {
         if (!currentlyAssignedDoctor) return true;
@@ -91,58 +134,40 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
         const assignedId = currentlyAssignedDoctor._id || currentlyAssignedDoctor.id;
         return docId !== assignedId;
       });
+      console.log('🔍 Filtering for unassigned doctors:', filteredDoctors.length);
     }
 
+    console.log(`Applied filters - Search: "${searchTerm}", Assignment: "${assignmentFilter}", Results: ${filteredDoctors.length}`);
     setDoctors(filteredDoctors);
   };
 
+  // 🔧 FIXED: Handle select doctor like copy file
   const handleSelectDoctor = (doctorId) => {
     console.log('🎯 Selecting doctor:', doctorId, 'Type:', typeof doctorId);
-    
-    // 🔧 FIXED: Clean state update - filter out any non-string values
-    setSelectedDoctorIds(prev => {
-      console.log('📋 Previous selected IDs:', prev);
-      
-      // 🔧 FIXED: Clean the array of any non-string values first
-      const cleanPrev = prev.filter(id => typeof id === 'string');
-      
-      if (cleanPrev.includes(doctorId)) {
-        const newIds = cleanPrev.filter(id => id !== doctorId);
-        console.log('✅ Unselected doctor, new IDs:', newIds);
-        return newIds;
-      } else {
-        const newIds = [...cleanPrev, doctorId];
-        console.log('✅ Selected doctor, new IDs:', newIds);
-        return newIds;
-      }
-    });
+    setSelectedDoctorId(selectedDoctorId === doctorId ? '' : doctorId);
   };
 
+  // 🔧 FIXED: Handle assign like copy file
   const handleAssign = async () => {
-    // 🔧 FIXED: Clean the selected IDs array before processing
-    const cleanSelectedIds = selectedDoctorIds.filter(id => typeof id === 'string');
-    
-    console.log('🔍 All selected IDs:', selectedDoctorIds);
-    console.log('🧹 Clean selected IDs:', cleanSelectedIds);
-    
-    if (cleanSelectedIds.length === 0) {
-      toast.error('Please select at least one doctor');
+    if (!selectedDoctorId) {
+      toast.error('Please select a doctor');
       return;
     }
 
-    // 🔧 FIXED: Use the first clean ID
-    const selectedDoctorId = cleanSelectedIds[0];
-    
+    // 🔧 FIXED: Check if reassigning to the same doctor (like copy file)
+    if (currentlyAssignedDoctor && 
+        (currentlyAssignedDoctor._id === selectedDoctorId || currentlyAssignedDoctor.id === selectedDoctorId)) {
+      toast.error('Study is already assigned to this doctor');
+      return;
+    }
+
     console.log('🔄 Assignment details:', {
       studyId: study._id,
       selectedDoctorId: selectedDoctorId,
       selectedDoctorIdType: typeof selectedDoctorId,
-      cleanSelectedIds: cleanSelectedIds,
-      originalSelectedIds: selectedDoctorIds,
       study: study
     });
 
-    // 🔧 VALIDATION: Ensure we have a valid string ID
     if (!selectedDoctorId || typeof selectedDoctorId !== 'string') {
       console.error('❌ Invalid doctor ID:', selectedDoctorId);
       toast.error('Invalid doctor selection. Please try again.');
@@ -150,10 +175,13 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
     }
 
     try {
-      const loadingToast = toast.loading('Assigning study to doctor...');
+      const loadingToast = toast.loading(
+        currentlyAssignedDoctor ? 'Reassigning study to doctor...' : 'Assigning study to doctor...'
+      );
       
+      // 🔧 FIXED: Use same request structure as copy file
       const requestData = {
-        doctorId: selectedDoctorId, // 🔧 This should now be a clean string
+        doctorId: selectedDoctorId,
         priority: 'NORMAL'
       };
 
@@ -170,7 +198,9 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       console.log('✅ Assignment response:', response.data);
 
       if (response.data.success) {
-        toast.success('Study assigned successfully!');
+        const message = response.data.message || 
+          (currentlyAssignedDoctor ? 'Study reassigned successfully!' : 'Study assigned successfully!');
+        toast.success(message);
         onAssignComplete && onAssignComplete();
         onClose();
       } else {
@@ -185,8 +215,15 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
         message: error.message
       });
       
-      const errorMessage = error.response?.data?.message || error.message || 'Failed to assign doctor - please try again';
-      toast.error(errorMessage);
+      // 🔧 FIXED: More specific error handling like copy file
+      if (error.response?.status === 400) {
+        toast.error(error.response.data.message || 'Invalid request - please check your selection');
+      } else if (error.response?.status === 404) {
+        toast.error('Study or doctor not found');
+      } else {
+        const errorMessage = error.response?.data?.message || error.message || 'Failed to assign doctor - please try again';
+        toast.error(errorMessage);
+      }
     }
   };
 
@@ -200,27 +237,29 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   const patientName = study?.patientName || 'Unknown Patient';
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[95vh] sm:max-h-[90vh] flex flex-col">
         
-        {/* Header exactly like image */}
-        <div className="bg-gray-600 text-white p-4 rounded-t-lg flex justify-between items-center">
-          <h2 className="text-lg font-medium">
-            Assign Study : {patientName}
+        {/* 📱 RESPONSIVE: Header */}
+        <div className="bg-gray-600 text-white p-3 sm:p-4 rounded-t-lg flex justify-between items-center">
+          <h2 className="text-sm sm:text-lg font-medium truncate pr-2">
+            Assign Study: {patientName}
           </h2>
           <button 
             onClick={onClose}
-            className="text-white hover:text-gray-300 text-xl font-bold w-6 h-6 flex items-center justify-center"
+            className="text-white hover:text-gray-300 text-lg sm:text-xl font-bold w-6 h-6 flex items-center justify-center flex-shrink-0"
           >
             ✕
           </button>
         </div>
 
-        {/* Search and Filter Bar exactly like image */}
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-3">
+        {/* 📱 RESPONSIVE: Currently Assigned Doctor Section */}
+       
+        {/* 📱 RESPONSIVE: Search and Filter Bar */}
+        <div className="p-3 sm:p-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
             <select 
-              className="border border-gray-300 rounded px-3 py-1 text-sm bg-white min-w-24"
+              className="border border-gray-300 rounded px-2 sm:px-3 py-1 text-xs sm:text-sm bg-white min-w-20 sm:min-w-24"
               value={assignmentFilter}
               onChange={(e) => setAssignmentFilter(e.target.value)}
             >
@@ -229,14 +268,14 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
               <option value="unassigned">Unassigned</option>
             </select>
             
-            <div className="flex items-center border border-gray-300 rounded bg-white px-2 py-1 flex-1 max-w-xs">
-              <svg className="w-4 h-4 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center border border-gray-300 rounded bg-white px-2 py-1 flex-1 sm:max-w-xs">
+              <svg className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               <input
                 type="text"
-                placeholder="FILTER RADIOLOGIST NAME..."
-                className="flex-1 outline-none text-sm text-gray-600 placeholder-gray-400"
+                placeholder="Filter radiologist..."
+                className="flex-1 outline-none text-xs sm:text-sm text-gray-600 placeholder-gray-400 min-w-0"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -244,83 +283,193 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
             
             {(searchTerm || assignmentFilter) && (
               <button 
-                className="text-blue-500 hover:text-blue-700 text-sm flex items-center"
+                className="text-blue-500 hover:text-blue-700 text-xs sm:text-sm flex items-center justify-center px-2 py-1 rounded border border-blue-300 hover:bg-blue-50"
                 onClick={clearFilters}
               >
                 ✕Clear
               </button>
             )}
           </div>
+
+          {/* 📱 RESPONSIVE: Filter status display */}
+          <div className="mt-2 text-xs sm:text-sm text-gray-600">
+            {doctors.length} of {allDoctors.length} doctor{doctors.length !== 1 ? 's' : ''} shown
+            {searchTerm && (
+              <span className="text-blue-600"> (filtered by "{searchTerm}")</span>
+            )}
+            {assignmentFilter && (
+              <span className="text-blue-600"> (showing {assignmentFilter} doctors)</span>
+            )}
+          </div>
         </div>
 
-        {/* 🔧 Debug Panel - Shows clean vs original IDs */}
-        
-
-        {/* Table exactly like image */}
+        {/* 📱 RESPONSIVE: Table/Cards Container */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full">
-            <thead className="bg-gray-600 text-white sticky top-0">
-              <tr>
-                <th className="text-left p-3 font-medium">Name</th>
-                <th className="text-center p-3 font-medium">User Role</th>
-                <th className="text-center p-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
+          {/* 🖥️ DESKTOP: Table View */}
+          <div className="hidden sm:block">
+            <table className="w-full">
+              <thead className="bg-gray-600 text-white sticky top-0">
                 <tr>
-                  <td colSpan="3" className="text-center py-8">
-                    <div className="flex flex-col items-center">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mb-2"></div>
-                      <p className="text-gray-500 text-sm">Loading doctors...</p>
-                    </div>
-                  </td>
+                  <th className="text-left p-3 font-medium">Name</th>
+                  <th className="text-center p-3 font-medium">User Role</th>
+                  <th className="text-center p-3 font-medium">Status</th>
                 </tr>
-              ) : doctors.length === 0 ? (
-                <tr>
-                  <td colSpan="3" className="text-center py-8">
-                    <p className="text-gray-500">No doctors found</p>
-                  </td>
-                </tr>
-              ) : (
-                doctors.map((doctor, index) => {
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan="3" className="text-center py-8">
+                      <div className="flex flex-col items-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mb-2"></div>
+                        <p className="text-gray-500 text-sm">Loading doctors...</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : doctors.length === 0 ? (
+                  <tr>
+                    <td colSpan="3" className="text-center py-8">
+                      <p className="text-gray-500">No doctors found</p>
+                      {assignmentFilter && (
+                        <p className="text-gray-400 text-xs mt-1">
+                          {assignmentFilter === 'assigned' 
+                            ? 'No currently assigned doctor found' 
+                            : 'All available doctors are currently assigned'
+                          }
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ) : (
+                  doctors.map((doctor, index) => {
+                    const doctorId = doctor._id || doctor.id;
+                    const isSelected = selectedDoctorId === doctorId; // 🔧 FIXED: Simple comparison
+                    const isOnline = doctor.isLoggedIn;
+                    
+                    const fullName = `${doctor.firstName || ''} ${doctor.lastName || ''}`.trim();
+                    const displayName = fullName || doctor.email || 'Unknown Doctor';
+                    
+                    const isCurrentlyAssigned = currentlyAssignedDoctor && (
+                      (currentlyAssignedDoctor._id || currentlyAssignedDoctor.id) === doctorId
+                    );
+                    
+                    return (
+                      <tr 
+                        key={doctorId}
+                        className={`border-b border-gray-200 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${
+                          isCurrentlyAssigned ? 'bg-amber-50' : ''
+                        } ${isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''} hover:bg-blue-50 cursor-pointer`}
+                        onClick={() => handleSelectDoctor(doctorId)}
+                      >
+                        <td className="p-3">
+                          <div className="flex items-center">
+                            <input
+                              type="radio" // 🔧 CHANGED: Radio button instead of checkbox
+                              name="selectedDoctor"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleSelectDoctor(doctorId);
+                              }}
+                              className="mr-3 h-4 w-4 text-blue-600 rounded border-gray-300"
+                            />
+                            <span className="text-blue-600 hover:underline font-medium">
+                              {displayName.toUpperCase()}
+                              {isCurrentlyAssigned && (
+                                <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                                  Currently Assigned
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="text-gray-700 font-medium">
+                            {(doctor.role || 'RADIOLOGIST').toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-sm font-medium ${
+                            isOnline 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            <span className={`w-2 h-2 rounded-full mr-1 ${
+                              isOnline ? 'bg-green-500' : 'bg-red-500'
+                            }`}></span>
+                            {isOnline ? 'online' : 'offline'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 📱 MOBILE: Card View */}
+          <div className="block sm:hidden p-3">
+            {loading ? (
+              <div className="flex flex-col items-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mb-2"></div>
+                <p className="text-gray-500 text-sm">Loading doctors...</p>
+              </div>
+            ) : doctors.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No doctors found</p>
+                {assignmentFilter && (
+                  <p className="text-gray-400 text-xs mt-1">
+                    {assignmentFilter === 'assigned' 
+                      ? 'No currently assigned doctor found' 
+                      : 'All available doctors are currently assigned'
+                    }
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {doctors.map((doctor, index) => {
                   const doctorId = doctor._id || doctor.id;
-                  // 🔧 FIXED: Check against clean IDs only
-                  const cleanSelectedIds = selectedDoctorIds.filter(id => typeof id === 'string');
-                  const isSelected = cleanSelectedIds.includes(doctorId);
+                  const isSelected = selectedDoctorId === doctorId; // 🔧 FIXED: Simple comparison
                   const isOnline = doctor.isLoggedIn;
                   
-                  const displayName = doctor.email || 'Unknown Doctor';
+                  const fullName = `${doctor.firstName || ''} ${doctor.lastName || ''}`.trim();
+                  const displayName = fullName || doctor.email || 'Unknown Doctor';
+                  
+                  const isCurrentlyAssigned = currentlyAssignedDoctor && (
+                    (currentlyAssignedDoctor._id || currentlyAssignedDoctor.id) === doctorId
+                  );
                   
                   return (
-                    <tr 
+                    <div 
                       key={doctorId}
-                      className={`border-b border-gray-200 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 cursor-pointer`}
+                      className={`border rounded-lg p-3 ${
+                        isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200'
+                      } ${isCurrentlyAssigned ? 'bg-amber-50' : ''} cursor-pointer`}
                       onClick={() => handleSelectDoctor(doctorId)}
                     >
-                      <td className="p-3">
-                        <div className="flex items-center">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-start">
                           <input
-                            type="checkbox"
+                            type="radio" // 🔧 CHANGED: Radio button instead of checkbox
+                            name="selectedDoctor"
                             checked={isSelected}
                             onChange={(e) => {
                               e.stopPropagation();
                               handleSelectDoctor(doctorId);
                             }}
-                            className="mr-3 h-4 w-4 text-blue-600 rounded border-gray-300"
+                            className="mr-3 h-4 w-4 text-blue-600 rounded border-gray-300 mt-1"
                           />
-                          <span className="text-blue-600 hover:underline font-medium">
-                            {displayName.toUpperCase()}
-                          </span>
+                          <div>
+                            <div className="text-blue-600 font-medium text-sm break-words">
+                              {displayName.toUpperCase()}
+                            </div>
+                            <div className="text-xs text-gray-500 break-all">
+                              {doctor.email}
+                            </div>
+                          </div>
                         </div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className="text-gray-700 font-medium">
-                          {(doctor.role || 'RADIOLOGIST').toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-sm font-medium ${
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                           isOnline 
                             ? 'bg-green-100 text-green-800' 
                             : 'bg-red-100 text-red-800'
@@ -328,39 +477,50 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                           <span className={`w-2 h-2 rounded-full mr-1 ${
                             isOnline ? 'bg-green-500' : 'bg-red-500'
                           }`}></span>
-                          {isOnline ? 'online' : 'offline'}
+                          {isOnline ? 'Online' : 'Offline'}
                         </span>
-                      </td>
-                    </tr>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 font-medium">
+                          {(doctor.role || 'RADIOLOGIST').toUpperCase()}
+                        </span>
+                        {isCurrentlyAssigned && (
+                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800">
+                            Currently Assigned
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   );
-                })
-              )}
-            </tbody>
-          </table>
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Footer exactly like image */}
-        <div className="border-t border-gray-200 p-4 bg-gray-50">
-          <div className="flex items-center justify-between">
-            <div className="text-sm text-pink-600">
-              Note : An assign study should be have clinical history...!
+        {/* 📱 RESPONSIVE: Footer */}
+        <div className="border-t border-gray-200 p-3 sm:p-4 bg-gray-50 rounded-b-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="text-xs sm:text-sm text-pink-600 text-center sm:text-left">
+              Note: An assigned study should have clinical history...!
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-2 sm:gap-3 justify-center sm:justify-end">
               <button
                 onClick={handleAssign}
-                disabled={selectedDoctorIds.filter(id => typeof id === 'string').length === 0}
-                className="bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                disabled={!selectedDoctorId} // 🔧 FIXED: Simple boolean check
+                className="bg-gray-600 text-white px-4 sm:px-6 py-2 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center text-sm flex-1 sm:flex-none justify-center"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Assign
+                {currentlyAssignedDoctor ? 'Reassign' : 'Assign'}
               </button>
               <button
                 onClick={onClose}
-                className="bg-red-500 text-white px-6 py-2 rounded hover:bg-red-600 flex items-center"
+                className="bg-red-500 text-white px-4 sm:px-6 py-2 rounded hover:bg-red-600 flex items-center text-sm flex-1 sm:flex-none justify-center"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
                 Close

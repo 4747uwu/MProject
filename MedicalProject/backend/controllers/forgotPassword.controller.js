@@ -1,5 +1,5 @@
 import User from '../models/userModel.js';
-import transporter from '../config/nodemailer.js';
+import transporter from '../config/resend.js';
 import bcrypt from 'bcryptjs';
 
 /**
@@ -55,8 +55,8 @@ export const sendResetPasswordOTP = async (req, res) => {
         
         await user.save();
 
-        // Prepare email content
-        const emailSubject = 'Password Reset OTP - Medical DICOM System';
+        // 🔧 UPDATED: Prepare email content with modern Resend styling
+        const emailSubject = '🔐 Password Reset OTP - Medical Platform';
         const emailHtml = `
             <!DOCTYPE html>
             <html>
@@ -65,80 +65,113 @@ export const sendResetPasswordOTP = async (req, res) => {
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Password Reset OTP</title>
                 <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f4f4f4; }
-                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-                    .header { text-align: center; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 20px; margin-bottom: 20px; }
-                    .otp-box { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; }
-                    .otp-code { font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 10px 0; }
-                    .warning { background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 15px; border-radius: 5px; margin: 20px 0; }
-                    .footer { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center; }
+                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f8fafc; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; }
+                    .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px 20px; text-align: center; }
+                    .content { padding: 30px 20px; }
+                    .otp-box { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 25px; border-radius: 8px; text-align: center; margin: 25px 0; }
+                    .otp-code { font-size: 36px; font-weight: bold; letter-spacing: 8px; margin: 15px 0; font-family: 'Courier New', monospace; }
+                    .warning { background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 4px; margin: 20px 0; }
+                    .footer { margin-top: 30px; padding: 20px; background-color: #f8fafc; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; text-align: center; }
+                    .button { display: inline-block; background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
                         <h1>🔐 Password Reset Request</h1>
-                        <p>Medical DICOM Workflow System</p>
+                        <p>Medical Platform - Secure Access</p>
                     </div>
                     
-                    <p>Hello <strong>${user.fullName}</strong>,</p>
-                    
-                    <p>You have requested to reset your password for your Medical DICOM System account. Please use the following One-Time Password (OTP) to proceed:</p>
-                    
-                    <div class="otp-box">
-                        <p>Your OTP Code:</p>
-                        <div class="otp-code">${plainOTP}</div>
-                        <p><small>This code will expire in 10 minutes</small></p>
+                    <div class="content">
+                        <p>Hello <strong>${user.fullName}</strong>,</p>
+                        
+                        <p>You have requested to reset your password for your Medical Platform account. Please use the following One-Time Password (OTP) to proceed with your password reset:</p>
+                        
+                        <div class="otp-box">
+                            <p style="margin: 0; font-size: 16px;">Your OTP Code:</p>
+                            <div class="otp-code">${plainOTP}</div>
+                            <p style="margin: 0; font-size: 14px; opacity: 0.9;"><strong>Valid for 10 minutes only</strong></p>
+                        </div>
+                        
+                        <div class="warning">
+                            <strong>⚠️ Security Notice:</strong>
+                            <ul style="margin: 10px 0 0 0; padding-left: 20px;">
+                                <li>This OTP is valid for only <strong>10 minutes</strong></li>
+                                <li>Do not share this code with anyone</li>
+                                <li>If you didn't request this reset, please ignore this email</li>
+                                <li>After 5 failed attempts, your account will be locked for 30 minutes</li>
+                            </ul>
+                        </div>
+                        
+                        <p>If you didn't request this password reset, please contact your system administrator immediately.</p>
+                        
+                        <div style="text-align: center; margin: 25px 0;">
+                            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password" class="button">Continue Password Reset</a>
+                        </div>
                     </div>
-                    
-                    <div class="warning">
-                        <strong>⚠️ Security Notice:</strong>
-                        <ul>
-                            <li>This OTP is valid for only <strong>10 minutes</strong></li>
-                            <li>Do not share this code with anyone</li>
-                            <li>If you didn't request this reset, please ignore this email</li>
-                            <li>After 5 failed attempts, your account will be locked for 30 minutes</li>
-                        </ul>
-                    </div>
-                    
-                    <p>If you didn't request this password reset, please contact your system administrator immediately.</p>
                     
                     <div class="footer">
-                        <p>This is an automated message from the Medical DICOM Workflow System.</p>
-                        <p>Please do not reply to this email.</p>
                         <p><strong>Account Details:</strong> ${user.username} (${user.role})</p>
+                        <p>This is an automated message from the Medical Platform.</p>
+                        <p>Please do not reply to this email.</p>
+                        <p>© 2025 Medical Platform. All rights reserved.</p>
                     </div>
                 </div>
             </body>
             </html>
         `;
 
-        // Send email
+        // 🔧 UPDATED: Send email using Brevo transporter with proper name handling
         const mailOptions = {
-            from: {
-                name: 'Medical DICOM System',
-                address: process.env.SMTP_USER
-            },
             to: user.email,
+            name: user.fullName || user.username || 'User', // 🔧 ADDED: Pass user's name
             subject: emailSubject,
             html: emailHtml
         };
 
-        await transporter.sendMail(mailOptions);
+        console.log('📤 Attempting to send OTP email via Brevo...');
+        console.log('📧 To:', user.email);
+        console.log('📧 Name:', mailOptions.name);
+        console.log('📋 Subject:', emailSubject);
 
-        console.log(`Password reset OTP sent to ${user.email} for user ${user.username}`);
+        try {
+            const result = await transporter.sendMail(mailOptions);
+            
+            console.log('✅ Email operation completed');
+            console.log('📧 Result:', JSON.stringify(result, null, 2));
+            
+            res.status(200).json({
+                success: true,
+                message: 'If an account with that email exists, an OTP has been sent to your email address via Brevo',
+                data: {
+                    email: user.email,
+                    expiresIn: '10 minutes',
+                    emailId: result?.id || result?.messageId
+                }
+            });
 
-        res.status(200).json({
-            success: true,
-            message: 'If an account with that email exists, an OTP has been sent to your email address',
-            data: {
-                email: user.email,
-                expiresIn: '10 minutes'
-            }
-        });
+        } catch (emailError) {
+            console.error('❌ Error sending email via Brevo:', emailError);
+            console.error('❌ Error details:', {
+                message: emailError.message,
+                stack: emailError.stack
+            });
+            
+            res.status(200).json({
+                success: true,
+                message: 'If an account with that email exists, an OTP has been sent to your email address',
+                data: {
+                    email: user.email,
+                    expiresIn: '10 minutes',
+                    emailId: null,
+                    error: 'Email delivery failed'
+                }
+            });
+        }
 
     } catch (error) {
-        console.error('Error sending reset password OTP:', error);
+        console.error('❌ Error sending reset password OTP via Resend:', error);
         res.status(500).json({
             success: false,
             message: 'Server error while sending OTP. Please try again later.'
@@ -239,6 +272,8 @@ export const verifyResetPasswordOTP = async (req, res) => {
         
         await user.save();
 
+        console.log(`✅ OTP verified successfully for user ${user.username}`);
+
         res.status(200).json({
             success: true,
             message: 'OTP verified successfully. You can now reset your password.',
@@ -250,7 +285,7 @@ export const verifyResetPasswordOTP = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error verifying reset password OTP:', error);
+        console.error('❌ Error verifying reset password OTP:', error);
         res.status(500).json({
             success: false,
             message: 'Server error while verifying OTP'
@@ -343,76 +378,96 @@ export const resetPassword = async (req, res) => {
         
         await user.save();
 
-        // Send confirmation email
+        // 🔧 UPDATED: Send confirmation email with modern Resend styling
         const confirmationEmailHtml = `
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Password Reset Confirmation</title>
                 <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f4f4f4; }
-                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-                    .header { text-align: center; color: #333; border-bottom: 2px solid #28a745; padding-bottom: 20px; margin-bottom: 20px; }
-                    .success-box { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; }
+                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f8fafc; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; }
+                    .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px 20px; text-align: center; }
+                    .content { padding: 30px 20px; }
+                    .success-box { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 25px; border-radius: 8px; text-align: center; margin: 25px 0; }
+                    .info-box { background-color: #f0f9ff; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 4px; margin: 20px 0; }
+                    .footer { margin-top: 30px; padding: 20px; background-color: #f8fafc; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; text-align: center; }
+                    .button { display: inline-block; background-color: #10b981; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
                         <h1>✅ Password Reset Successful</h1>
-                        <p>Medical DICOM Workflow System</p>
+                        <p>Medical Platform - Secure Access</p>
                     </div>
                     
-                    <p>Hello <strong>${user.fullName}</strong>,</p>
-                    
-                    <div class="success-box">
-                        <h2>🔒 Your password has been successfully reset!</h2>
-                        <p>You can now login with your new password.</p>
+                    <div class="content">
+                        <p>Hello <strong>${user.fullName}</strong>,</p>
+                        
+                        <div class="success-box">
+                            <h2 style="margin: 0 0 10px 0;">🔒 Password Successfully Updated!</h2>
+                            <p style="margin: 0; font-size: 16px;">You can now login with your new password.</p>
+                        </div>
+                        
+                        <div class="info-box">
+                            <p><strong>🛡️ Security Information:</strong></p>
+                            <ul style="margin: 10px 0 0 0; padding-left: 20px;">
+                                <li>Password reset completed at: ${new Date().toLocaleString()}</li>
+                                <li>Your account has been automatically logged out from all devices</li>
+                                <li>Please login with your new password to continue</li>
+                                <li>If you didn't make this change, contact your administrator immediately</li>
+                            </ul>
+                        </div>
+                        
+                        <div style="text-align: center; margin: 25px 0;">
+                            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" class="button">Login to Medical Platform</a>
+                        </div>
+                        
+                        <p style="margin-top: 30px; color: #6b7280; font-size: 14px;">
+                            For your security, this email confirms that your password was successfully changed. 
+                            If you experience any issues logging in, please contact technical support.
+                        </p>
                     </div>
                     
-                    <p><strong>Security Information:</strong></p>
-                    <ul>
-                        <li>Password reset completed at: ${new Date().toLocaleString()}</li>
-                        <li>If you didn't make this change, contact your administrator immediately</li>
-                        <li>Please login with your new password</li>
-                    </ul>
-                    
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
-                        <p>This is an automated message from the Medical DICOM Workflow System.</p>
+                    <div class="footer">
+                        <p><strong>Account:</strong> ${user.username} (${user.role})</p>
+                        <p>This is an automated message from the Medical Platform.</p>
+                        <p>© 2025 Medical Platform. All rights reserved.</p>
                     </div>
                 </div>
             </body>
             </html>
         `;
 
+        // 🔧 UPDATED: Send confirmation email using Resend
         const confirmationMailOptions = {
-            from: {
-                name: 'Medical DICOM System',
-                address: process.env.SMTP_USER
-            },
             to: user.email,
-            subject: 'Password Reset Confirmation - Medical DICOM System',
+            subject: '✅ Password Reset Confirmation - Medical Platform',
             html: confirmationEmailHtml
         };
 
         // Send confirmation email (don't wait for it)
         transporter.sendMail(confirmationMailOptions).catch(err => {
-            console.error('Error sending confirmation email:', err);
+            console.error('❌ Error sending password reset confirmation email via Resend:', err);
         });
 
-        console.log(`Password successfully reset for user ${user.username} (${user.email})`);
+        console.log(`✅ Password successfully reset for user ${user.username} (${user.email})`);
 
         res.status(200).json({
             success: true,
             message: 'Password reset successfully. Please login with your new password.',
             data: {
                 email: user.email,
-                username: user.username
+                username: user.username,
+                resetAt: new Date().toISOString()
             }
         });
 
     } catch (error) {
-        console.error('Error resetting password:', error);
+        console.error('❌ Error resetting password:', error);
         res.status(500).json({
             success: false,
             message: 'Server error while resetting password'
@@ -479,68 +534,80 @@ export const resendResetPasswordOTP = async (req, res) => {
         
         await user.save();
 
-        // Send email with new OTP
+        // 🔧 UPDATED: Send email with new OTP using modern styling
         const emailHtml = `
             <!DOCTYPE html>
             <html>
             <head>
                 <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>New Password Reset OTP</title>
                 <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f4f4f4; }
-                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-                    .header { text-align: center; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 20px; margin-bottom: 20px; }
-                    .otp-box { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; }
-                    .otp-code { font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 10px 0; }
-                    .resent-notice { background-color: #d1ecf1; border: 1px solid #bee5eb; color: #0c5460; padding: 15px; border-radius: 5px; margin: 20px 0; }
+                    body { font-family: Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f8fafc; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; padding: 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; }
+                    .header { background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%); color: white; padding: 30px 20px; text-align: center; }
+                    .content { padding: 30px 20px; }
+                    .otp-box { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 25px; border-radius: 8px; text-align: center; margin: 25px 0; }
+                    .otp-code { font-size: 36px; font-weight: bold; letter-spacing: 8px; margin: 15px 0; font-family: 'Courier New', monospace; }
+                    .resent-notice { background-color: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; border-radius: 4px; margin: 20px 0; }
+                    .footer { margin-top: 30px; padding: 20px; background-color: #f8fafc; border-top: 1px solid #e5e7eb; font-size: 14px; color: #6b7280; text-align: center; }
                 </style>
             </head>
             <body>
                 <div class="container">
                     <div class="header">
                         <h1>🔐 New Password Reset OTP</h1>
-                        <p>Medical DICOM Workflow System</p>
+                        <p>Medical Platform - Secure Access</p>
                     </div>
                     
-                    <p>Hello <strong>${user.fullName}</strong>,</p>
-                    
-                    <div class="resent-notice">
-                        <strong>📧 OTP Resent</strong><br>
-                        This is a new OTP code. Your previous OTP has been invalidated.
+                    <div class="content">
+                        <p>Hello <strong>${user.fullName}</strong>,</p>
+                        
+                        <div class="resent-notice">
+                            <strong>📧 New OTP Generated</strong><br>
+                            This is a new OTP code. Your previous OTP has been invalidated for security.
+                        </div>
+                        
+                        <div class="otp-box">
+                            <p style="margin: 0; font-size: 16px;">Your New OTP Code:</p>
+                            <div class="otp-code">${plainOTP}</div>
+                            <p style="margin: 0; font-size: 14px; opacity: 0.9;"><strong>Valid for 10 minutes only</strong></p>
+                        </div>
+                        
+                        <p>Please use this new OTP to complete your password reset. The code will expire in 10 minutes for your security.</p>
                     </div>
                     
-                    <div class="otp-box">
-                        <p>Your New OTP Code:</p>
-                        <div class="otp-code">${plainOTP}</div>
-                        <p><small>This code will expire in 10 minutes</small></p>
-                    </div>
-                    
-                    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
-                        <p>This is an automated message from the Medical DICOM Workflow System.</p>
+                    <div class="footer">
+                        <p>This is an automated message from the Medical Platform.</p>
+                        <p>© 2025 Medical Platform. All rights reserved.</p>
                     </div>
                 </div>
             </body>
             </html>
         `;
 
+        // 🔧 UPDATED: Send using Resend transporter
         const mailOptions = {
-            from: {
-                name: 'Medical DICOM System',
-                address: process.env.SMTP_USER
-            },
             to: user.email,
-            subject: 'New Password Reset OTP - Medical DICOM System',
+            subject: '🔐 New Password Reset OTP - Medical Platform',
             html: emailHtml
         };
 
         await transporter.sendMail(mailOptions);
 
+        console.log(`📧 New OTP sent via Resend to ${user.email} for user ${user.username}`);
+
         res.status(200).json({
             success: true,
-            message: 'A new OTP has been sent to your email address'
+            message: 'A new OTP has been sent to your email address via Resend',
+            data: {
+                email: user.email,
+                expiresIn: '10 minutes'
+            }
         });
 
     } catch (error) {
-        console.error('Error resending OTP:', error);
+        console.error('❌ Error resending OTP via Resend:', error);
         res.status(500).json({
             success: false,
             message: 'Server error while resending OTP'

@@ -271,49 +271,49 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-start justify-center p-2 pt-4 overflow-auto">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl min-h-[40vh] h-[55vh] flex flex-col overflow-hidden my-auto">
+    <div className="fixed inset-0 z-50 bg-black bg-opacity-40 flex items-start justify-center p-2 sm:p-4 pt-4 overflow-auto">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm sm:max-w-xl md:max-w-3xl lg:max-w-5xl xl:max-w-7xl min-h-[60vh] sm:min-h-[50vh] h-auto sm:h-[65vh] md:h-[60vh] lg:h-[55vh] flex flex-col overflow-hidden my-auto">
         
         {/* 🎨 COMPACT HEADER */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 py-3 px-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <div className="bg-blue-500 p-2 rounded-lg">
-                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 py-3 px-3 sm:px-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-0">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="bg-blue-500 p-1.5 sm:p-2 rounded-lg">
+                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Medical Reports</h3>
+                <h3 className="text-base sm:text-lg font-semibold text-gray-900">Medical Reports</h3>
                 <p className="text-xs text-gray-600">
-                  <span className="font-medium">{patientName}</span> • ID: <span className="font-medium">{patientId}</span>
+                  <span className="font-medium block sm:inline">{patientName}</span><span className="hidden sm:inline"> • </span>ID: <span className="font-medium">{patientId}</span>
                 </p>
               </div>
             </div>
             
             {/* 📊 INLINE STATUS CARDS */}
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2 sm:space-x-3 mt-2 sm:mt-0 w-full sm:w-auto justify-around sm:justify-end">
               <div className="text-center">
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(workflowStatus)}`}>
+                <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${getStatusColor(workflowStatus)}`}>
                   {workflowStatus?.replace(/_/g, ' ')?.toUpperCase() || 'UNKNOWN'}
                 </span>
-                <p className="text-xs text-gray-500 mt-1">Status</p>
+                <p className="text-xs text-gray-500 mt-0.5 sm:mt-1">Status</p>
               </div>
               
               <div className="text-center">
-                <p className="text-lg font-semibold text-gray-900">{reportResponse?.totalReports || 0}</p>
+                <p className="text-base sm:text-lg font-semibold text-gray-900">{reportResponse?.totalReports || 0}</p>
                 <p className="text-xs text-gray-500">Reports</p>
               </div>
               
-              <div className="text-center max-w-32">
-                <p className="text-sm font-medium text-gray-900 truncate">
+              <div className="text-center max-w-24 sm:max-w-32">
+                <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">
                   {reportResponse?.studyInfo?.reportInfo?.reporterName || assignedDoctor?.fullName || 'Unassigned'}
                 </p>
                 <p className="text-xs text-gray-500">Doctor</p>
               </div>
             </div>
             
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+            <button onClick={onClose} className="absolute top-3 right-3 sm:relative sm:top-auto sm:right-auto text-gray-400 hover:text-gray-600 p-1">
               <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -322,11 +322,11 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
         </div>
 
         {/* 🎨 COMPACT TABS */}
-        <div className="flex border-b bg-gray-50">
+        <div className="flex border-b bg-gray-50 overflow-x-auto whitespace-nowrap">
           {tabs.map((tab) => (
             <button 
               key={tab.id}
-              className={`py-2 px-4 font-medium text-sm transition-all duration-200 border-b-2 flex items-center space-x-2 ${
+              className={`py-2 px-3 sm:px-4 font-medium text-xs sm:text-sm transition-all duration-200 border-b-2 flex items-center space-x-1 sm:space-x-2 ${
                 activeTab === tab.id 
                   ? `text-${tab.color}-600 border-${tab.color}-500 bg-white shadow-sm` 
                   : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100'
@@ -340,32 +340,32 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
         </div>
 
         {/* 📱 OPTIMIZED TAB CONTENT */}
-        <div className="flex-grow overflow-auto bg-gray-50">
+        <div className="flex-grow overflow-auto bg-gray-50 p-2 sm:p-4">
           
           {/* 📋 VIEW REPORTS TAB - OPTIMIZED */}
           {activeTab === 0 && (
-            <div className="p-4">
-              <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+            <div className="h-full">
+              <div className="bg-white rounded-lg shadow-sm border overflow-hidden h-full flex flex-col">
                 {loading ? (
-                  <div className="flex justify-center items-center h-48">
+                  <div className="flex justify-center items-center flex-grow">
                     <div className="text-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-3"></div>
                       <p className="text-gray-600 text-sm">Loading reports...</p>
                     </div>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto flex-grow">
                     <table className="min-w-full">
                       <thead className="bg-gray-50 border-b">
                         <tr>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">#</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">File Details</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Uploaded By</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Date & Time</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Size</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                          <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
-                          <th className="px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">#</th>
+                          <th className="px-2 sm:px-4 py-2 text-left text-xs font-semibold text-gray-600 uppercase">File Details</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Uploaded By</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase hidden lg:table-cell">Date & Time</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase hidden md:table-cell">Size</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
+                          <th className="px-2 sm:px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase hidden sm:table-cell">Type</th>
+                          <th className="px-2 sm:px-4 py-2 text-center text-xs font-semibold text-gray-600 uppercase">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -387,27 +387,27 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                             return (
                               <tr key={index} className="hover:bg-gray-50 transition-colors">
                                 {/* Index */}
-                                <td className="px-3 py-3 whitespace-nowrap">
-                                  <div className="flex items-center justify-center w-6 h-6 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap">
+                                  <div className="flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
                                     {index + 1}
                                   </div>
                                 </td>
                                 
                                 {/* File Details */}
-                                <td className="px-4 py-3">
+                                <td className="px-2 sm:px-4 py-2 sm:py-3">
                                   <div className="flex items-center">
-                                    <div className="flex-shrink-0 h-8 w-8">
-                                      <div className="h-8 w-8 rounded-lg bg-red-100 flex items-center justify-center">
-                                        <svg className="h-4 w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div className="flex-shrink-0 h-6 w-6 sm:h-8 sm:w-8">
+                                      <div className="h-6 w-6 sm:h-8 sm:w-8 rounded-lg bg-red-100 flex items-center justify-center">
+                                        <svg className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
                                       </div>
                                     </div>
-                                    <div className="ml-3">
-                                      <div className="text-sm font-medium text-gray-900 truncate max-w-48" title={report.filename}>
+                                    <div className="ml-2 sm:ml-3">
+                                      <div className="text-xs sm:text-sm font-medium text-gray-900 truncate max-w-28 sm:max-w-48" title={report.filename}>
                                         {report.filename}
                                       </div>
-                                      <div className="text-xs text-gray-500 truncate max-w-48" title={report.contentType}>
+                                      <div className="text-xs text-gray-500 truncate max-w-28 sm:max-w-48" title={report.contentType}>
                                         {report.contentType}
                                       </div>
                                     </div>
@@ -415,17 +415,17 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                                 </td>
                                 
                                 {/* Uploaded By */}
-                                <td className="px-3 py-3 whitespace-nowrap">
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap hidden md:table-cell">
                                   <div className="flex items-center">
-                                    <div className="flex-shrink-0 h-6 w-6">
-                                      <div className="h-6 w-6 rounded-full bg-gray-200 flex items-center justify-center">
-                                        <svg className="h-3 w-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div className="flex-shrink-0 h-5 w-5 sm:h-6 sm:w-6">
+                                      <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-full bg-gray-200 flex items-center justify-center">
+                                        <svg className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                         </svg>
                                       </div>
                                     </div>
-                                    <div className="ml-2">
-                                      <div className="text-sm font-medium text-gray-900 truncate max-w-24" title={report.uploadedBy || 'Unknown'}>
+                                    <div className="ml-1.5 sm:ml-2">
+                                      <div className="text-xs sm:text-sm font-medium text-gray-900 truncate max-w-20 sm:max-w-24" title={report.uploadedBy || 'Unknown'}>
                                         {report.uploadedBy || 'Unknown'}
                                       </div>
                                     </div>
@@ -433,7 +433,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                                 </td>
                                 
                                 {/* Date & Time */}
-                                <td className="px-3 py-3 whitespace-nowrap text-xs text-gray-600">
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap text-xs text-gray-600 hidden lg:table-cell">
                                   <div className="text-center">
                                     <div className="font-medium">{dateTime.date}</div>
                                     <div className="text-gray-500">{dateTime.time}</div>
@@ -441,15 +441,15 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                                 </td>
                                 
                                 {/* 🔧 FIXED: Size Column */}
-                                <td className="px-3 py-3 whitespace-nowrap">
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap hidden md:table-cell">
+                                  <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                                     {report.formattedSize || formatFileSize(report.size)}
                                   </span>
                                 </td>
                                 
                                 {/* Status */}
-                                <td className="px-3 py-3 whitespace-nowrap">
-                                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap">
+                                  <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium ${
                                     report.reportStatus === 'finalized' 
                                       ? 'bg-green-100 text-green-800' 
                                       : 'bg-yellow-100 text-yellow-800'
@@ -459,18 +459,18 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                                 </td>
                                 
                                 {/* Type */}
-                                <td className="px-3 py-3 whitespace-nowrap">
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                <td className="px-2 sm:px-3 py-2 sm:py-3 whitespace-nowrap hidden sm:table-cell">
+                                  <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                                     {report.reportType?.replace(/-/g, ' ') || 'Report'}
                                   </span>
                                 </td>
                                 
                                 {/* Actions */}
-                                <td className="px-4 py-3 whitespace-nowrap text-center">
-                                  <div className="flex justify-center space-x-1">
+                                <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap text-center">
+                                  <div className="flex flex-col sm:flex-row justify-center space-y-1 sm:space-y-0 sm:space-x-1">
                                     <button
                                       onClick={() => handleDownloadReport(report.index)}
-                                      className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors"
+                                      className="inline-flex items-center px-1.5 sm:px-2 py-1 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 transition-colors"
                                       title="Download Report"
                                     >
                                       <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -480,7 +480,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                                     </button>
                                     <button
                                       onClick={() => handleDeleteReport(report.index)}
-                                      className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200 transition-colors"
+                                      className="inline-flex items-center px-1.5 sm:px-2 py-1 border border-transparent text-xs font-medium rounded text-red-700 bg-red-100 hover:bg-red-200 transition-colors"
                                       title="Delete Report"
                                     >
                                       <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -504,18 +504,18 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
 
           {/* ✨ GENERATE REPORT TAB - COMPACT */}
           {activeTab === 1 && (
-            <div className="p-4">
-              <div className="bg-white rounded-lg shadow-sm border p-6">
-                <div className="text-center space-y-4">
-                  <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
-                    <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-2 sm:p-4 h-full">
+              <div className="bg-white rounded-lg shadow-sm border p-4 sm:p-6 h-full flex flex-col justify-center">
+                <div className="text-center space-y-3 sm:space-y-4">
+                  <div className="mx-auto flex items-center justify-center h-10 w-10 sm:h-12 sm:w-12 rounded-full bg-green-100">
+                    <svg className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                   </div>
                   
                   <div>
-                    <h3 className="text-lg font-medium text-gray-900">Generate Report Template</h3>
-                    <p className="mt-2 text-sm text-gray-600">
+                    <h3 className="text-base sm:text-lg font-medium text-gray-900">Generate Report Template</h3>
+                    <p className="mt-1 sm:mt-2 text-xs sm:text-sm text-gray-600">
                       Create a standardized medical report for <strong>{patientName}</strong>
                     </p>
                   </div>
@@ -523,7 +523,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                   <button
                     onClick={handleGenerateReport}
                     disabled={generating}
-                    className={`inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all ${
+                    className={`inline-flex items-center px-4 sm:px-6 py-2 border border-transparent text-xs sm:text-sm font-medium rounded-lg shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all ${
                       generating ? 'opacity-75 cursor-not-allowed' : 'hover:shadow-lg'
                     }`}
                   >
@@ -545,8 +545,8 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                     )}
                   </button>
 
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-sm text-gray-600">Report will be generated as a Microsoft Word document (.docx)</p>
+                  <div className="bg-gray-50 rounded-lg p-2 sm:p-3">
+                    <p className="text-xs sm:text-sm text-gray-600">Report will be generated as a Microsoft Word document (.docx)</p>
                   </div>
                 </div>
               </div>
@@ -555,17 +555,17 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
 
           {/* 📤 UPLOAD REPORT TAB - COMPACT */}
           {activeTab === 2 && (
-            <div className="p-4">
-              <div className="bg-white rounded-lg shadow-sm border p-4">
-                <div className="space-y-4">
+            <div className="p-2 sm:p-4 h-full">
+              <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 h-full flex flex-col justify-center">
+                <div className="space-y-3 sm:space-y-4">
                   {/* File Upload Area */}
-                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
-                    <svg className="mx-auto h-10 w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 sm:p-6 text-center hover:border-gray-400 transition-colors">
+                    <svg className="mx-auto h-8 w-8 sm:h-10 sm:w-10 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                       <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    <div className="mt-3">
+                    <div className="mt-2 sm:mt-3">
                       <label htmlFor="report-file-input" className="cursor-pointer">
-                        <span className="mt-2 block text-sm font-medium text-gray-900">
+                        <span className="mt-1 sm:mt-2 block text-xs sm:text-sm font-medium text-gray-900">
                           Choose report file to upload
                         </span>
                         <input
@@ -575,34 +575,34 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                           className="sr-only"
                           accept=".pdf,.doc,.docx,.txt"
                         />
-                        <span className="mt-1 block text-xs text-gray-500">
+                        <span className="mt-0.5 sm:mt-1 block text-xs text-gray-500">
                           PDF, DOC, DOCX up to 10MB
                         </span>
                       </label>
                     </div>
                     
                     {selectedFile && (
-                      <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="mt-2 sm:mt-3 p-1.5 sm:p-2 bg-blue-50 border border-blue-200 rounded-md">
                         <div className="flex items-center justify-center">
-                          <svg className="w-4 h-4 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-3 h-3 sm:w-4 sm:h-4 text-blue-500 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                           </svg>
-                          <span className="text-sm text-blue-700 font-medium">{selectedFile.name}</span>
-                          <span className="text-xs text-blue-500 ml-2">({formatFileSize(selectedFile.size)})</span>
+                          <span className="text-xs sm:text-sm text-blue-700 font-medium truncate max-w-[150px] sm:max-w-xs">{selectedFile.name}</span>
+                          <span className="text-xs text-blue-500 ml-1 sm:ml-2">({formatFileSize(selectedFile.size)})</span>
                         </div>
                       </div>
                     )}
                   </div>
 
                   {/* Upload Controls */}
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 sm:gap-0">
                     <div>
-                      <label htmlFor="report-status" className="block text-sm font-medium text-gray-700 mb-1">
+                      <label htmlFor="report-status" className="block text-xs sm:text-sm font-medium text-gray-700 mb-0.5 sm:mb-1">
                         Report Status
                       </label>
                       <select
                         id="report-status"
-                        className="block w-40 pl-3 pr-8 py-2 text-sm border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 rounded-md"
+                        className="block w-full sm:w-40 pl-2 sm:pl-3 pr-6 sm:pr-8 py-1.5 sm:py-2 text-xs sm:text-sm border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 rounded-md"
                         value={reportStatus}
                         onChange={(e) => setReportStatus(e.target.value)}
                       >
@@ -615,7 +615,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
                       type="button"
                       onClick={handleUploadReport}
                       disabled={!selectedFile || uploading}
-                      className={`inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all ${
+                      className={`inline-flex items-center px-3 sm:px-4 py-2 border border-transparent shadow-sm text-xs sm:text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all w-full sm:w-auto mt-2 sm:mt-0 ${
                         !selectedFile || uploading ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-lg'
                       }`}
                     >
@@ -644,33 +644,33 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
 
           {/* 🔍 FINDINGS TAB - COMPACT */}
           {activeTab === 3 && (
-            <div className="p-4">
-              <div className="bg-white rounded-lg shadow-sm border p-4">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-medium text-gray-900">Clinical Findings</h3>
-                    <span className="text-sm text-gray-500">
+            <div className="p-2 sm:p-4 h-full">
+              <div className="bg-white rounded-lg shadow-sm border p-3 sm:p-4 h-full flex flex-col">
+                <div className="space-y-2 sm:space-y-3 flex-grow flex flex-col">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                    <h3 className="text-base sm:text-lg font-medium text-gray-900">Clinical Findings</h3>
+                    <span className="text-xs sm:text-sm text-gray-500 mt-1 sm:mt-0">
                       Doctor: {reportResponse?.studyInfo?.reportInfo?.reporterName || 'Unassigned'}
                     </span>
                   </div>
                   
                   <textarea 
-                    rows={10}
-                    className="w-full p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 resize-none text-sm"
+                    rows={8}
+                    className="w-full p-2 sm:p-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-orange-500 focus:border-orange-500 resize-none text-xs sm:text-sm flex-grow"
                     placeholder="Enter detailed clinical findings, observations, and diagnostic impressions..."
                     value={findings}
                     onChange={(e) => setFindings(e.target.value)}
                   ></textarea>
                   
-                  <div className="flex justify-between items-center">
-                    <div className="text-sm text-gray-500">
+                  <div className="flex flex-col sm:flex-row justify-between items-center mt-2 sm:mt-0">
+                    <div className="text-xs sm:text-sm text-gray-500">
                       Last updated: Never
                     </div>
                     <button
                       type="button"
                       onClick={handleSaveFindings}
                       disabled={savingFindings}
-                      className={`inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 transition-colors ${
+                      className={`inline-flex items-center px-3 sm:px-4 py-1.5 sm:py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 transition-colors text-xs sm:text-sm w-full sm:w-auto mt-2 sm:mt-0 ${
                         savingFindings ? 'opacity-75 cursor-not-allowed' : ''
                       }`}
                     >
@@ -700,14 +700,14 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
         </div>
 
         {/* 🎨 COMPACT FOOTER */}
-        <div className="bg-white border-t px-4 py-2 flex justify-between items-center">
+        <div className="bg-white border-t px-3 sm:px-4 py-2 flex justify-between items-center">
           <div className="text-xs text-gray-500">
             Study ID: <span className="font-mono">{studyData?._id?.slice(-8) || 'N/A'}</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
+            className="inline-flex items-center px-2.5 sm:px-3 py-1 sm:py-1.5 border border-gray-300 shadow-sm text-xs sm:text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
           >
             Close
           </button>

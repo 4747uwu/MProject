@@ -51,6 +51,10 @@ const UserSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Lab',
     },
+    isLoggedIn: {
+        type: Boolean,
+        default: false,
+    },
      // Password reset fields
      resetPasswordOTP: {
         type: String,

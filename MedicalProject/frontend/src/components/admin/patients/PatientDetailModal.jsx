@@ -24,10 +24,42 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   const [error, setError] = useState('');
 
   // Editable fields state
+  // 🆕 NEW: Enhanced state for new fields
   const [editedData, setEditedData] = useState({
     patientInfo: {},
     clinicalInfo: {},
-    physicianInfo: {},
+    // 🆕 NEW: Enhanced physician and technologist info
+    physicianInfo: {
+      referringPhysician: '',
+      referringPhysicianName: '',
+      referringPhysicianEmail: '',
+      referringPhysicianMobile: '',
+      referringPhysicianInstitution: '',
+      referringPhysicianContact: '',
+      requestingPhysician: '',
+      requestingPhysicianEmail: '',
+      requestingPhysicianMobile: '',
+      requestingPhysicianInstitution: ''
+    },
+    // 🆕 NEW: Technologist information
+    technologistInfo: {
+      name: '',
+      mobile: '',
+      comments: '',
+      reasonToSend: ''
+    },
+    // 🆕 NEW: Priority and time information
+    priorityInfo: {
+      studyPriority: 'SELECT',
+      priorityLevel: 'NORMAL',
+      caseType: 'routine'
+    },
+    timeInfo: {
+      modifiedDate: '',
+      modifiedTime: '',
+      reportDate: '',
+      reportTime: ''
+    },
     referralInfo: '',
     studyInfo: {}
   });
@@ -56,14 +88,12 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     try {
       let response = await api.get(`/labEdit/patients/${patientId}`);
       
-      
-      
-      console.log('Patient Details:', response.data);
+      console.log('🔍 Patient Details Response:', response.data);
       
       const data = response.data.data;
       setPatientDetails(data);
       
-      // 🔧 UPDATED DATA MAPPING based on actual API response
+      // 🔧 ENHANCED: Map all new API fields to component state
       const fullName = data.patientInfo?.fullName || '';
       const nameParts = fullName.trim().split(' ');
       const firstName = nameParts[0] || '';
@@ -85,18 +115,38 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
           previousInjury: data.clinicalInfo?.previousInjury || '',
           previousSurgery: data.clinicalInfo?.previousSurgery || ''
         },
-        // 🆕 ENHANCED: Referring physician information
+        // 🆕 NEW: Enhanced physician information from API
         physicianInfo: {
           referringPhysician: data.visitInfo?.referringPhysician !== 'N/A' ? data.visitInfo?.referringPhysician : '',
-          // 🆕 NEW: Extract additional referring physician details
-          referringPhysicianName: data.referringPhysicians?.current?.name || data.visitInfo?.referringPhysicianDetails?.name || '',
-          referringPhysicianInstitution: data.referringPhysicians?.current?.institution || data.visitInfo?.referringPhysicianDetails?.institution || '',
-          referringPhysicianContact: data.referringPhysicians?.current?.contactInfo || data.visitInfo?.referringPhysicianDetails?.contactInfo || '',
-          requestingPhysician: '',
-          email: '',
-          mobile: '',
-          technologistName: '',
-          technologistMobile: ''
+          referringPhysicianName: data.studyInfo?.physicians?.referring?.name || data.visitInfo?.referringPhysician || '',
+          referringPhysicianEmail: data.studyInfo?.physicians?.referring?.email || data.visitInfo?.referringPhysicianEmail || '',
+          referringPhysicianMobile: data.studyInfo?.physicians?.referring?.mobile || data.visitInfo?.referringPhysicianMobile || '',
+          referringPhysicianInstitution: data.studyInfo?.physicians?.referring?.institution || data.visitInfo?.referringPhysicianInstitution || '',
+          referringPhysicianContact: data.studyInfo?.physicians?.referring?.contactInfo || data.visitInfo?.referringPhysicianContact || '',
+          requestingPhysician: data.studyInfo?.physicians?.requesting?.name || data.visitInfo?.requestingPhysician || '',
+          requestingPhysicianEmail: data.studyInfo?.physicians?.requesting?.email || data.visitInfo?.requestingPhysicianEmail || '',
+          requestingPhysicianMobile: data.studyInfo?.physicians?.requesting?.mobile || data.visitInfo?.requestingPhysicianMobile || '',
+          requestingPhysicianInstitution: data.studyInfo?.physicians?.requesting?.institution || data.visitInfo?.requestingPhysicianInstitution || ''
+        },
+        // 🆕 NEW: Technologist information from API
+        technologistInfo: {
+          name: data.studyInfo?.technologist?.name || data.visitInfo?.technologistName || '',
+          mobile: data.studyInfo?.technologist?.mobile || data.visitInfo?.technologistMobile || '',
+          comments: data.studyInfo?.technologist?.comments || data.visitInfo?.technologistComments || '',
+          reasonToSend: data.studyInfo?.technologist?.reasonToSend || data.visitInfo?.technologistReasonToSend || ''
+        },
+        // 🆕 NEW: Priority information from API
+        priorityInfo: {
+          studyPriority: data.studyInfo?.studyPriority || data.visitInfo?.studyPriority || 'SELECT',
+          priorityLevel: data.studyInfo?.priorityLevel || data.visitInfo?.priorityLevel || 'NORMAL',
+          caseType: data.studyInfo?.caseType || data.visitInfo?.caseType || 'routine'
+        },
+        // 🆕 NEW: Time information from API
+        timeInfo: {
+          modifiedDate: data.studyInfo?.modifiedDate || data.visitInfo?.modifiedDate || '',
+          modifiedTime: data.studyInfo?.modifiedTime || data.visitInfo?.modifiedTime || '',
+          reportDate: data.studyInfo?.reportDate || data.visitInfo?.reportDate || '',
+          reportTime: data.studyInfo?.reportTime || data.visitInfo?.reportTime || ''
         },
         referralInfo: '',
         studyInfo: {
@@ -112,6 +162,8 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       setReferringPhysician(data.visitInfo?.referringPhysician !== 'N/A' && !!data.visitInfo?.referringPhysician);
       
       setLoading(false);
+      console.log('✅ Enhanced patient data mapped successfully');
+      
     } catch (error) {
       console.error('Error fetching patient details:', error);
       setError('An error occurred while fetching patient details');
@@ -242,6 +294,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     setSaving(true);
     
     try {
+      // 🔧 ENHANCED: Include ALL new fields in the update data
       const updateData = {
         patientInfo: {
           firstName: editedData.patientInfo.firstName,
@@ -257,27 +310,79 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
           previousInjury: previousInjuryChecked ? editedData.clinicalInfo.previousInjury : '',
           previousSurgery: previousSurgeryChecked ? editedData.clinicalInfo.previousSurgery : ''
         },
+        // 🆕 ENHANCED: Complete physician information
         physicianInfo: {
-          ...editedData.physicianInfo,
-          referringPhysician
+          // Referring physician
+          referringPhysicianName: editedData.physicianInfo.referringPhysicianName,
+          referringPhysician: editedData.physicianInfo.referringPhysician,
+          referringPhysicianEmail: editedData.physicianInfo.referringPhysicianEmail,
+          referringPhysicianMobile: editedData.physicianInfo.referringPhysicianMobile,
+          referringPhysicianInstitution: editedData.physicianInfo.referringPhysicianInstitution,
+          referringPhysicianContact: editedData.physicianInfo.referringPhysicianContact,
+          
+          // Requesting physician
+          requestingPhysician: editedData.physicianInfo.requestingPhysician,
+          requestingPhysicianEmail: editedData.physicianInfo.requestingPhysicianEmail,
+          requestingPhysicianMobile: editedData.physicianInfo.requestingPhysicianMobile,
+          requestingPhysicianInstitution: editedData.physicianInfo.requestingPhysicianInstitution
+        },
+        // 🆕 NEW: Technologist information
+        technologistInfo: {
+          name: editedData.technologistInfo.name,
+          mobile: editedData.technologistInfo.mobile,
+          comments: editedData.technologistInfo.comments,
+          reasonToSend: editedData.technologistInfo.reasonToSend
+        },
+        // 🆕 NEW: Priority information
+        priorityInfo: {
+          studyPriority: editedData.priorityInfo.studyPriority,
+          priorityLevel: editedData.priorityInfo.priorityLevel,
+          caseType: editedData.priorityInfo.caseType
+        },
+        // 🆕 NEW: Time information (usually read-only, but include for completeness)
+        timeInfo: {
+          modifiedDate: editedData.timeInfo.modifiedDate,
+          modifiedTime: editedData.timeInfo.modifiedTime,
+          reportDate: editedData.timeInfo.reportDate,
+          reportTime: editedData.timeInfo.reportTime
         },
         referralInfo: editedData.referralInfo,
         studyInfo: editedData.studyInfo
       };
 
-      console.log('📤 Sending update data:', JSON.stringify(updateData, null, 2));
+      console.log('📤 Sending COMPLETE update data with all new fields:', JSON.stringify(updateData, null, 2));
 
       const endpoint = isLabStaff ? `/labEdit/patients/${patientId}` : `/admin/patients/${patientId}`;
       const response = await api.put(endpoint, updateData);
       
       console.log('✅ Update response:', response.data);
       
-      toast.success('Patient information updated successfully');
+      // 🆕 ENHANCED: Show detailed success message
+      const updatedFields = [];
+      if (response.data.data?.updateSummary?.technologistUpdated) updatedFields.push('technologist');
+      if (response.data.data?.updateSummary?.priorityInfoUpdated) updatedFields.push('priority settings');
+      if (response.data.data?.updateSummary?.referringPhysicianUpdated) updatedFields.push('referring physician');
+      if (response.data.data?.updateSummary?.requestingPhysicianUpdated) updatedFields.push('requesting physician');
+      
+      let successMessage = 'Patient information updated successfully';
+      if (updatedFields.length > 0) {
+        successMessage += ` (including ${updatedFields.join(', ')})`;
+      }
+      
+      toast.success(successMessage);
       fetchPatientDetails(); // Refresh data
       
     } catch (error) {
       console.error('Error saving patient data:', error);
-      toast.error('Failed to save patient data');
+      
+      // 🆕 ENHANCED: Better error handling
+      if (error.response?.data?.message) {
+        toast.error(`Failed to save: ${error.response.data.message}`);
+      } else if (error.response?.status === 403) {
+        toast.error('Access denied. Please check your permissions.');
+      } else {
+        toast.error('Failed to save patient data');
+      }
     } finally {
       setSaving(false);
     }
@@ -648,21 +753,22 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                 </div>
               )}
 
-              {/* 🔧 UPDATED Patient & Study Related Information Section */}
+              {/* 🔧 ENHANCED: Patient & Study Related Information Section */}
               <div className="bg-beige-100 p-4" style={{ backgroundColor: '#f5f5dc' }}>
                 <h2 className="text-gray-700 font-medium mb-4">
                   Patient & Study Related Information
                   {canEdit && <span className="text-green-600 text-sm ml-2">(Editable)</span>}
                 </h2>
                 
-                <div className="grid grid-cols-5 gap-3 text-sm">
-                  {/* Row 1 */}
+                <div className="grid grid-cols-6 gap-3 text-sm">
+                  {/* Row 1: Patient Basic Info */}
                   <div>
                     <label className="block text-xs mb-1">Salutation</label>
                     <select 
                       className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
                       disabled={!canEdit}
                     >
+                      <option>SELECT</option>
                       <option>Mr</option>
                       <option>Mrs</option>
                       <option>Ms</option>
@@ -670,23 +776,28 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">First Name</label>
+                    <label className="block text-xs mb-1">Patient Name</label>
                     <input 
                       type="text" 
                       className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.patientInfo.firstName}
-                      onChange={(e) => handleInputChange('patientInfo', 'firstName', e.target.value)}
+                      value={`${editedData.patientInfo.firstName} ${editedData.patientInfo.lastName}`.trim()}
+                      onChange={(e) => {
+                        const nameParts = e.target.value.trim().split(' ');
+                        const firstName = nameParts[0] || '';
+                        const lastName = nameParts.slice(1).join(' ') || '';
+                        handleInputChange('patientInfo', 'firstName', firstName);
+                        handleInputChange('patientInfo', 'lastName', lastName);
+                      }}
                       readOnly={!canEdit}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Last Name</label>
+                    <label className="block text-xs mb-1">Patient ID</label>
                     <input 
                       type="text" 
-                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.patientInfo.lastName}
-                      onChange={(e) => handleInputChange('patientInfo', 'lastName', e.target.value)}
-                      readOnly={!canEdit}
+                      className="w-full border p-1 text-sm bg-gray-100" 
+                      value={patientDetails?.patientInfo?.patientId || ''}
+                      readOnly
                     />
                   </div>
                   <div>
@@ -708,22 +819,22 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                       disabled={!canEdit}
                     >
                       <option value="">Select</option>
-                      <option value="M">Male</option>
-                      <option value="F">Female</option>
+                      <option value="M">M</option>
+                      <option value="F">F</option>
                       <option value="O">Other</option>
                     </select>
                   </div>
-
-                  {/* Row 2 */}
                   <div>
-                    <label className="block text-xs mb-1">Patient ID</label>
+                    <label className="block text-xs mb-1">Accession No</label>
                     <input 
                       type="text" 
-                      className="w-full border p-1 text-sm bg-gray-100" 
-                      value={patientDetails?.patientInfo?.patientId || ''}
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={patientDetails?.studyInfo?.accessionNumber || 'N/A'}
                       readOnly
                     />
                   </div>
+
+                  {/* Row 2: Additional Info */}
                   <div>
                     <label className="block text-xs mb-1">DOB</label>
                     <input 
@@ -732,298 +843,163 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                       value={formatDate(editedData.patientInfo.dateOfBirth)}
                       onChange={(e) => handleInputChange('patientInfo', 'dateOfBirth', e.target.value)}
                       readOnly={!canEdit}
+                      placeholder="yyyy-mm-dd"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Contact Number</label>
+                    <label className="block text-xs mb-1">Images</label>
                     <input 
-                      type="tel" 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={patientDetails?.studyInfo?.numberOfImages || '0'}
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Series</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={patientDetails?.studyInfo?.numberOfSeries || '0'}
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Exam Description</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={patientDetails?.studyInfo?.examDescription || 'N/A'}
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Code</label>
+                    <input 
+                      type="text" 
                       className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.patientInfo.contactNumber}
-                      onChange={(e) => handleInputChange('patientInfo', 'contactNumber', e.target.value)}
+                      placeholder="Study Code"
                       readOnly={!canEdit}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Contact Email</label>
+                    <label className="block text-xs mb-1">Date</label>
                     <input 
-                      type="email" 
-                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.patientInfo.contactEmail}
-                      onChange={(e) => handleInputChange('patientInfo', 'contactEmail', e.target.value)}
-                      readOnly={!canEdit}
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={formatDate(patientDetails?.studyInfo?.studyDate)}
+                      readOnly
                     />
                   </div>
+
+                  {/* Row 3: Case and Priority Info */}
                   <div>
                     <label className="block text-xs mb-1">Case Type</label>
                     <select 
                       className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.studyInfo.caseType}
-                      onChange={(e) => handleInputChange('studyInfo', 'caseType', e.target.value)}
+                      value={editedData.priorityInfo.caseType}
+                      onChange={(e) => handleInputChange('priorityInfo', 'caseType', e.target.value)}
                       disabled={!canEdit}
                     >
-                      <option value="ROUTINE">ROUTINE</option>
+                      <option value="routine">ROUTINE</option>
+                      <option value="urgent">URGENT</option>
+                      <option value="emergency">EMERGENCY</option>
+                      <option value="stat">STAT</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Study status change</label>
+                    <select 
+                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
+                      value={editedData.priorityInfo.studyPriority}
+                      onChange={(e) => handleInputChange('priorityInfo', 'studyPriority', e.target.value)}
+                      disabled={!canEdit}
+                    >
+                      <option value="SELECT">SELECT</option>
+                      <option value="Emergency Case">Emergency Case</option>
+                      <option value="Meet referral doctor">Meet referral doctor</option>
+                      <option value="MLC Case">MLC Case</option>
+                      <option value="Study Exception">Study Exception</option>
+                      <option value="Billed Study">Billed Study</option>
+                      <option value="New Study">New Study</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ fontSize: '10px' }}>
+                      (Select this if you need immediate Report or meet referral doctor)
+                    </label>
+                    <select 
+                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
+                      value={editedData.priorityInfo.priorityLevel}
+                      onChange={(e) => handleInputChange('priorityInfo', 'priorityLevel', e.target.value)}
+                      disabled={!canEdit}
+                    >
+                      <option value="NORMAL">NORMAL</option>
+                      <option value="HIGH">HIGH</option>
                       <option value="URGENT">URGENT</option>
+                      <option value="STAT">STAT</option>
                       <option value="EMERGENCY">EMERGENCY</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-xs mb-1">LMP</label>
+                    <input 
+                      type="text" 
+                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
+                      placeholder="yyyy-mm-dd"
+                      readOnly={!canEdit}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Modified Date</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={formatDate(editedData.timeInfo.modifiedDate)}
+                      readOnly
+                    />
+                  </div>
 
-                  {/* Study Information Row */}
-                  <div className="col-span-5 border-t pt-3 mt-3">
-                    <h3 className="text-gray-700 font-medium mb-2">Current Study Information</h3>
-                    <div className="grid grid-cols-5 gap-3">
-                      <div>
-                        <label className="block text-xs mb-1">Study Date</label>
-                        <input 
-                          type="text" 
-                          className="w-full border p-1 text-sm bg-gray-100"
-                          value={formatDate(patientDetails?.studyInfo?.studyDate)}
-                          readOnly
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs mb-1">Modality</label>
-                        <input 
-                          type="text" 
-                          className="w-full border p-1 text-sm bg-gray-100"
-                          value={patientDetails?.studyInfo?.modality || 'N/A'}
-                          readOnly
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs mb-1">Accession Number</label>
-                        <input 
-                          type="text" 
-                          className="w-full border p-1 text-sm bg-gray-100"
-                          value={patientDetails?.studyInfo?.accessionNumber || 'N/A'}
-                          readOnly
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs mb-1">Referring Physician</label>
-                        <div className="flex items-center">
-                          <input 
-                            type="text" 
-                            className="flex-1 border p-1 text-sm bg-gray-100"
-                            value={patientDetails?.visitInfo?.referringPhysician || 
-                                   patientDetails?.referringPhysicians?.current?.displayName || 
-                                   'N/A'}
-                            readOnly
-                          />
-                          {patientDetails?.referringPhysicians?.current?.hasDetails && (
-                            <span className="ml-2 text-green-600 text-xs">✓ Details Available</span>
-                          )}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-xs mb-1">Study Status</label>
-                        <span className={`inline-block w-full border p-1 text-sm text-center rounded ${
-                          patientDetails?.studyInfo?.status === 'report_finalized' ? 'bg-green-100 text-green-800' :
-                          patientDetails?.studyInfo?.status === 'assigned_to_doctor' ? 'bg-yellow-100 text-yellow-800' :
-                          'bg-blue-100 text-blue-800'
-                        }`}>
-                          {formatWorkflowStatus(patientDetails?.studyInfo?.status)}
-                        </span>
-                      </div>
-                    </div>
+                  {/* Row 4: Time Information */}
+                  <div>
+                    <label className="block text-xs mb-1">Time</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={editedData.timeInfo.modifiedTime || 'HH:MM'}
+                      readOnly
+                      placeholder="HH:MM"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">ReportDate</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={formatDate(editedData.timeInfo.reportDate)}
+                      readOnly
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">Time</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={editedData.timeInfo.reportTime || '00:00'}
+                      readOnly
+                      placeholder="HH:MM"
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    {/* Empty space for layout */}
                   </div>
                 </div>
               </div>
 
-              {/* 🆕 NEW: Referring Physician Information Section - Always Visible */}
-              <div className="bg-blue-50 p-4 border-t border-gray-200">
-                <h2 className="text-gray-700 font-medium mb-4 flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  Referring Physician Information
-                  {canEdit && <span className="text-green-600 text-sm ml-2">(Editable)</span>}
-                  {patientDetails?.referringPhysicians?.count > 1 && (
-                    <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded ml-2">
-                      {patientDetails.referringPhysicians.count} physicians found
-                    </span>
-                  )}
-                </h2>
-                
-                {/* Current/Primary Referring Physician */}
-                <div className="grid grid-cols-4 gap-3 mb-4">
-                  <div>
-                    <label className="block text-xs mb-1 font-medium">Primary Referring Physician</label>
-                    <input 
-                      type="text" 
-                      className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
-                      value={editedData.physicianInfo.referringPhysicianName || editedData.physicianInfo.referringPhysician}
-                      onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianName', e.target.value)}
-                      readOnly={!canEdit}
-                      placeholder="Enter referring physician name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1 font-medium">Institution/Hospital</label>
-                    <input 
-                      type="text" 
-                      className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
-                      value={editedData.physicianInfo.referringPhysicianInstitution}
-                      onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianInstitution', e.target.value)}
-                      readOnly={!canEdit}
-                      placeholder="Enter institution name"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1 font-medium">Contact Information</label>
-                    <input 
-                      type="text" 
-                      className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
-                      value={editedData.physicianInfo.referringPhysicianContact}
-                      onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianContact', e.target.value)}
-                      readOnly={!canEdit}
-                      placeholder="Phone/Email"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1 font-medium">Data Source</label>
-                    <span className={`inline-block w-full p-2 text-sm rounded ${
-                      patientDetails?.referringPhysicians?.current?.source === 'structured' ? 'bg-green-100 text-green-800' :
-                      patientDetails?.referringPhysicians?.current?.source === 'dicom_field' ? 'bg-blue-100 text-blue-800' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {patientDetails?.referringPhysicians?.current?.source === 'structured' ? '📋 Structured Data' :
-                       patientDetails?.referringPhysicians?.current?.source === 'dicom_field' ? '🏥 DICOM Field' :
-                       '❓ Manual Entry'}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* All Referring Physicians (if multiple) */}
-                {patientDetails?.referringPhysicians?.all && patientDetails.referringPhysicians.all.length > 1 && (
-                  <div className="border-t border-blue-200 pt-4">
-                    <h3 className="text-gray-600 font-medium mb-3 flex items-center">
-                      <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.196-2.121A6.01 6.01 0 0017 20zm-3-4a3 3 0 100-6 3 3 0 000 6zm-8 4h8v-2a3 3 0 00-3-3H6a3 3 0 00-3 3v2zM9 12a3 3 0 100-6 3 3 0 000 6z" />
-                      </svg>
-                      All Referring Physicians for This Patient
-                    </h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border border-gray-300 text-sm">
-                        <thead>
-                          <tr className="bg-blue-600 text-white">
-                            <th className="p-2 text-left border border-gray-300">Physician Name</th>
-                            <th className="p-2 text-left border border-gray-300">Institution</th>
-                            <th className="p-2 text-left border border-gray-300">Contact</th>
-                            <th className="p-2 text-left border border-gray-300">Source</th>
-                            <th className="p-2 text-left border border-gray-300">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {patientDetails.referringPhysicians.all.map((physician, index) => (
-                            <tr key={index} className={`${index % 2 === 0 ? 'bg-blue-25' : 'bg-white'} hover:bg-blue-50`}>
-                              <td className="p-2 border border-gray-300 font-medium">
-                                {physician.displayName || physician.name || 'N/A'}
-                              </td>
-                              <td className="p-2 border border-gray-300">
-                                {physician.institution || 'N/A'}
-                              </td>
-                              <td className="p-2 border border-gray-300">
-                                {physician.contactInfo || 'N/A'}
-                              </td>
-                              <td className="p-2 border border-gray-300">
-                                <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                                  physician.source === 'structured' ? 'bg-green-100 text-green-800' :
-                                  physician.source === 'dicom_field' ? 'bg-blue-100 text-blue-800' :
-                                  'bg-gray-100 text-gray-600'
-                                }`}>
-                                  {physician.source === 'structured' ? '📋 Structured' :
-                                   physician.source === 'dicom_field' ? '🏥 DICOM' :
-                                   '❓ Unknown'}
-                                </span>
-                              </td>
-                              <td className="p-2 border border-gray-300">
-                                {index === 0 ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                                    ⭐ Primary
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                                    Historical
-                                  </span>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-                
-                {/* No Referring Physician Found */}
-                {(!patientDetails?.referringPhysicians?.current?.hasDetails && 
-                  !editedData.physicianInfo.referringPhysicianName && 
-                  !editedData.physicianInfo.referringPhysician) && (
-                  <div className="text-center py-6 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
-                    <svg className="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <p className="text-lg font-medium">No Referring Physician Information</p>
-                    <p className="text-sm mt-1">
-                      {canEdit ? 'You can add referring physician information using the form above' : 'No referring physician data available'}
-                    </p>
-                    {canEdit && (
-                      <button 
-                        className="mt-3 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm"
-                        onClick={() => {
-                          setEditedData(prev => ({
-                            ...prev,
-                            physicianInfo: {
-                              ...prev.physicianInfo,
-                              referringPhysicianName: 'Dr. '
-                            }
-                          }));
-                        }}
-                      >
-                        Add Referring Physician
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* 🔧 UPDATED STUDY INFORMATION SECTION - SHOW REFERRING PHYSICIAN MORE PROMINENTLY */}
-              <div className="bg-white p-4 border-t border-gray-200">
-                <h2 className="text-gray-700 font-medium mb-4">
-                  Study Information
-                  {canEdit && <span className="text-green-600 text-sm ml-2">(Editable)</span>}
-                </h2>
-                
-                <div className="grid grid-cols-5 gap-3 text-sm">
-                  {/* Existing fields... */}
-                  
-                  {/* Referring Physician (Prominent) */}
-                  <div>
-                    <label className="block text-xs mb-1">Referring Physician</label>
-                    <div className="flex items-center">
-                      <input 
-                        type="text" 
-                        className="flex-1 border p-1 text-sm bg-gray-100"
-                        value={patientDetails?.visitInfo?.referringPhysician || 
-                               patientDetails?.referringPhysicians?.current?.displayName || 
-                               'N/A'}
-                        readOnly
-                      />
-                      {patientDetails?.referringPhysicians?.current?.hasDetails && (
-                        <span className="ml-2 text-green-600 text-xs">✓ Details Available</span>
-                      )}
-                    </div>
-                  </div>
-                  
-                  {/* Other fields... */}
-                </div>
-              </div>
-
-              {/* Rest of your existing sections (Clinical Information, etc.) */}
+              {/* Clinical Information Tab */}
               {activeTab === 'clinical' && (
                 <>
-                  {/* Clinical Information Section */}
+                  {/* 🔧 EXISTING: Clinical Information Section */}
                   <div className="p-4">
                     <h2 className="text-gray-700 font-medium mb-4">
                       Clinical Information
@@ -1251,6 +1227,249 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                             )}
                           </tbody>
                         </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 🆕 NEW: Referring Physician Section */}
+                  <div className="bg-blue-50 p-4 border-t border-gray-200">
+                    <h2 className="text-gray-700 font-medium mb-4 flex items-center">
+                      <svg className="w-5 h-5 mr-2 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                      Referring Physician Information
+                      {canEdit && <span className="text-green-600 text-sm ml-2">(Editable)</span>}
+                      {patientDetails?.referringPhysicians?.count > 1 && (
+                        <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded ml-2">
+                          {patientDetails.referringPhysicians.count} physicians found
+                        </span>
+                      )}
+                    </h2>
+                    
+                    <div className="grid grid-cols-3 gap-4 mb-4">
+                      {/* Referring Physician */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Referring Physician</label>
+                        <input 
+                          type="text" 
+                          className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                          value={editedData.physicianInfo.referringPhysicianName}
+                          onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianName', e.target.value)}
+                          readOnly={!canEdit}
+                          placeholder="Enter referring physician name"
+                        />
+                        <div className="mt-1">
+                          <input 
+                            type="email" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.referringPhysicianEmail}
+                            onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianEmail', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Email"
+                          />
+                        </div>
+                        <div className="mt-1">
+                          <input 
+                            type="tel" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.referringPhysicianMobile}
+                            onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianMobile', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Mobile"
+                          />
+                        </div>
+                        <div className="mt-1">
+                          <input 
+                            type="text" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.referringPhysicianInstitution}
+                            onChange={(e) => handleInputChange('physicianInfo', 'referringPhysicianInstitution', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Institution"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Requesting Physician */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Requesting Physician</label>
+                        <input 
+                          type="text" 
+                          className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                          value={editedData.physicianInfo.requestingPhysician}
+                          onChange={(e) => handleInputChange('physicianInfo', 'requestingPhysician', e.target.value)}
+                          readOnly={!canEdit}
+                          placeholder="Enter requesting physician name"
+                        />
+                        <div className="mt-1">
+                          <input 
+                            type="email" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.requestingPhysicianEmail}
+                            onChange={(e) => handleInputChange('physicianInfo', 'requestingPhysicianEmail', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Email"
+                          />
+                        </div>
+                        <div className="mt-1">
+                          <input 
+                            type="tel" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.requestingPhysicianMobile}
+                            onChange={(e) => handleInputChange('physicianInfo', 'requestingPhysicianMobile', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Mobile"
+                          />
+                        </div>
+                        <div className="mt-1">
+                          <input 
+                            type="text" 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-blue-300' : 'bg-gray-100'}`}
+                            value={editedData.physicianInfo.requestingPhysicianInstitution}
+                            onChange={(e) => handleInputChange('physicianInfo', 'requestingPhysicianInstitution', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Institution"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Data Source Information */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Data Source</label>
+                        <div className={`w-full border p-2 text-sm rounded ${
+                          patientDetails?.studyInfo?.physicians?.referring?.source === 'dicom_structured' ? 'bg-green-100 text-green-800' :
+                          patientDetails?.studyInfo?.physicians?.referring?.source === 'legacy_structured' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {patientDetails?.studyInfo?.physicians?.referring?.source === 'dicom_structured' ? '🏥 DICOM Extracted' :
+                           patientDetails?.studyInfo?.physicians?.referring?.source === 'legacy_structured' ? '📋 Legacy Data' :
+                           patientDetails?.studyInfo?.physicians?.referring?.source === 'name_only' ? '📝 Name Only' :
+                           '❓ Manual Entry'}
+                        </div>
+                        
+                        {/* Summary Info */}
+                        <div className="mt-4 p-3 bg-white border rounded">
+                          <div className="text-xs text-gray-600">
+                            <strong>Total Physicians:</strong> {patientDetails?.summary?.uniqueReferringPhysicians || 0}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            <strong>Priority Cases:</strong> {patientDetails?.summary?.emergencyCases || 0} Emergency, {patientDetails?.summary?.mlcCases || 0} MLC
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 🆕 NEW: Technologist Information Section */}
+                  <div className="bg-green-50 p-4 border-t border-gray-200">
+                    <h2 className="text-gray-700 font-medium mb-4 flex items-center">
+                      <svg className="w-5 h-5 mr-2 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Technologist Information
+                      {canEdit && <span className="text-green-600 text-sm ml-2">(Editable)</span>}
+                      {patientDetails?.summary?.uniqueTechnologists > 1 && (
+                        <span className="bg-green-500 text-white text-xs px-2 py-1 rounded ml-2">
+                          {patientDetails.summary.uniqueTechnologists} technologists
+                        </span>
+                      )}
+                    </h2>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      {/* Technologist Details */}
+                      <div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Technologist Name</label>
+                            <input 
+                              type="text" 
+                              className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-green-300' : 'bg-gray-100'}`}
+                              value={editedData.technologistInfo.name}
+                              onChange={(e) => handleInputChange('technologistInfo', 'name', e.target.value)}
+                              readOnly={!canEdit}
+                              placeholder="Enter technologist name"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Mobile</label>
+                            <input 
+                              type="tel" 
+                              className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-green-300' : 'bg-gray-100'}`}
+                              value={editedData.technologistInfo.mobile}
+                              onChange={(e) => handleInputChange('technologistInfo', 'mobile', e.target.value)}
+                              readOnly={!canEdit}
+                              placeholder="Mobile number"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium mb-1">Comments</label>
+                          <textarea 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-green-300' : 'bg-gray-100'}`}
+                            rows="3"
+                            value={editedData.technologistInfo.comments}
+                            onChange={(e) => handleInputChange('technologistInfo', 'comments', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Additional comments or notes"
+                          />
+                        </div>
+                        
+                        <div className="mt-3">
+                          <label className="block text-sm font-medium mb-1">Reason to Send</label>
+                          <textarea 
+                            className={`w-full border p-2 text-sm ${canEdit ? 'bg-white border-green-300' : 'bg-gray-100'}`}
+                            rows="2"
+                            value={editedData.technologistInfo.reasonToSend}
+                            onChange={(e) => handleInputChange('technologistInfo', 'reasonToSend', e.target.value)}
+                            readOnly={!canEdit}
+                            placeholder="Reason for sending the study"
+                          />
+                        </div>
+                      </div>
+                      
+                      {/* Technologist Data Source and Summary */}
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Data Source</label>
+                        <div className={`w-full border p-2 text-sm rounded mb-4 ${
+                          patientDetails?.studyInfo?.technologist?.source === 'dicom_extracted' ? 'bg-green-100 text-green-800' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {patientDetails?.studyInfo?.technologist?.source === 'dicom_extracted' ? '🏥 DICOM Extracted' :
+                           '❓ Manual Entry'}
+                        </div>
+                        
+                        {/* All Technologists Summary */}
+                        {patientDetails?.technologists?.all && patientDetails.technologists.all.length > 0 && (
+                          <div className="border rounded p-3 bg-white">
+                            <h4 className="text-sm font-medium mb-2">All Technologists for This Patient</h4>
+                            <div className="space-y-2">
+                              {patientDetails.technologists.all.map((tech, index) => (
+                                <div key={index} className="text-xs p-2 bg-green-25 border rounded">
+                                  <div className="font-medium">{tech.name}</div>
+                                  {tech.mobile && <div className="text-gray-600">📱 {tech.mobile}</div>}
+                                  {tech.comments && (
+                                    <div className="text-gray-600 mt-1 truncate" title={tech.comments}>
+                                      💬 {tech.comments}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {(!patientDetails?.technologists?.current || patientDetails.technologists.current.name === 'N/A') && (
+                          <div className="text-center py-4 text-gray-500 border-2 border-dashed border-gray-300 rounded-lg">
+                            <svg className="w-8 h-8 mx-auto text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            <p className="text-sm font-medium">No Technologist Information</p>
+                            <p className="text-xs mt-1">
+                              {canEdit ? 'You can add technologist information using the form' : 'No technologist data available'}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
