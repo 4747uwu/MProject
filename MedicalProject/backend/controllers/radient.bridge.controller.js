@@ -1,4 +1,4 @@
-import RadiantBridgeService from '../services/RadiantBridgeService.js';
+import RadiantBridgeService from '../services/RadientBridgeService.js';
 
 class RadiantBridgeController {
   constructor() {
