@@ -177,7 +177,7 @@ app.get('/', (req, res) => {
 });
 
 // ✅ 7. MOUNT ROUTES
-// app.use('/api/orthanc', orthancRoutes);
+app.use('/api/orthanc', orthancRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/labEdit', labRoutesEdit);
