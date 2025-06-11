@@ -2,10 +2,9 @@ import axios from 'axios';
 
 class OrthancService {
   constructor() {
-    // 🔧 DIGITAL OCEAN: Hardcoded configuration
-    this.orthancUrl = 'http://64.227.187.164:8042';
-    this.orthancUsername = 'alice';
-    this.orthancPassword = 'alicePassword';
+    this.orthancUrl = process.env.ORTHANC_URL || 'http://localhost:8042';
+    this.orthancUsername = process.env.ORTHANC_USERNAME || 'alice';
+    this.orthancPassword = process.env.ORTHANC_PASSWORD || 'alicePassword';
     
     this.authHeader = {
       'Authorization': `Basic ${Buffer.from(`${this.orthancUsername}:${this.orthancPassword}`).toString('base64')}`
@@ -15,7 +14,7 @@ class OrthancService {
   // 🔧 GET STUDY DETAILS
   async getStudy(studyId) {
     try {
-      console.log(`📡 [DIGITAL OCEAN] Fetching study from Orthanc: ${studyId}`);
+      console.log(`📡 Fetching study from Orthanc: ${studyId}`);
       
       const response = await axios.get(
         `${this.orthancUrl}/studies/${studyId}`,
@@ -60,7 +59,7 @@ class OrthancService {
   // 🔧 DOWNLOAD STUDY ARCHIVE (STREAMING)
   async downloadStudyArchive(studyId, res) {
     try {
-      console.log(`📥 [DIGITAL OCEAN] Streaming study archive: ${studyId}`);
+      console.log(`📥 Streaming study archive: ${studyId}`);
       
       const response = await axios.get(
         `${this.orthancUrl}/studies/${studyId}/archive`,
@@ -86,7 +85,7 @@ class OrthancService {
   // 🔧 FIND STUDY BY STUDY INSTANCE UID
   async findStudyByUID(studyInstanceUID) {
     try {
-      console.log(`🔍 [DIGITAL OCEAN] Searching for study by UID: ${studyInstanceUID}`);
+      console.log(`🔍 Searching for study by UID: ${studyInstanceUID}`);
       
       const response = await axios.post(
         `${this.orthancUrl}/tools/find`,
