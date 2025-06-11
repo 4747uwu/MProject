@@ -177,7 +177,7 @@ app.get('/', (req, res) => {
 });
 
 // ✅ 7. MOUNT ROUTES
-app.use('/api/orthanc', orthancRoutes);
+// app.use('/api/orthanc', orthancRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/labEdit', labRoutesEdit);
@@ -192,7 +192,8 @@ app.use('/api', discussionRoutes);
 app.use('/api/footer', footer);
 app.use('/api/radiant', radiantBridgeRoutes); 
 app.use('/api/sharing', sharingRoutes);
-app.use('/api/orthanc', orthancProaxyRoutes);
+app.use('/api/orthanc-proxy', orthancProaxyRoutes);
+
 
 // ✅ 8. ERROR HANDLING MIDDLEWARE
 app.use((req, res, next) => {

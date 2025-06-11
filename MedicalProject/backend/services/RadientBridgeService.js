@@ -7,7 +7,7 @@ import OrthancService from './orthancServices.js';
 class RadiantBridgeService {
   constructor() {
     // 🔧 DIGITAL OCEAN: Server configuration
-    this.serverIp = '64.227.187.164';
+    this.serverIp = '64.227.187.164';  // ← Fix: Use Digital Ocean IP
     this.orthancUrl = `http://${this.serverIp}:8042`;
     this.backendUrl = `http://${this.serverIp}:3000`;
     
@@ -23,6 +23,11 @@ class RadiantBridgeService {
       orthancUrl: this.orthancUrl,
       tempDir: this.tempDir
     });
+    
+    // Add to RadientBridgeService.js constructor:
+    if (!this.orthancService.orthancUsername || !this.orthancService.orthancPassword) {
+      console.warn('⚠️ Orthanc credentials not configured properly');
+    }
   }
 
   async initializeTempDirectory() {
@@ -35,40 +40,67 @@ class RadiantBridgeService {
     }
   }
 
-  // 🔧 CHECK RADIANT HELPER STATUS ON CLIENT
+  // 🔧 FIXED: CHECK RADIANT HELPER STATUS ON CLIENT
   async checkRadiantHelperStatus(clientIp = null) {
-    const helperUrl = clientIp ? `http://${clientIp}:8765` : this.defaultHelperUrl;
+    // 🔧 FIX: Don't default to localhost, use the actual IP provided
+    const targetIp = clientIp;  // Remove: || 'localhost'
+    
+    if (!targetIp) {
+      console.error('❌ No client IP provided to checkRadiantHelperStatus');
+      return {
+        isRunning: false,
+        error: 'No client IP provided',
+        suggestion: 'Client IP must be detected or provided'
+      };
+    }
+    
+    const helperUrl = `http://${targetIp}:8765`;
     
     try {
-      console.log(`🔍 [DIGITAL OCEAN] Checking RadiAnt Helper from ${this.serverIp} to: ${helperUrl}`);
+      console.log(`🔍 [IP VERIFICATION] Checking RadiAnt Helper from server ${this.serverIp} to client: ${helperUrl}`);
+      console.log(`📊 [IP VERIFICATION] clientIp parameter: ${clientIp}`);
+      console.log(`📊 [IP VERIFICATION] targetIp final: ${targetIp}`);
       
       const response = await axios.get(`${helperUrl}/status`, {
-        timeout: 8000,
+        timeout: 10000,
         headers: {
-          'User-Agent': 'MedicalPlatform-DigitalOcean/1.0'
+          'User-Agent': 'MedicalPlatform-IPVerification/1.0',
+          'Accept': 'application/json'
         }
       });
       
-      console.log('✅ RadiAnt Helper is running:', response.data);
+      console.log(`✅ [IP VERIFICATION] RadiAnt Helper responded from ${targetIp}:`, response.data);
       return {
         isRunning: true,
-        status: response.data,
+        status: response.data.status || 'running',
+        version: response.data.version,
+        computerName: response.data.computerName || response.data.computer,
         url: helperUrl,
-        clientIp: clientIp || 'localhost',
-        serverIp: this.serverIp
+        clientIp: targetIp,
+        serverIp: this.serverIp,
+        connectionType: this.getConnectionType(targetIp),
+        verification: {
+          provided: clientIp,
+          used: targetIp,
+          successful: true
+        }
       };
       
     } catch (error) {
-      console.error(`❌ RadiAnt Helper check failed for ${helperUrl}:`, error.message);
+      console.error(`❌ [IP VERIFICATION] RadiAnt Helper check failed for ${helperUrl}:`, error.message);
       return {
         isRunning: false,
         error: error.message,
         url: helperUrl,
-        clientIp: clientIp || 'localhost',
+        clientIp: targetIp,
         serverIp: this.serverIp,
-        suggestion: clientIp ? 
-          `Ensure RadiAnt Helper is installed and running on ${clientIp}, accessible from Digital Ocean server ${this.serverIp}` :
-          'Ensure RadiAnt Helper is installed and running on the local machine'
+        connectionType: this.getConnectionType(targetIp),
+        verification: {
+          provided: clientIp,
+          used: targetIp,
+          successful: false,
+          errorType: error.code || 'unknown'
+        }
       };
     }
   }
@@ -97,7 +129,7 @@ class RadiantBridgeService {
       const orthancData = await this.orthancService.getStudy(studyInfo.orthancStudyId);
 
       // 🔧 DIGITAL OCEAN: Create download URL pointing to our server
-      const downloadUrl = `${this.orthancUrl}/studies/${studyInfo.orthancStudyId}/archive`;
+      const downloadUrl = `${this.backendUrl}/api/orthanc/studies/${studyInfo.orthancStudyId}/download`;
       
       // 🔧 DIGITAL OCEAN: Enhanced launch payload with server context
       const launchPayload = {
@@ -359,6 +391,20 @@ class RadiantBridgeService {
       console.error('❌ [DIGITAL OCEAN] Cleanup failed:', error);
       throw new Error(`Temp file cleanup failed on ${this.serverIp}: ${error.message}`);
     }
+  }
+
+  // 🔧 ADD: Connection type detection
+  getConnectionType(ip) {
+    if (!ip) return 'unknown';
+    if (ip === 'localhost' || ip === '127.0.0.1' || ip === '::1') return 'localhost';
+    
+    // Local network IP ranges
+    if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+      return 'local_network';
+    }
+    
+    // Public IP
+    return 'internet';
   }
 }
 

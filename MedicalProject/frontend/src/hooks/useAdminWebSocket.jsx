@@ -94,9 +94,7 @@ const useAdminWebSocket = (user) => {
         } else if (reconnectAttempts.current >= maxReconnectAttempts) {
           console.log('❌ Max reconnection attempts reached');
           setConnectionStatus('error');
-          toast.error('Failed to connect to real-time notifications. Please refresh the page.', {
-            duration: 8000
-          });
+          
         }
       };
 

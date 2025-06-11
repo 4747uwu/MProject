@@ -14,7 +14,7 @@ import Lab from '../models/labModel.js';
 const router = express.Router();
 
 // --- Configuration ---
-const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
+const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://64.227.187.164:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice'; 
 const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
@@ -383,40 +383,6 @@ async function processDicomInstance(job) {
         
         // 🆕 NEW: Add referring physician
         referringPhysicianName: instanceTags.ReferringPhysicianName || '',
-        
-        // 🆕 NEW: Add technologist information
-        technologist: {
-          name: instanceTags.OperatorName || instanceTags.PerformingPhysicianName || '',
-          mobile: '',
-          comments: '',
-          reasonToSend: instanceTags.ReasonForStudy || instanceTags.RequestedProcedureDescription || ''
-        },
-        
-        // 🆕 NEW: Add physician information
-        physicians: {
-          referring: {
-            name: instanceTags.ReferringPhysicianName || '',
-            email: '',
-            mobile: instanceTags.ReferringPhysicianTelephoneNumbers || '',
-            institution: instanceTags.ReferringPhysicianAddress || ''
-          },
-          requesting: {
-            name: instanceTags.RequestingPhysician || '',
-            email: '',
-            mobile: '',
-            institution: instanceTags.RequestingService || ''
-          }
-        },
-        
-        // 🆕 NEW: Add priority information
-        studyPriority: instanceTags.StudyPriorityID || 'SELECT',
-        caseType: instanceTags.RequestPriority || 'routine',
-        
-        // 🆕 NEW: Add time information
-        modifiedDate: null,
-        modifiedTime: null,
-        reportDate: null,
-        reportTime: null
       });
     }
     
@@ -918,22 +884,24 @@ router.get('/job-status/:requestId', async (req, res) => {
 // --- Keep all your existing helper functions ---
 async function findOrCreatePatientFromTags(instanceTags) {
   const patientIdDicom = instanceTags.PatientID;
-  
-  // 🔧 FIXED: Use the new name processing function
-  const nameInfo = processDicomPersonName(instanceTags.PatientName);
-  
+  const patientNameDicomObj = instanceTags.PatientName;
+  let patientNameString = 'Unknown Patient';
+  if (patientNameDicomObj && typeof patientNameDicomObj === 'object' && patientNameDicomObj.Alphabetic) {
+    patientNameString = patientNameDicomObj.Alphabetic.replace(/\^/g, ' ');
+  } else if (typeof patientNameDicomObj === 'string') {
+    patientNameString = patientNameDicomObj;
+  }
+
   const patientSex = instanceTags.PatientSex;
   const patientBirthDate = instanceTags.PatientBirthDate;
 
-  if (!patientIdDicom && !nameInfo.fullName) {
+  if (!patientIdDicom && !patientNameString) {
     let unknownPatient = await Patient.findOne({ mrn: 'UNKNOWN_HTTP_PULL' });
     if (!unknownPatient) {
         unknownPatient = await Patient.create({
             mrn: 'UNKNOWN_HTTP_PULL',
             patientID: new mongoose.Types.ObjectId().toString().slice(0,8).toUpperCase(),
             patientNameRaw: 'Unknown Patient (HTTP Pull)',
-            firstName: '',
-            lastName: '',
             gender: patientSex || '',
             dateOfBirth: patientBirthDate || '',
             isAnonymous: true
@@ -950,42 +918,13 @@ async function findOrCreatePatientFromTags(instanceTags) {
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
       patientID: generatedPatientID,
-      // 🔧 FIXED: Use processed readable name instead of raw DICOM format
-      patientNameRaw: nameInfo.formattedForDisplay,
-      firstName: nameInfo.firstName,
-      lastName: nameInfo.lastName,
-      
-      // 🆕 NEW: Store additional name components if needed
-      computed: {
-        fullName: nameInfo.formattedForDisplay,
-        namePrefix: nameInfo.namePrefix,
-        nameSuffix: nameInfo.nameSuffix,
-        originalDicomName: nameInfo.originalDicomFormat // Keep original for reference
-      },
+      patientNameRaw: patientNameString,
       gender: patientSex || '',
       dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
     });
     
     await patient.save();
-    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (${patientIdDicom})`);
-    console.log(`📋 Original DICOM name: ${nameInfo.originalDicomFormat}`);
-  } else {
-    // 🔧 ENHANCED: Update existing patient if name format has improved
-    if (patient.patientNameRaw && patient.patientNameRaw.includes('^') && nameInfo.formattedForDisplay && !nameInfo.formattedForDisplay.includes('^')) {
-      console.log(`🔄 Updating patient name format from "${patient.patientNameRaw}" to "${nameInfo.formattedForDisplay}"`);
-      
-      patient.patientNameRaw = nameInfo.formattedForDisplay;
-      patient.firstName = nameInfo.firstName;
-      patient.lastName = nameInfo.lastName;
-      
-      if (!patient.computed) patient.computed = {};
-      patient.computed.fullName = nameInfo.formattedForDisplay;
-      patient.computed.originalDicomName = nameInfo.originalDicomFormat;
-      
-      await patient.save();
-    }
   }
-  
   return patient;
 }
 
@@ -1265,68 +1204,6 @@ async function updateLabWithDicomInfo(lab, instanceTags, labInfo) {
   } catch (error) {
     console.warn(`⚠️ Could not update lab metadata:`, error.message);
   }
-}
-
-// 🔧 ENHANCED: Better DICOM person name processing
-function processDicomPersonName(dicomNameField) {
-  if (!dicomNameField) return { fullName: 'Unknown Patient', firstName: '', lastName: '' };
-  
-  let nameString = '';
-  
-  // Handle object format (common in some DICOM implementations)
-  if (typeof dicomNameField === 'object') {
-    if (dicomNameField.Alphabetic) {
-      nameString = dicomNameField.Alphabetic;
-    } else if (dicomNameField.Ideographic) {
-      nameString = dicomNameField.Ideographic;
-    } else if (dicomNameField.Phonetic) {
-      nameString = dicomNameField.Phonetic;
-    } else {
-      nameString = String(dicomNameField);
-    }
-  } else if (typeof dicomNameField === 'string') {
-    nameString = dicomNameField;
-  } else {
-    return { fullName: 'Unknown Patient', firstName: '', lastName: '' };
-  }
-  
-  // 🔧 CRITICAL: Always process DICOM PN format regardless of input type
-  // Parse DICOM PN format: FamilyName^GivenName^MiddleName^NamePrefix^NameSuffix
-  const nameParts = nameString.split('^').map(part => part.trim()).filter(part => part.length > 0);
-  
-  if (nameParts.length === 0) {
-    return { fullName: 'Unknown Patient', firstName: '', lastName: '' };
-  }
-  
-  const familyName = nameParts[0] || '';
-  const givenName = nameParts[1] || '';
-  const middleName = nameParts[2] || '';
-  const namePrefix = nameParts[3] || '';
-  const nameSuffix = nameParts[4] || '';
-  
-  // Build readable full name
-  const nameComponents = [];
-  if (namePrefix) nameComponents.push(namePrefix);
-  if (givenName) nameComponents.push(givenName);
-  if (middleName) nameComponents.push(middleName);
-  if (familyName) nameComponents.push(familyName);
-  if (nameSuffix) nameComponents.push(nameSuffix);
-  
-  const fullName = nameComponents.join(' ') || 'Unknown Patient';
-  
-  // For database storage, we typically want First Last format
-  const displayName = [givenName, middleName, familyName].filter(Boolean).join(' ') || fullName;
-  
-  return {
-    fullName: displayName,
-    firstName: givenName,
-    lastName: familyName,
-    middleName: middleName,
-    namePrefix: namePrefix,
-    nameSuffix: nameSuffix,
-    originalDicomFormat: nameString,
-    formattedForDisplay: displayName
-  };
 }
 
 export default router;

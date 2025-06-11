@@ -8,27 +8,49 @@ class RadiantBridgeController {
     this.orthancUrl = `http://${this.serverIp}:8042`;
   }
 
-  // 🔧 CHECK RADIANT HELPER STATUS
+  // 🔧 FIXED: CHECK RADIANT HELPER STATUS
   async checkHelperStatus(req, res) {
     try {
-      const { clientIp } = req.body;
+      // 🔧 AUTO-DETECT CLIENT'S REAL IP FROM REQUEST HEADERS
+      let clientIp = req.body.clientIp;
       
-      // 🔧 DIGITAL OCEAN: Default to localhost for client, but support remote clients
-      const helperUrl = clientIp ? `http://${clientIp}:8765` : 'http://localhost:8765';
+      // If no IP provided or localhost, auto-detect real client IP
+      if (!clientIp || clientIp === 'localhost') {
+        clientIp = req.headers['x-forwarded-for'] || 
+                   req.headers['x-real-ip'] || 
+                   req.connection.remoteAddress || 
+                   req.socket.remoteAddress ||
+                   req.ip;
+        
+        // Clean up IPv6 format
+        if (clientIp && clientIp.includes('::ffff:')) {
+          clientIp = clientIp.replace('::ffff:', '');
+        }
+        
+        // Clean up multiple IPs (take first one)
+        if (clientIp && clientIp.includes(',')) {
+          clientIp = clientIp.split(',')[0].trim();
+        }
+      }
       
-      console.log(`🔍 Checking RadiAnt Helper status at: ${helperUrl}`);
-      console.log(`🌐 Server IP: ${this.serverIp}`);
+      console.log(`📋 [IP VERIFICATION] === REQUEST ANALYSIS ===`);
+      console.log(`📋 [IP VERIFICATION] x-forwarded-for: ${req.headers['x-forwarded-for']}`);
+      console.log(`📋 [IP VERIFICATION] x-real-ip: ${req.headers['x-real-ip']}`);
+      console.log(`📋 [IP VERIFICATION] connection.remoteAddress: ${req.connection.remoteAddress}`);
+      console.log(`📋 [IP VERIFICATION] req.ip: ${req.ip}`);
+      console.log(`🎯 [IP VERIFICATION] Final clientIp: ${clientIp}`);
+      console.log(`🎯 [IP VERIFICATION] Will target: http://${clientIp}:8765`);
       
-      const status = await this.bridgeService.checkRadiantHelperStatus(helperUrl);
+      const status = await this.bridgeService.checkRadiantHelperStatus(clientIp);
       
       res.json({
         success: true,
         data: {
           ...status,
           serverInfo: {
-            serverIp: this.serverIp,
-            orthancUrl: this.orthancUrl,
-            helperUrl: helperUrl
+            serverIp: '64.227.187.164',
+            orthancUrl: 'http://64.227.187.164:8042',
+            clientIp: clientIp
           }
         },
         message: status.isRunning ? 'RadiAnt Helper is running' : 'RadiAnt Helper not accessible'
@@ -40,9 +62,13 @@ class RadiantBridgeController {
         success: false,
         message: 'Failed to check RadiAnt Helper status',
         error: error.message,
+        data: {
+          isRunning: false,
+          clientIp: req.body.clientIp || 'localhost'
+        },
         serverInfo: {
-          serverIp: this.serverIp,
-          orthancUrl: this.orthancUrl
+          serverIp: '64.227.187.164',
+          orthancUrl: 'http://64.227.187.164:8042'
         }
       });
     }
@@ -358,15 +384,14 @@ class RadiantBridgeController {
 
 const radiantBridgeController = new RadiantBridgeController();
 
-export const {
-  checkHelperStatus,
-  launchStudyByOrthancId,
-  launchStudyByUid,
-  getBridgeStatus,
-  cleanupTempFiles,
-  testClientConnection,
-  getNetworkDiagnostics
-} = radiantBridgeController;
+// 🔧 FIXED: Properly bind methods to preserve 'this' context
+export const checkHelperStatus = radiantBridgeController.checkHelperStatus.bind(radiantBridgeController);
+export const launchStudyByOrthancId = radiantBridgeController.launchStudyByOrthancId.bind(radiantBridgeController);
+export const launchStudyByUid = radiantBridgeController.launchStudyByUid.bind(radiantBridgeController);
+export const getBridgeStatus = radiantBridgeController.getBridgeStatus.bind(radiantBridgeController);
+export const cleanupTempFiles = radiantBridgeController.cleanupTempFiles.bind(radiantBridgeController);
+export const testClientConnection = radiantBridgeController.testClientConnection.bind(radiantBridgeController);
+export const getNetworkDiagnostics = radiantBridgeController.getNetworkDiagnostics.bind(radiantBridgeController);
 
-// 🔧 DIGITAL OCEAN: Export controller instance for debugging
+// Export controller instance for debugging
 export { radiantBridgeController };
