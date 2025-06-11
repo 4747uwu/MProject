@@ -1,7 +1,7 @@
 import * as brevo from '@getbrevo/brevo';
 
 // 🔧 DIGITAL OCEAN: Hardcoded Brevo configuration
-const BREVO_API_KEY = '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';
+const BREVO_API_KEY = 'axkeysib-82af8193a74dfe747aabaefbf5b752a652365ed459b959de2b76ec162ff5506d-yLk8jL1djT7MowFT';
 const BREVO_FROM_EMAIL = 'pawrangerskyler@gmail.com';
 const FROM_NAME = 'StarRadiology';
 
