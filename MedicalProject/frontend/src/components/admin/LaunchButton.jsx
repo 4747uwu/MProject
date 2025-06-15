@@ -12,8 +12,8 @@ const LaunchButton = ({
 }) => {
   const [isLaunching, setIsLaunching] = useState(false);
 
-  // 🆕 NEW: Launch RadiAnt using C-STORE backend
-  const handleCStoreLaunch = async () => {
+  // 🆕 NEW: Launch RadiAnt using download approach
+  const handleRadiantLaunch = async () => {
     try {
       setIsLaunching(true);
       
@@ -22,13 +22,13 @@ const LaunchButton = ({
         return;
       }
 
-      console.log('🚀 Launching RadiAnt via C-STORE for study:', study.orthancStudyID);
+      console.log('🚀 Launching RadiAnt via download for study:', study.orthancStudyID);
       
       // Show loading toast
       const loadingToast = toast.loading(
-        `📡 Sending study to RadiAnt Viewer...`,
+        `📡 Preparing RadiAnt launcher...`,
         {
-          duration: 15000,
+          duration: 10000,
           style: {
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
             color: 'white',
@@ -37,25 +37,42 @@ const LaunchButton = ({
         }
       );
 
-      // Call backend C-STORE endpoint
-      const response = await api.post(`/orthanc-proxy/study/${study.orthancStudyID}/cstore`, {
-        patientName: study.patientName || 'Unknown Patient',
-        // 🔧 Client IP will be auto-detected by backend
-        // You can add manual IP override here if needed:
-        // clientIp: '192.168.1.100', // Optional: override auto-detection
-        // clientPort: 11112,         // Optional: custom port
-        // remoteAeTitle: 'RADIANT'   // Optional: custom AE title
-      });
+      try {
+        // Option 1: Generate and download launcher file
+        const launcherUrl = `${import.meta.env.VITE_BACKEND_URL}/api/orthanc-proxy/studies/${study.orthancStudyID}/launcher?launcherType=bat&downloadType=archive`;
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.href = launcherUrl;
+        link.download = `radiant-launcher-${study.orthancStudyID}.bat`;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
 
-      toast.dismiss(loadingToast);
-
-      if (response.data.success) {
-        // Show success message with details
+        toast.dismiss(loadingToast);
+        
+        // Show success message with instructions
         toast.success(
-          `🖥️ RadiAnt launched successfully!\n📁 ${response.data.data.filesCount} files sent in ${response.data.data.transferTime}`,
+          (t) => (
+            <div className="text-sm">
+              <div className="font-semibold mb-2">🚀 RadiAnt Launcher Downloaded!</div>
+              <div className="space-y-1 text-xs">
+                <div>📁 Check your Downloads folder</div>
+                <div>🖱️ Double-click the .bat file to launch</div>
+                <div>⏳ RadiAnt will open automatically</div>
+              </div>
+              <button 
+                onClick={() => toast.dismiss(t.id)}
+                className="mt-2 text-xs bg-white bg-opacity-20 px-2 py-1 rounded"
+              >
+                Got it!
+              </button>
+            </div>
+          ),
           {
-            duration: 6000,
-            icon: '🚀',
+            duration: 8000,
+            icon: '🎉',
             style: {
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               color: 'white',
@@ -64,141 +81,61 @@ const LaunchButton = ({
           }
         );
 
-        // Show additional info
-        setTimeout(() => {
-          toast(
-            `📡 Study sent to ${response.data.data.clientIp}:${response.data.data.clientPort}`,
-            {
-              duration: 4000,
-              icon: '📊',
-              style: {
-                background: '#f0f9ff',
-                color: '#0369a1',
-                border: '1px solid #0ea5e9'
-              }
-            }
-          );
-        }, 1000);
+        onLaunchSuccess?.({ method: 'download', studyId: study.orthancStudyID });
 
-        onLaunchSuccess?.(response.data);
-      } else {
-        throw new Error(response.data.message || 'Failed to launch RadiAnt');
+      } catch (error) {
+        toast.dismiss(loadingToast);
+        throw error;
       }
 
     } catch (error) {
-      console.error('Error launching RadiAnt via C-STORE:', error);
+      console.error('Error launching RadiAnt:', error);
       toast.dismiss();
       
-      // Enhanced error handling
-      let errorMessage = 'Failed to launch RadiAnt Viewer';
-      
-      if (error.response?.status === 400) {
-        errorMessage = error.response.data.message || 'Invalid request - check RadiAnt configuration';
-      } else if (error.response?.status === 500) {
-        errorMessage = 'Server error - RadiAnt may not be running or not configured for DICOM';
-      } else if (error.message.includes('network')) {
-        errorMessage = 'Network error - check connection to RadiAnt';
-      }
-      
-      toast.error(errorMessage, {
-        duration: 8000,
-        icon: '❌',
-        style: {
-          background: '#fef2f2',
-          color: '#dc2626',
-          border: '1px solid #fca5a5'
+      toast.error(
+        `Failed to generate RadiAnt launcher: ${error.message}`,
+        {
+          duration: 6000,
+          icon: '❌'
         }
-      });
-
-      // Show troubleshooting tips for common issues
-      if (error.response?.status === 400 && error.response.data.message?.includes('IP address')) {
-        setTimeout(() => {
-          toast(
-            '💡 Tip: Ensure RadiAnt is running and DICOM server is enabled (Tools → Options → DICOM Server)',
-            {
-              duration: 10000,
-              icon: '💡',
-              style: {
-                background: '#fffbeb',
-                color: '#d97706',
-                border: '1px solid #fbbf24'
-              }
-            }
-          );
-        }, 2000);
-      }
+      );
       
     } finally {
       setIsLaunching(false);
     }
   };
 
-  // 🔧 FALLBACK: Registry protocol launch (if C-STORE fails)
-  const handleRegistryLaunch = async () => {
+  // 🆕 NEW: Alternative - Direct URL approach
+  const handleDirectUrlLaunch = async () => {
     try {
-      const protocolUrl = `radiant://launch?studyId=${study.orthancStudyID}&patientName=${encodeURIComponent(study.patientName || 'Unknown')}`;
+      // Get study instances
+      const response = await api.get(`/orthanc-proxy/studies/${study.orthancStudyID}/instances`);
       
-      console.log('🔄 Fallback: Launching RadiAnt with registry protocol:', protocolUrl);
-      
-      const link = document.createElement('a');
-      link.href = protocolUrl;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      toast.success('🖥️ RadiAnt protocol launched (fallback method)', {
-        duration: 4000,
-        style: {
-          background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-          color: 'white'
-        }
-      });
-
+      if (response.data.success && response.data.data.primaryInstanceUrl) {
+        // Try to launch via custom protocol (if registered)
+        const protocolUrl = `radiant://open?url=${encodeURIComponent(response.data.data.studyArchiveUrl)}`;
+        
+        console.log('🔗 Attempting protocol launch:', protocolUrl);
+        
+        const link = document.createElement('a');
+        link.href = protocolUrl;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        toast.success('🖥️ RadiAnt protocol launched', { duration: 4000 });
+      }
     } catch (error) {
-      console.error('Registry launch failed:', error);
-      toast.error('Both C-STORE and registry launch failed');
+      console.error('Direct URL launch failed:', error);
+      // Fallback to file download approach
+      handleRadiantLaunch();
     }
   };
 
-  // 🆕 NEW: Test connection before launching
-  const handleTestAndLaunch = async () => {
-    try {
-      setIsLaunching(true);
-      
-      // First test the connection
-      toast.loading('🔍 Testing RadiAnt connection...', { duration: 5000 });
-      
-      try {
-        await api.post('/api/orthanc/test-connection', {
-          // Let backend auto-detect IP or add manual override here
-        });
-        
-        toast.dismiss();
-        toast.success('✅ Connection test passed', { duration: 2000 });
-        
-        // Wait a moment then launch
-        setTimeout(() => {
-          handleCStoreLaunch();
-        }, 1000);
-        
-      } catch (testError) {
-        toast.dismiss();
-        console.warn('Connection test failed, trying direct launch:', testError);
-        
-        // If test fails, try direct launch anyway
-        toast('⚠️ Connection test failed, attempting direct launch...', {
-          duration: 3000,
-          icon: '🔄'
-        });
-        
-        await handleCStoreLaunch();
-      }
-      
-    } catch (error) {
-      console.error('Test and launch failed:', error);
-      setIsLaunching(false);
-    }
+  // Update the button onClick to use the new method
+  const handleClick = () => {
+    handleRadiantLaunch(); // Use the download approach
   };
 
   // Size classes

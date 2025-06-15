@@ -174,6 +174,21 @@ const useAdminWebSocket = (user) => {
         // Heartbeat response - just log for debugging
         console.log('💓 Received heartbeat pong');
         break;
+        case 'simple_new_study_notification':
+          setNewStudyCount(prev => prev + 1);
+          
+          toast('New Study Arrived', {
+            duration: 4000,
+            icon: '🏥',
+            style: {
+              background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+              border: '2px solid #22c55e',
+              color: '#065f46',
+              fontWeight: '600'
+            }
+          });
+          break;
+          
         
       default:
         console.log('Unknown message type:', message.type);

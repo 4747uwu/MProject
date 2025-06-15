@@ -1,7 +1,7 @@
 import * as brevo from '@getbrevo/brevo';
 
 // 🔧 DIGITAL OCEAN: Hardcoded Brevo configuration
-const BREVO_API_KEY = 'YOUR_BREVO';
+const BREVO_API_KEY = process.env.BREVO_API_KEY;
 const BREVO_FROM_EMAIL = 'pawrangerskyler@gmail.com';
 const FROM_NAME = 'StarRadiology';
 

@@ -12,6 +12,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - BREVO_API_KEY=${BREVO_API_KEY}
       - MONGODB_URI=${MONGODB_URI}
       - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}

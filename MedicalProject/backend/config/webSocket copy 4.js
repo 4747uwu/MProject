@@ -474,29 +474,6 @@ class WebSocketService {
     }
   }
 
-  // 🆕 NEW: Simple New Study Notification (no data)
-  async notifySimpleNewStudy() {
-    const notification = {
-      type: 'simple_new_study_notification',
-      timestamp: new Date(),
-      message: 'New Study Arrived'
-    };
-
-    let sentCount = 0;
-    this.adminConnections.forEach((connection, connectionId) => {
-      if (connection.ws.readyState === connection.ws.OPEN && connection.subscribedToStudies) {
-        try {
-          connection.ws.send(JSON.stringify(notification));
-          sentCount++;
-        } catch (error) {
-          console.error(`Error sending simple notification to ${connectionId}:`, error);
-        }
-      }
-    });
-
-    console.log(`📢 Simple "New Study Arrived" notification sent to ${sentCount} admin(s)`);
-  }
-
   // Get connection stats
   getStats() {
     return {

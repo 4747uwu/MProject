@@ -7,7 +7,10 @@ import {
   searchStudies,
   getOrthancStatus,
   cstoreToRadiant,
-  testCStoreConnection
+  testCStoreConnection,
+  getStudyInstances,
+  generateRadiantLauncher,
+  downloadInstance
 } from '../controllers/orthanc.proxy.controller.js';
 
 const router = express.Router();
@@ -24,7 +27,9 @@ router.get('/studies/search', searchStudies);
 router.get('/studies/:studyId', getStudyDetails);
 router.get('/studies/:studyId/download', downloadStudyArchive);
 router.get('/studies/:studyId/metadata', getStudyMetadata);
-
+router.get('/studies/:studyId/instances', getStudyInstances);
+router.get('/studies/:studyId/launcher', generateRadiantLauncher);
+router.get('/instances/:instanceId/download', downloadInstance);
 
 // 🆕 NEW: C-STORE routes
 router.post('/study/:studyId/cstore', cstoreToRadiant);
