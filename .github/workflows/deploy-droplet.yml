@@ -73,7 +73,7 @@ jobs:
           WASABI_DOCUMENTS_BUCKET=medicaldocuments
           WASABI_REPORTS_BUCKET=diacomreports
           WASABI_BACKUPS_BUCKET=medical-backups
-          BREVO_API_KEY=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
+          
           EOF
           
           # ✅ SAFE: Only stop our project containers (preserve existing services)
