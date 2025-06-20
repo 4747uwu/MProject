@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 // 🆕 ADD: Import the logo
-import starRadiologyLogo from '../../assets/starradiology_logo-1 (1).png';
+import starRadiologyLogo from '../../assets/xcentic.png';
 import RadiantStatus from '../../components/admin/RadiantStatus';
 
 

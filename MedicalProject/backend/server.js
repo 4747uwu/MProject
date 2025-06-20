@@ -67,7 +67,9 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'https://64.227.187.164',       // ✅ HTTPS version
         process.env.FRONTEND_URL,       // ✅ Environment variable fallback
         'http://localhost',             // ✅ Local testing
-        'https://localhost'             // ✅ Local HTTPS testing
+        'https://localhost',   
+        'http://portal.xcentic.in',     // ✅ ADD THIS
+        'https://portal.xcentic.in'         // ✅ Local HTTPS testing
       ]
     : [
         'http://localhost:3000',
@@ -76,7 +78,9 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
         'http://64.227.187.164',        // ✅ CHANGE from 157.245.86.199
-        'https://64.227.187.164'   
+        'https://64.227.187.164',
+        'http://portal.xcentic.in',     // ✅ ADD THIS
+        'https://portal.xcentic.in'
       ];
 
 app.use(cors({

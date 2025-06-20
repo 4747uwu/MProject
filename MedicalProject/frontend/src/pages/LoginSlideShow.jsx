@@ -71,7 +71,7 @@ const LoginSlideshow = () => {
           <span className="text-white text-xl font-bold"></span>
         </div>
         <div className="ml-2 text-white text-sm">
-          <div className="font-bold text-4xl">Star Radiology</div>
+          <div className="font-bold text-4xl">Xcentic</div>
           <div className="text-white/70 text-xs"></div>
         </div>
       </div>

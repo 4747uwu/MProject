@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Link } from 'react-router-dom';
 import LoginSlideshow from './LoginSlideShow';
-import logoImage from '../assets/starradiology_logo-1 (1).png';
+import logoImage from '../assets/xcentic.png';
 import ShinyText from '../components/creative/shinnyText';
 
 const LoginPage = () => {
