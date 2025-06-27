@@ -2,6 +2,9 @@ import { useCallback } from 'react';
 import React from 'react';
 
 const EyeIconDropdown = React.memo(({ studyInstanceUID }) => {
+  console.log('EyeIconDropdown received studyInstanceUID:', studyInstanceUID);
+  console.log('Type:', typeof studyInstanceUID);
+  console.log('Is truthy:', !!studyInstanceUID);
 
   const openOHIFLocal = useCallback((studyInstanceUID) => {
     const ohifBaseURL = import.meta.env.VITE_OHIF_LOCAL_URL || 'http://localhost:4000';
