@@ -64,14 +64,14 @@ const LoginSlideshow = () => {
   };
 
   return (
-    <div className={`relative h-full w-full overflow-hidden ${slides[currentSlide].color} transition-all duration-1000`}>
+    <div className={`relative h-full w-full overflow-hidden ${slides[currentSlide].color} transition-all duration-1000 rounded-xl`}>
       {/* Branding */}
       <div className="absolute top-8 left-8 z-30 flex items-center">
         <div className="bg-white/20 backdrop-blur-sm rounded-lg p-1.5">
           <span className="text-white text-xl font-bold"></span>
         </div>
         <div className="ml-2 text-white text-sm">
-          <div className="font-bold text-4xl">Xcentic</div>
+          <div className="font-bold text-4xl">Star-Radiology</div>
           <div className="text-white/70 text-xs"></div>
         </div>
       </div>

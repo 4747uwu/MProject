@@ -16,7 +16,7 @@ const DoctorDashboard = React.memo(() => {
   const [activeCategory, setActiveCategory] = useState('all');
   
   // 🔧 SIMPLIFIED: Single page mode state management (matching admin)
-  const [recordsPerPage, setRecordsPerPage] = useState(20);
+  const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [totalRecords, setTotalRecords] = useState(0);
   
   // 🆕 NEW: Date filter state for backend integration (matching admin)
@@ -32,6 +32,13 @@ const DoctorDashboard = React.memo(() => {
     completedStudies: 0,
     urgentStudies: 0,
     todayAssigned: 0
+  });
+
+  const [values, setValues] = useState({
+    today: 0,
+    pending: 0,
+    inprogress: 0,
+    completed: 0,
   });
   
   // 🔧 AUTO-REFRESH STATE
@@ -114,6 +121,14 @@ const DoctorDashboard = React.memo(() => {
             }).length
           });
         }
+
+        // 🆕 NEW: Calculate values for WorklistSearch compatibility
+        setValues({
+          today: response.data.data.length,
+          pending: response.data.data.filter(s => s.currentCategory === 'pending').length,
+          inprogress: response.data.data.filter(s => s.currentCategory === 'inprogress').length,
+          completed: response.data.data.filter(s => s.currentCategory === 'completed').length,
+        });
         
         console.log('✅ DOCTOR Studies fetched successfully:', {
           count: response.data.data.length,
@@ -126,6 +141,12 @@ const DoctorDashboard = React.memo(() => {
       console.error('❌ DOCTOR Error fetching studies:', error);
       setAllStudies([]);
       setTotalRecords(0);
+      setValues({
+        today: 0,
+        pending: 0,
+        inprogress: 0,
+        completed: 0,
+      });
     } finally {
       if (showLoadingState) {
         setLoading(false);
@@ -260,171 +281,10 @@ const DoctorDashboard = React.memo(() => {
     <div className="min-h-screen bg-gray-50">
       <UniversalNavbar />
 
-      {/* 🔧 ULTRA COMPACT: Much tighter container (matching admin) */}
-      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3">
-        {/* 🔧 COMPACT: Header with minimal spacing (matching admin) */}
-        <div className="mb-1 sm:mb-2">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-1 lg:gap-2 mb-1">
-            {/* Title and Info Section */}
-            <div className="min-w-0 flex-1">
-              <h1 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 truncate">
-                My Assigned Studies
-              </h1>
-              
-              {/* 🔧 ULTRA COMPACT: Tighter info badges (matching admin) */}
-              <div className="flex flex-wrap items-center gap-0.5 sm:gap-1 mt-0.5 text-xs">
-                <span className="text-gray-600 whitespace-nowrap">
-                  {totalRecords.toLocaleString()} total studies
-                </span>
-                <span className="text-gray-500 whitespace-nowrap hidden sm:inline">
-                  ({recordsPerPage} per page)
-                </span>
-                
-                {/* Date filter indicator */}
-                <span className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
-                  📅 {dateFilter === 'custom' 
-                    ? `Custom Range` 
-                    : dateFilter === 'last24h' ? '24h' 
-                    : dateFilter}
-                </span>
-                
-                <span className="bg-green-100 text-green-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
-                  📜 All loaded
-                </span>
-                
-                {/* Auto-refresh status indicator */}
-                <div className="flex items-center gap-0.5">
-                  <div className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-blue-500 animate-pulse"></div>
-                  <span className="text-xs text-blue-700 whitespace-nowrap">
-                    Auto-refresh: {formatRefreshTime}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* 🔧 ULTRA COMPACT: Controls section (matching admin) */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 lg:gap-2">
-              {/* Quick Date Filter Controls */}
-              <div className="flex items-center gap-0.5 bg-white rounded border border-gray-200 p-0.5 overflow-x-auto">
-                {['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
-                  <button
-                    key={filter}
-                    onClick={() => handleDateFilterChange(filter)}
-                    className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
-                      dateFilter === filter 
-                        ? 'bg-blue-500 text-white' 
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {filter === 'last24h' ? '24h' : 
-                     filter === 'today' ? 'Today' :
-                     filter === 'yesterday' ? 'Yesterday' :
-                     filter === 'thisWeek' ? 'Week' : 
-                     filter === 'thisMonth' ? 'Month' :
-                     filter === 'assignedToday' ? 'Assigned Today' : 'Custom'}
-                  </button>
-                ))}
-                <button
-                  onClick={() => handleDateFilterChange('custom')}
-                  className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
-                    dateFilter === 'custom' 
-                      ? 'bg-purple-500 text-white' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Custom
-                </button>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-1">
-                <button 
-                  onClick={handleManualRefresh}
-                  disabled={loading}
-                  className="inline-flex items-center px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all duration-200 text-xs font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed h-6"
-                  title={`Manual refresh (Auto-refresh in ${formatRefreshTime})`}
-                >
-                  <svg className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
-                  </svg>
-                  <span className="hidden sm:inline">Refresh</span>
-                  <span className="sm:hidden">↻</span>
-                </button>
-
-                <Link 
-                  to="/doctor/reports" 
-                  className="inline-flex items-center px-2 py-1 bg-emerald-500 text-white rounded hover:bg-emerald-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
-                >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <span className="hidden sm:inline">Reports</span>
-                  <span className="sm:hidden">Reports</span>
-                </Link>
-
-                <Link 
-                  to="/doctor/profile" 
-                  className="inline-flex items-center px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
-                >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span className="hidden sm:inline">Profile</span>
-                  <span className="sm:hidden">Profile</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-
-          {dateFilter === 'custom' && (
-            <div className="bg-purple-50 border border-purple-200 rounded p-1 sm:p-2 mt-1">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs">
-                <select
-                  value={dateType}
-                  onChange={(e) => handleDateTypeChange(e.target.value)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                >
-                  <option value="UploadDate">Upload Date</option>
-                  <option value="StudyDate">Study Date</option>
-                </select>
-                
-                <input
-                  type="date"
-                  value={customDateFrom}
-                  onChange={(e) => handleCustomDateChange(e.target.value, customDateTo)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                  placeholder="From"
-                />
-                
-                <span className="text-purple-600 hidden sm:inline">to</span>
-                
-                <input
-                  type="date"
-                  value={customDateTo}
-                  onChange={(e) => handleCustomDateChange(customDateFrom, e.target.value)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                  placeholder="To"
-                />
-                
-                <button
-                  onClick={() => {
-                    setCustomDateFrom('');
-                    setCustomDateTo('');
-                    setDateFilter('last24h');
-                  }}
-                  className="px-1 py-0.5 text-xs text-purple-600 hover:text-purple-800 underline"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 🔧 ULTRA COMPACT: Main Content with minimal padding (matching admin) */}
-        <div className="bg-white rounded border border-gray-200 overflow-hidden">
-          <div className="p-1 sm:p-2 lg:p-3">
+      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3 flex-1 flex flex-col">
+        {/* 🔧 CLEAN: Main Content - Now WorklistSearch handles all controls (matching admin) */}
+        <div className="bg-white flex-1 min-h-0 rounded border border-gray-200 overflow-hidden flex flex-col">
+          <div className="p-1 sm:p-2 lg:p-3 flex-1 min-h-0 flex flex-col">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
@@ -437,7 +297,6 @@ const DoctorDashboard = React.memo(() => {
               categoryStats={dashboardStats}
               recordsPerPage={recordsPerPage}
               onRecordsPerPageChange={handleRecordsPerPageChange}
-              // 🆕 NEW: Pass date filter props (matching admin)
               dateFilter={dateFilter}
               onDateFilterChange={handleDateFilterChange}
               customDateFrom={customDateFrom}
@@ -446,21 +305,27 @@ const DoctorDashboard = React.memo(() => {
               dateType={dateType}
               onDateTypeChange={handleDateTypeChange}
               onSearchWithBackend={handleSearchWithBackend}
+              values={values}
+              // 🆕 NEW: Pass additional props for integrated controls (NO websocket props)
+              connectionStatus="connected" // Static for doctor dashboard
+              onManualRefresh={handleManualRefresh}
             />
           </div>
         </div>
 
-        {/* 🔧 ULTRA COMPACT: Mobile Stats (matching admin but with doctor-specific stats) */}
+        {/* 🔧 CLEAN: Mobile Stats - Keep this for mobile view (matching admin) */}
         <div className="lg:hidden mt-1 sm:mt-2">
           <details className="bg-white rounded border border-gray-200 shadow-sm">
             <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
               <span className="flex items-center justify-between">
-                <span>View Statistics</span>
-                <span className="text-blue-600">Auto-refresh: {formatRefreshTime}</span>
+                View Statistics
+                <svg className="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </span>
             </summary>
             <div className="px-2 pb-2">
-              {/* Auto-refresh info section */}
+              {/* 🔧 AUTO-REFRESH: Info section for mobile */}
               <div className="mb-2 p-2 bg-blue-50 rounded text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-blue-700 font-medium">Auto-refresh enabled</span>

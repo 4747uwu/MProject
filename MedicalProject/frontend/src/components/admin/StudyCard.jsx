@@ -253,11 +253,7 @@ const StudyCard = React.memo(({
       </div>
 
       {/* 🆕 NEW: Debug info for development (remove in production) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
-          <strong>Debug:</strong> userRole: {userRole}, showReportButton: {showReportButton.toString()}
-        </div>
-      )}
+      
     </div>
   );
 }, (prevProps, nextProps) => {

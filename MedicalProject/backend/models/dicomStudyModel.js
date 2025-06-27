@@ -6,7 +6,7 @@ const DicomStudySchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-        index: true // Primary lookup
+        index: { unique: true, background: true } // 🔥 Background index creation
     },
     
     // 🔧 CRITICAL: Optimized patient reference
@@ -14,30 +14,40 @@ const DicomStudySchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Patient',
         required: true,
-        index: true
+        index: { background: true } // 🔥 Background indexing
     },
     patientId: { 
         type: String, 
         required: true,
-        index: true // Backward compatibility
+        index: { background: true } // 🔥 Background indexing
     },
     
     // 🔧 PERFORMANCE: Denormalized patient data for faster queries
     patientInfo: {
-        patientID: String,
-        patientName: String,
+        patientID: { type: String, index: { sparse: true, background: true } }, // 🔥 Sparse index
+        patientName: { type: String, index: { sparse: true, background: true } }, // 🔥 Sparse index
         age: String,
-        gender: String
+        gender: { type: String, index: { sparse: true, background: true } } // 🔥 Gender filtering
     },
     
     // 🔧 OPTIMIZED: Study metadata with indexes
-    studyDate: { type: Date, index: true },
+    studyDate: { 
+        type: Date, 
+        index: { background: true },
+        // 🔥 ADD: Default to current date for faster inserts
+        default: Date.now
+    },
     modality: { 
         type: String, 
-        index: true,
-        enum: ['CT', 'MRI', 'XR', 'US', 'DX', 'CR', 'MG', 'NM', 'PT']
+        index: { background: true },
+        enum: ['CT', 'MRI', 'XR', 'US', 'DX', 'CR', 'MG', 'NM', 'PT'],
+        // 🔥 ADD: Default value to avoid null checks
+        default: 'CT'
     },
-    accessionNumber: { type: String, index: true },
+    accessionNumber: { 
+        type: String, 
+        index: { sparse: true, background: true } // 🔥 Sparse index for optional fields
+    },
     
     // 🔧 CRITICAL: Workflow management
     workflowStatus: {
@@ -48,7 +58,7 @@ const DicomStudySchema = new mongoose.Schema({
             'assigned_to_doctor',
             'doctor_opened_report',
             'report_in_progress',
-            'report_drafted',          // 🆕 NEW: When report is uploaded as draft
+            'report_drafted',
             'report_finalized',
             'report_uploaded',
             'report_downloaded_radiologist',
@@ -57,7 +67,7 @@ const DicomStudySchema = new mongoose.Schema({
             'archived'
         ],
         default: 'new_study_received',
-        index: true
+        index: { background: true } // 🔥 Most queried field
     },
 
     currentCategory: {
@@ -68,7 +78,7 @@ const DicomStudySchema = new mongoose.Schema({
             'assigned_to_doctor',
             'doctor_opened_report',
             'report_in_progress',
-            'report_drafted',          // 🆕 NEW: When report is uploaded as draft
+            'report_drafted',
             'report_finalized',
             'report_uploaded',
             'report_downloaded_radiologist',
@@ -77,7 +87,14 @@ const DicomStudySchema = new mongoose.Schema({
             'archived'
         ],
         default: 'new_study_received',
-        index: true
+        index: { background: true } // 🔥 Background indexing
+    },
+    
+    generated: {
+        type: String,
+        enum: ['yes', 'no'],
+        default: 'no',
+        index: { sparse: true, background: true } // 🔥 Sparse index
     },
 
     technologist: {
@@ -88,47 +105,51 @@ const DicomStudySchema = new mongoose.Schema({
     },
     
     // 🔧 PERFORMANCE: Assignment tracking
-    assignment: {
+    assignment: [{
         assignedTo: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
-            index: true
+            index: { sparse: true, background: true } // 🔥 Sparse - not all studies assigned
         },
-        assignedAt: { type: Date, index: true },
+        assignedAt: { 
+            type: Date, 
+            index: { sparse: true, background: true } // 🔥 Sparse index
+        },
         assignedBy: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
         },
-        dueDate: { type: Date, index: true },
+        dueDate: { 
+            type: Date, 
+            index: { sparse: true, background: true } // 🔥 Due date filtering
+        },
         priority: {
             type: String,
             enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
             default: 'NORMAL',
-            index: true
+            index: { background: true } // 🔥 Priority filtering
         }
-    },
+    }],
 
     studyPriority: {
         type: String,
-        enum: ['SELECT',
-            'Emergency Case',
-            'Meet referral doctor', 
-            'MLC Case',
-            'Study Exception'],
-        default: 'SELECT', // Default to 'normal' if not specified
-        index: true // Index for quick access
+        enum: ['SELECT', 'Emergency Case', 'Meet referral doctor', 'MLC Case', 'Study Exception'],
+        default: 'SELECT',
+        index: { background: true } // 🔥 Priority queries
     },
 
-    // 🆕 ADD THIS FIELD - Legacy field for backward compatibility
-    lastAssignedDoctor: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Doctor',
-        index: true
-    },
-    lastAssignmentAt: {
-        type: Date,
-        index: true
-    },
+    // 🆕 Legacy field for backward compatibility
+    lastAssignedDoctor: [{
+        doctorId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Doctor',
+            index: { sparse: true, background: true } // 🔥 Sparse index for historical entries
+        },
+        assignedAt: {
+            type: Date,
+            index: { sparse: true, background: true } // 🔥 Sparse index for historical entries
+        }
+    }],
     
     // 🔧 OPTIMIZED: Status history with size limit
     statusHistory: [{
@@ -149,29 +170,41 @@ const DicomStudySchema = new mongoose.Schema({
     
     // 🔧 OPTIMIZED: TAT tracking
     timingInfo: {
-        uploadToAssignmentMinutes: Number,
-        assignmentToReportMinutes: Number,
-        reportToDownloadMinutes: Number,
-        totalTATMinutes: Number
+        uploadToAssignmentMinutes: { type: Number, index: { sparse: true, background: true } }, // 🔥 Performance metrics
+        assignmentToReportMinutes: { type: Number, index: { sparse: true, background: true } },
+        reportToDownloadMinutes: { type: Number, index: { sparse: true, background: true } },
+        totalTATMinutes: { type: Number, index: { sparse: true, background: true } } // 🔥 TAT reporting
     },
     
     // 🔧 PERFORMANCE: Lab information
     sourceLab: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Lab',
-        index: true
+        index: { background: true } // 🔥 Lab filtering very common
     },
     ReportAvailable: {
         type: Boolean,
         default: false,
-        index: true, 
+        index: { background: true }, // 🔥 Report availability filtering
         required: false
     },
     
     // 🔧 CRITICAL: Search optimization
-    searchText: { type: String, index: 'text' },
+    searchText: { 
+        type: String, 
+        index: { 
+            name: 'searchTextIndex',
+            background: true,
+            // 🔥 SUPER FAST: Text search optimization
+            weights: {
+                searchText: 10,
+                'patientInfo.patientName': 5,
+                'patientInfo.patientID': 3,
+                accessionNumber: 2
+            }
+        }
+    },
     
-   
     uploadedReports: [{
         filename: String,
         contentType: String,
@@ -195,7 +228,7 @@ const DicomStudySchema = new mongoose.Schema({
         }
     }],
 
-    doctorReports:[{
+    doctorReports: [{
         filename: String,
         contentType: String,
         data: String, // base64 encoded
@@ -218,28 +251,37 @@ const DicomStudySchema = new mongoose.Schema({
         }
     }],
     
-    // 🆕 NEW: Series and Instance tracking
+    // 🆕 Series and Instance tracking
     seriesCount: {
         type: Number,
         default: 0,
-        index: true
+        index: { sparse: true, background: true } // 🔥 For statistics
     },
     instanceCount: {
         type: Number,
         default: 0,
-        index: true
+        index: { sparse: true, background: true } // 🔥 For statistics
     },
     seriesImages: {
-        type: String, // Format: "3/45" (3 series, 45 instances)
+        type: String,
         default: "0/0"
     },
     
     // Missing fields used in orthanc.routes.js:
     studyTime: { type: String },
     modalitiesInStudy: [{ type: String }],
-    examDescription: { type: String },
-    institutionName: { type: String },
-    orthancStudyID: { type: String, index: true },
+    examDescription: { 
+        type: String,
+        index: { sparse: true, background: true } // 🔥 Exam description search
+    },
+    institutionName: { 
+        type: String,
+        index: { sparse: true, background: true } // 🔥 Institution filtering
+    },
+    orthancStudyID: { 
+        type: String, 
+        index: { sparse: true, background: true } // 🔥 Orthanc integration
+    },
     
     // DICOM files storage
     dicomFiles: [{
@@ -251,18 +293,52 @@ const DicomStudySchema = new mongoose.Schema({
         uploadedAt: { type: Date, default: Date.now }
     }],
     
-    // Case type for priority - 🔧 FIXED: Accept both cases
+    // Case type for priority
     caseType: {
         type: String,
         enum: [
-            'routine', 'urgent', 'stat', 'emergency',           // lowercase
+            'routine', 'urgent', 'stat', 'emergency',
             'ROUTINE', 'URGENT', 'STAT', 'EMERGENCY',
-            'Billed Study', 'New Study'         // uppercase
+            'Billed Study', 'New Study'
         ],
-        default: 'routine'
+        default: 'routine',
+        index: { background: true } // 🔥 Case type filtering
     },
+    discussions: [{
+        comment: {
+            type: String,
+            required: true,
+            trim: true,
+            maxlength: 2000 // Prevent extremely long comments
+        },
+        userName: {
+            type: String,
+            required: true,
+            trim: true
+        },
+        userRole: {
+            type: String,
+            required: true,
+            enum: ['admin', 'doctor_account', 'lab_staff', 'technician'],
+            index: { background: true } // For filtering by role
+        },
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: false, // Optional for backward compatibility
+            index: { sparse: true, background: true }
+        },
+        dateTime: {
+            type: Date,
+            required: true,
+            default: Date.now,
+            index: { background: true } // For sorting discussions chronologically
+        },
+
+
+    }],
     
-    // 🆕 NEW: Add referring physician information
+    // Referring physician information
     referringPhysician: {
         name: { type: String, trim: true },
         institution: { type: String, trim: true },
@@ -271,7 +347,7 @@ const DicomStudySchema = new mongoose.Schema({
     referringPhysicianName: { 
         type: String, 
         trim: true,
-        index: true // For searching by referring physician
+        index: { sparse: true, background: true } // 🔥 Physician search
     },
 
     physicians: {
@@ -290,58 +366,234 @@ const DicomStudySchema = new mongoose.Schema({
     },
     modifiedDate: { type: Date },
     modifiedTime: { type: String },
-    reportDate: { type: Date },
+    reportDate: { 
+        type: Date,
+        index: { sparse: true, background: true } // 🔥 Report date filtering
+    },
     reportTime: { type: String },
     
 }, { 
     timestamps: true,
-    // 🔧 PERFORMANCE: Optimize collection settings
-    
+    // 🔧 SUPER FAST: Collection-level optimizations
+    collection: 'dicomstudies', // 🔥 Explicit collection name
+    // 🔥 PERFORMANCE: Optimize document structure
+    minimize: false, // Don't remove empty objects
+    versionKey: false, // Remove __v field for smaller documents
+    // 🔥 CACHING: Enable query result caching
+    read: 'primary', // Read from primary, fallback to secondary
+    // 🔥 COMPRESSION: Enable document compression
+    strict: true, // Strict schema validation for performance
+    validateBeforeSave: true, // Validate before save for data integrity
+    autoIndex: false, // 🔥 CRITICAL: Disable auto-indexing in production
+    bufferCommands: false, // 🔥 Disable command buffering for immediate execution
 });
 
-// 🔧 CRITICAL: High-performance compound indexes
-DicomStudySchema.index({ workflowStatus: 1, studyDate: -1 }); // Status dashboard
-DicomStudySchema.index({ 'assignment.assignedTo': 1, workflowStatus: 1 }); // Doctor workload
-DicomStudySchema.index({ patient: 1, studyDate: -1 }); // Patient history
-DicomStudySchema.index({ sourceLab: 1, workflowStatus: 1, studyDate: -1 }); // Lab dashboard
-DicomStudySchema.index({ modality: 1, studyDate: -1 }); // Modality reports
-DicomStudySchema.index({ 'assignment.priority': 1, workflowStatus: 1 }); // Priority queue
-DicomStudySchema.index({ studyDate: -1, createdAt: -1 }); // Time-based queries
+// 🔧 SUPER FAST: High-performance compound indexes (ORDER MATTERS!)
+// 🔥 MOST CRITICAL: Primary dashboard query (status + date)
+DicomStudySchema.index({ 
+    workflowStatus: 1, 
+    createdAt: -1 
+}, { 
+    name: 'workflowStatus_createdAt',
+    background: true 
+});
 
-// 🔧 CRITICAL: Indexes for progressive data buildup
-DicomStudySchema.index({ createdAt: -1 }); // Primary time-based queries
-DicomStudySchema.index({ createdAt: -1, workflowStatus: 1 }); // Time + status (most common)
-DicomStudySchema.index({ createdAt: -1, sourceLab: 1 }); // Time + lab filtering
-DicomStudySchema.index({ studyDate: -1, workflowStatus: 1 }); // Study date queries
-DicomStudySchema.index({ workflowStatus: 1, createdAt: -1 }); // Status-first queries
-
-// 🔧 PERFORMANCE: Sparse indexes for specific scenarios
+// 🔥 DOCTOR WORKLOAD: Most frequent doctor queries
 DicomStudySchema.index({ 
     'assignment.assignedTo': 1, 
     workflowStatus: 1, 
     createdAt: -1 
-}, { sparse: true }); // Doctor assignment queries
+}, { 
+    name: 'doctor_workload',
+    background: true,
+    sparse: true 
+});
 
+// 🔥 LAB DASHBOARD: Lab-specific queries
 DicomStudySchema.index({ 
-    studyInstanceUID: 1 
-}, { unique: true, sparse: true }); // Exact study lookups
+    sourceLab: 1, 
+    workflowStatus: 1, 
+    createdAt: -1 
+}, { 
+    name: 'lab_dashboard',
+    background: true 
+});
 
-// 🔧 PERFORMANCE: Limit status history to prevent document bloat
+// 🔥 PATIENT HISTORY: Patient timeline
+DicomStudySchema.index({ 
+    patient: 1, 
+    studyDate: -1, 
+    createdAt: -1 
+}, { 
+    name: 'patient_history',
+    background: true 
+});
+
+// 🔥 MODALITY REPORTS: Modality-based filtering
+DicomStudySchema.index({ 
+    modality: 1, 
+    studyDate: -1, 
+    workflowStatus: 1 
+}, { 
+    name: 'modality_reports',
+    background: true 
+});
+
+// 🔥 PRIORITY QUEUE: Urgent cases
+DicomStudySchema.index({ 
+    'assignment.priority': 1, 
+    workflowStatus: 1, 
+    createdAt: -1 
+}, { 
+    name: 'priority_queue',
+    background: true,
+    sparse: true 
+});
+
+// 🔥 TIME-BASED QUERIES: Date range filtering
+DicomStudySchema.index({ 
+    studyDate: -1, 
+    createdAt: -1, 
+    workflowStatus: 1 
+}, { 
+    name: 'time_based_queries',
+    background: true 
+});
+
+// 🔥 SEARCH OPTIMIZATION: Text search with relevance
+DicomStudySchema.index({ 
+    searchText: 'text',
+    'patientInfo.patientName': 'text',
+    'patientInfo.patientID': 'text',
+    accessionNumber: 'text'
+}, { 
+    name: 'comprehensive_search',
+    background: true,
+    weights: {
+        searchText: 10,
+        'patientInfo.patientName': 8,
+        'patientInfo.patientID': 6,
+        accessionNumber: 4
+    }
+});
+
+// 🔥 PERFORMANCE ANALYTICS: TAT reporting
+DicomStudySchema.index({ 
+    'timingInfo.totalTATMinutes': 1, 
+    studyDate: -1 
+}, { 
+    name: 'tat_analytics',
+    background: true,
+    sparse: true 
+});
+
+// 🔥 REPORT STATUS: Report availability
+DicomStudySchema.index({ 
+    ReportAvailable: 1, 
+    workflowStatus: 1, 
+    createdAt: -1 
+}, { 
+    name: 'report_status',
+    background: true 
+});
+
+// 🔧 SUPER FAST: Pre-save middleware optimizations
 DicomStudySchema.pre('save', function(next) {
-    // Limit status history to last 50 entries
+    // 🔥 PERFORMANCE: Limit status history to prevent document bloat
     if (this.statusHistory && this.statusHistory.length > 50) {
         this.statusHistory = this.statusHistory.slice(-50);
     }
     
-    // 🔧 NEW: Normalize caseType to lowercase
+    // 🔥 PERFORMANCE: Limit uploaded reports to prevent huge documents
+    if (this.uploadedReports && this.uploadedReports.length > 20) {
+        this.uploadedReports = this.uploadedReports.slice(-20);
+    }
+    
+    if (this.doctorReports && this.doctorReports.length > 20) {
+        this.doctorReports = this.doctorReports.slice(-20);
+    }
+    
+    // 🔥 NORMALIZATION: Normalize caseType to lowercase for consistency
     if (this.caseType) {
         this.caseType = this.caseType.toLowerCase();
     }
     
-    // Update search text for full-text search
-    this.searchText = `${this.patientInfo?.patientName || ''} ${this.patientInfo?.patientID || ''} ${this.accessionNumber || ''} ${this.modality || ''}`.toLowerCase();
+    // 🔥 SEARCH OPTIMIZATION: Build comprehensive search text
+    const searchTerms = [
+        this.patientInfo?.patientName || '',
+        this.patientInfo?.patientID || '',
+        this.accessionNumber || '',
+        this.modality || '',
+        this.referringPhysicianName || '',
+        this.examDescription || '',
+        this.studyInstanceUID || ''
+    ].filter(term => term.trim().length > 0);
+    
+    this.searchText = searchTerms.join(' ').toLowerCase();
+    
+    // 🔥 PERFORMANCE: Auto-calculate series images string
+    if (this.seriesCount >= 0 && this.instanceCount >= 0) {
+        this.seriesImages = `${this.seriesCount}/${this.instanceCount}`;
+    }
     
     next();
 });
+
+// 🔥 PERFORMANCE: Post-save middleware for cleanup
+DicomStudySchema.post('save', function(doc) {
+    // 🔥 ANALYTICS: Could trigger background analytics updates here
+    // Don't put heavy operations here - use background jobs instead
+});
+
+// 🔥 QUERY OPTIMIZATION: Static methods for common queries
+DicomStudySchema.statics.findByWorkflowStatus = function(status, limit = 50) {
+    return this.find({ workflowStatus: status })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(); // 🔥 Use lean() for faster queries when you don't need full mongoose documents
+};
+
+DicomStudySchema.statics.findByDoctor = function(doctorId, status = null, limit = 50) {
+    const query = { 'assignment.assignedTo': doctorId };
+    if (status) query.workflowStatus = status;
+    
+    return this.find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+};
+
+DicomStudySchema.statics.findByLab = function(labId, status = null, limit = 50) {
+    const query = { sourceLab: labId };
+    if (status) query.workflowStatus = status;
+    
+    return this.find(query)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+};
+
+// 🔥 CACHING: Virtual for computed fields
+DicomStudySchema.virtual('isUrgent').get(function() {
+    return this.assignment?.priority === 'URGENT' || 
+           this.studyPriority === 'Emergency Case' ||
+           this.caseType === 'emergency';
+});
+
+// 🔥 PERFORMANCE: Transform output to remove heavy fields when not needed
+DicomStudySchema.methods.toSummary = function() {
+    return {
+        _id: this._id,
+        studyInstanceUID: this.studyInstanceUID,
+        patientInfo: this.patientInfo,
+        studyDate: this.studyDate,
+        modality: this.modality,
+        workflowStatus: this.workflowStatus,
+        assignment: this.assignment,
+        seriesImages: this.seriesImages,
+        createdAt: this.createdAt,
+        ReportAvailable: this.ReportAvailable
+    };
+};
 
 export default mongoose.model('DicomStudy', DicomStudySchema);

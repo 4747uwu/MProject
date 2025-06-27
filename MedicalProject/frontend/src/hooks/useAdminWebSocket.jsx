@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
+import sessionManager from "../services/sessionManager";
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
 console.log('🔌 WebSocket URL:', WS_URL);
+
 
 const RECONNECT_INTERVAL = 5000; // 5 seconds
 const MAX_RECONNECT_ATTEMPTS = 10;
@@ -24,18 +26,12 @@ const useAdminWebSocket = (user) => {
       return;
     }
 
-
     setConnectionStatus('connecting');
-    let wsUrl;
-    if (WS_URL.startsWith('/')) {
-      // Production: nginx proxy - WS_URL is already "/ws"
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      wsUrl = `${protocol}//${window.location.host}${WS_URL}/admin`;  // ws://64.227.187.164/ws/admin
-    } else {
-      // Development: full URL - WS_URL is "ws://localhost:3000"
-      wsUrl = `${WS_URL}/ws/admin`;  // ws://localhost:3000/ws/admin
-    }  
+    const token = sessionManager.getToken();
+    console.log('🔑 Using token for WebSocket:', token);
     // Since we're using cookies, the browser will automatically send them with the WebSocket connection
+    const wsUrl = `${WS_URL}/ws/admin${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    console.log('🔌 WebSocket URL:', wsUrl);
     
     try {
       console.log('🔌 Attempting to connect to WebSocket...');
@@ -84,18 +80,20 @@ const useAdminWebSocket = (user) => {
         setConnectionStatus('disconnected');
         
         // Attempt to reconnect if not manually closed
-        if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
-          reconnectAttempts.current++;
-          const delay = Math.min(3000 * reconnectAttempts.current, 30000); // Max 30 seconds
-          console.log(`🔄 Attempting to reconnect in ${delay/1000}s... (${reconnectAttempts.current}/${maxReconnectAttempts})`);
+        // if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+        //   reconnectAttempts.current++;
+        //   const delay = Math.min(3000 * reconnectAttempts.current, 30000); // Max 30 seconds
+        //   console.log(`🔄 Attempting to reconnect in ${delay/1000}s... (${reconnectAttempts.current}/${maxReconnectAttempts})`);
           
-          setConnectionStatus('connecting');
-          reconnectTimeout.current = setTimeout(() => connect(), delay);
-        } else if (reconnectAttempts.current >= maxReconnectAttempts) {
-          console.log('❌ Max reconnection attempts reached');
-          setConnectionStatus('error');
-          
-        }
+        //   setConnectionStatus('connecting');
+        //   reconnectTimeout.current = setTimeout(() => connect(), delay);
+        // } else if (reconnectAttempts.current >= maxReconnectAttempts) {
+        //   console.log('❌ Max reconnection attempts reached');
+        //   setConnectionStatus('error');
+        //   toast.error('Failed to connect to real-time notifications. Please refresh the page.', {
+        //     duration: 8000
+        //   });
+        // }
       };
 
       ws.current.onerror = (error) => {
@@ -174,21 +172,22 @@ const useAdminWebSocket = (user) => {
         // Heartbeat response - just log for debugging
         console.log('💓 Received heartbeat pong');
         break;
-        case 'simple_new_study_notification':
-          setNewStudyCount(prev => prev + 1);
-          
-          toast('New Study Arrived', {
-            duration: 4000,
-            icon: '🏥',
-            style: {
-              background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
-              border: '2px solid #22c55e',
-              color: '#065f46',
-              fontWeight: '600'
-            }
-          });
-          break;
-          
+        
+      // Add this case in the handleMessage function switch statement
+      case 'simple_new_study_notification':
+        setNewStudyCount(prev => prev + 1);
+        
+        toast('New Study Arrived', {
+          duration: 4000,
+          icon: '🏥',
+          style: {
+            background: 'linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%)',
+            border: '2px solid #22c55e',
+            color: '#065f46',
+            fontWeight: '600'
+          }
+        });
+        break;
         
       default:
         console.log('Unknown message type:', message.type);

@@ -15,7 +15,11 @@ import {
     sendDoctorEmail,
     getDoctorStats,
     resetDoctorPassword,
-    uploadDoctorSignature
+    uploadDoctorSignature,
+    getValues,
+    getPendingStudies,
+    getInProgressStudies,
+    getCompletedStudies
 } from '../controllers/admin.controller.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -31,8 +35,13 @@ router.post('/doctors/register',
 );
 
 router.get('/studies', protect, authorize('admin'), getAllStudiesForAdmin); 
+router.get('/values', protect, getValues)
 router.get('/doctors', protect, authorize('admin', 'lab_staff'), getAllDoctors); 
 router.post('/studies/:studyId/assign', protect, authorize('admin'), assignDoctorToStudy); 
+
+router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
+router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);
+router.get('/studies/completed', protect, authorize('admin'), getCompletedStudies);
 
 
 // Route that allows multiple roles (admin, lab_staff, doctor_account)

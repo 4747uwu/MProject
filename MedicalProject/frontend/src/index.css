@@ -193,6 +193,60 @@ html::-webkit-scrollbar {
   }
 }
 
+.react-window-list {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+.react-window-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.react-window-list::-webkit-scrollbar-track {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.react-window-list::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
+}
+
+.react-window-list::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+/* Add to your global CSS or component styles */
+.react-window {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 #f7fafc;
+}
+
+.react-window::-webkit-scrollbar {
+  width: 8px;
+}
+
+.react-window::-webkit-scrollbar-track {
+  background: #f7fafc;
+  border-radius: 4px;
+}
+
+.react-window::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 4px;
+}
+
+.react-window::-webkit-scrollbar-thumb:hover {
+  background: #a0aec0;
+}
+
+/* Ensure the worklist container doesn't have height restrictions */
+.worklist-container {
+  height: auto !important;
+  min-height: 600px;
+  max-height: 90vh;
+}
+
 @media (max-width: 1024px) {
 
   /* Tablet optimizations */

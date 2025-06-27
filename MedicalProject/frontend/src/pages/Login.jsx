@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Link } from 'react-router-dom';
 import LoginSlideshow from './LoginSlideShow';
-import logoImage from '../assets/xcentic.png';
+import logoImage from '../assets/starradiology_logo-1 (1).png';
 import ShinyText from '../components/creative/shinnyText';
 
 const LoginPage = () => {
@@ -64,9 +64,11 @@ const LoginPage = () => {
   return (
     <div className="min-h-screen flex">
       {/* LEFT PANEL - SLIDESHOW (60% on desktop) */}
-      <div className="hidden lg:block lg:w-[60%]">
+      
+      <div className="hidden lg:block lg:w-[60%] border-l border-r border-[10px]">
         <LoginSlideshow />
       </div>
+      
 
       {/* RIGHT PANEL - LOGIN FORM (40% on desktop) */}
       <div className="w-full lg:w-[40%] flex items-center justify-center relative overflow-hidden bg-gradient-to-br from-blue-100 via-purple-50 to-indigo-100">

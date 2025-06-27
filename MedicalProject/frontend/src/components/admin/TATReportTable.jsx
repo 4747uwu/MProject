@@ -46,10 +46,10 @@ const TATReportTable = ({ studies = [] }) => {
 
   // Helper function to get TAT status color based on duration
   const getTATStatusColor = (tatString) => {
-    if (!tatString || tatString === '-') return 'text-gray-500';
+    if (!tatString || tatString === '-') return 'bg-gray-100 text-gray-700 border border-gray-200';
     
     const minutes = parseInt(tatString.replace(/[^\d]/g, ''));
-    if (isNaN(minutes)) return 'text-gray-500';
+    if (isNaN(minutes)) return 'bg-gray-100 text-gray-700 border border-gray-200';
     
     // Color coding based on TAT performance
     if (minutes <= 60) return 'bg-green-100 text-green-800 border border-green-200'; // ≤ 1 hour - Excellent
@@ -64,7 +64,7 @@ const TATReportTable = ({ studies = [] }) => {
     return value || defaultVal;
   };
 
-  // Helper to get status color
+  // Helper to get status color for study status
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case 'final_report_downloaded':
@@ -133,137 +133,84 @@ const TATReportTable = ({ studies = [] }) => {
       </div>
 
       {/* Enhanced Table Container */}
+      {/* Increased min-w-full to ensure it doesn't squish too much before overflow kicks in */}
       <div className="w-full overflow-x-auto">
-        <table className="w-full border-collapse table-fixed text-xs">
+        {/* Changed table-fixed to table-auto for dynamic column sizing, added a minimum width to prevent excessive squishing */}
+        <table className="w-full border-collapse table-auto text-xs min-w-[1200px]">
           <thead>
             <tr className="bg-gradient-to-r from-gray-800 to-gray-900 text-white">
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[5%]">
-                <div className="flex flex-col">
-                  <span>Status</span>
-                  <span className="text-xs text-gray-300 font-normal">Current</span>
-                </div>
+              {/* Increased padding (px-3 py-4), removed fixed widths, simplified headers */}
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Status <span className="block text-xs text-gray-300 font-normal">Current</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[6%]">
-                <div className="flex flex-col">
-                  <span>Patient ID</span>
-                  <span className="text-xs text-gray-300 font-normal">Identifier</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Patient ID <span className="block text-xs text-gray-300 font-normal">Identifier</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[8%]">
-                <div className="flex flex-col">
-                  <span>Patient Name</span>
-                  <span className="text-xs text-gray-300 font-normal">Full Name</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Patient Name <span className="block text-xs text-gray-300 font-normal">Full Name</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[3%]">
-                <div className="flex flex-col">
-                  <span>Sex</span>
-                  <span className="text-xs text-gray-300 font-normal">M/F</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                Sex <span className="block text-xs text-gray-300 font-normal">M/F</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[6%]">
-                <div className="flex flex-col">
-                  <span>Referred By</span>
-                  <span className="text-xs text-gray-300 font-normal">Doctor</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Referred By <span className="block text-xs text-gray-300 font-normal">Doctor</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[5%]">
-                <div className="flex flex-col">
-                  <span>Acc Number</span>
-                  <span className="text-xs text-gray-300 font-normal">Reference</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Acc Number <span className="block text-xs text-gray-300 font-normal">Reference</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[7%]">
-                <div className="flex flex-col">
-                  <span>Study Type</span>
-                  <span className="text-xs text-gray-300 font-normal">Description</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Study Type <span className="block text-xs text-gray-300 font-normal">Description</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[4%]">
-                <div className="flex flex-col">
-                  <span>Modality</span>
-                  <span className="text-xs text-gray-300 font-normal">Type</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                Modality <span className="block text-xs text-gray-300 font-normal">Type</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[4%]">
-                <div className="flex flex-col">
-                  <span>S/I Count</span>
-                  <span className="text-xs text-gray-300 font-normal">Series</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                S/I Count <span className="block text-xs text-gray-300 font-normal">Series</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[7%]">
-                <div className="flex flex-col">
-                  <span>Institution</span>
-                  <span className="text-xs text-gray-300 font-normal">Facility</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Institution <span className="block text-xs text-gray-300 font-normal">Facility</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[8%]">
-                <div className="flex flex-col">
-                  <span>Study Date</span>
-                  <span className="text-xs text-gray-300 font-normal">Performed</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Study Date <span className="block text-xs text-gray-300 font-normal">Performed</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[8%]">
-                <div className="flex flex-col">
-                  <span>Upload Date</span>
-                  <span className="text-xs text-gray-300 font-normal">Received</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Upload Date <span className="block text-xs text-gray-300 font-normal">Received</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[8%]">
-                <div className="flex flex-col">
-                  <span>Assign Date</span>
-                  <span className="text-xs text-gray-300 font-normal">To Doctor</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Assign Date <span className="block text-xs text-gray-300 font-normal">To Doctor</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[8%]">
-                <div className="flex flex-col">
-                  <span>Report Date</span>
-                  <span className="text-xs text-gray-300 font-normal">Completed</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Report Date <span className="block text-xs text-gray-300 font-normal">Completed</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[5%]">
-                <div className="flex flex-col">
-                  <span className="text-blue-300">S-R TAT</span>
-                  <span className="text-xs text-gray-300 font-normal">Study→Report</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                <span className="text-blue-300">S-R TAT</span> <span className="block text-xs text-gray-300 font-normal">Study→Report</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[5%]">
-                <div className="flex flex-col">
-                  <span className="text-green-300">U-R TAT</span>
-                  <span className="text-xs text-gray-300 font-normal">Upload→Report</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                <span className="text-green-300">U-R TAT</span> <span className="block text-xs text-gray-300 font-normal">Upload→Report</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-center uppercase tracking-wider font-semibold w-[5%]">
-                <div className="flex flex-col">
-                  <span className="text-purple-300">A-R TAT</span>
-                  <span className="text-xs text-gray-300 font-normal">Assign→Report</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                <span className="text-purple-300">A-R TAT</span> <span className="block text-xs text-gray-300 font-normal">Assign→Report</span>
               </th>
-              <th className="border-r border-gray-600 px-2 py-3 text-left uppercase tracking-wider font-semibold w-[6%]">
-                <div className="flex flex-col">
-                  <span>Reported By</span>
-                  <span className="text-xs text-gray-300 font-normal">Doctor</span>
-                </div>
+              <th className="border-r border-gray-600 px-3 py-4 text-left uppercase tracking-wider font-semibold">
+                Reported By <span className="block text-xs text-gray-300 font-normal">Doctor</span>
               </th>
-              <th className="px-2 py-3 text-center uppercase tracking-wider font-semibold w-[4%]">
-                <div className="flex flex-col">
-                  <span>Actions</span>
-                  <span className="text-xs text-gray-300 font-normal">Download</span>
-                </div>
+              <th className="px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                Actions <span className="block text-xs text-gray-300 font-normal">Download</span>
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white">
+          <tbody className="bg-white divide-y divide-gray-100"> {/* Added divide-y for horizontal lines */}
             {studies.length > 0 ? (
               studies.map((study, index) => (
                 <tr 
                   key={study._id || index} 
-                  className={`border-b border-gray-100 hover:bg-blue-50 transition-colors duration-150 ${
+                  className={`hover:bg-blue-50 transition-colors duration-150 ${
                     index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'
                   }`}
                 >
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(study.studyStatus)}`}>
+                  {/* Increased padding for td cells (px-3 py-3) */}
+                  <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full ${getStatusColor(study.studyStatus)}`}>
                       <div className="w-1.5 h-1.5 rounded-full bg-current mr-1.5"></div>
                       {safeValue(study.studyStatus)
                         .replace(/_/g, ' ')
@@ -273,17 +220,17 @@ const TATReportTable = ({ studies = [] }) => {
                         .substring(0, 15)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="font-medium text-gray-900 truncate" title={safeValue(study.patientId)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="font-medium text-gray-900 truncate max-w-[120px]" title={safeValue(study.patientId)}>
                       {safeValue(study.patientId)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="font-medium text-gray-900 truncate" title={safeValue(study.patientName)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="font-medium text-gray-900 truncate max-w-[150px]" title={safeValue(study.patientName)}>
                       {safeValue(study.patientName)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-semibold ${
                       study.gender === 'M' ? 'bg-blue-100 text-blue-800' : 
                       study.gender === 'F' ? 'bg-pink-100 text-pink-800' : 'bg-gray-100 text-gray-800'
@@ -291,77 +238,77 @@ const TATReportTable = ({ studies = [] }) => {
                       {safeValue(study.gender)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="text-gray-700 truncate" title={safeValue(study.referredBy)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="text-gray-700 truncate max-w-[120px]" title={safeValue(study.referredBy)}>
                       {safeValue(study.referredBy)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="font-mono text-gray-700 truncate text-xs" title={safeValue(study.accessionNumber)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="font-mono text-gray-700 text-xs truncate max-w-[100px]" title={safeValue(study.accessionNumber)}>
                       {safeValue(study.accessionNumber)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="text-gray-700 truncate" title={safeValue(study.studyDescription)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="text-gray-700 truncate max-w-[150px]" title={safeValue(study.studyDescription)}>
                       {safeValue(study.studyDescription)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold bg-indigo-100 text-indigo-800">
                       {safeValue(study.modality)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className="font-mono text-xs text-gray-600">
                       {safeValue(study.series_Images)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="text-gray-700 truncate text-xs" title={safeValue(study.institutionName)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="text-gray-700 text-xs truncate max-w-[150px]" title={safeValue(study.institutionName)}>
                       {safeValue(study.institutionName)}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
+                  <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
                       {study.billedOnStudyDate ? formatStudyDate(study.billedOnStudyDate) : '-'}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
+                  <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
                       {study.uploadDate ? formatDateTime(study.uploadDate) : '-'}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
+                  <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
                       {study.assignedDate ? formatDateTime(study.assignedDate) : '-'}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
+                  <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
                       {study.reportDate ? formatDateTime(study.reportDate) : '-'}
                     </div>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffStudyAndReportTAT)}`}>
                       {formatTATTime(study.diffStudyAndReportTAT)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffUploadAndReportTAT)}`}>
                       {formatTATTime(study.diffUploadAndReportTAT)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3 text-center">
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffAssignAndReportTAT)}`}>
                       {formatTATTime(study.diffAssignAndReportTAT)}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-2 py-3">
-                    <div className="text-gray-700 truncate text-xs" title={safeValue(study.reportedBy)}>
+                  <td className="border-r border-gray-100 px-3 py-3">
+                    <div className="text-gray-700 text-xs truncate max-w-[120px]" title={safeValue(study.reportedBy)}>
                       {safeValue(study.reportedBy)}
                     </div>
                   </td>
-                  <td className="px-2 py-3 text-center">
+                  <td className="px-3 py-3 text-center">
                     <button 
                       className="inline-flex items-center justify-center w-8 h-8 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 hover:scale-105 transition-all duration-150 group"
                       title="Download Report"

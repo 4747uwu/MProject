@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
@@ -11,56 +11,68 @@ const LaunchButton = ({
   className = ''
 }) => {
   const [isLaunching, setIsLaunching] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const abortControllerRef = useRef(null);
 
-  // 🆕 NEW: Launch RadiAnt using download approach
-  const handleRadiantLaunch = async () => {
+  // 🆕 Browser Download API with Protocol Launch
+  const handleProtocolLaunch = async () => {
     try {
       setIsLaunching(true);
+      setDownloadProgress(0);
       
       if (!study.orthancStudyID) {
-        toast.error('Orthanc Study ID not found - cannot launch RadiAnt Viewer');
+        toast.error('Study ID not found');
         return;
       }
 
-      console.log('🚀 Launching RadiAnt via download for study:', study.orthancStudyID);
+      // Create abort controller for cancellation
+      abortControllerRef.current = new AbortController();
       
-      // Show loading toast
       const loadingToast = toast.loading(
-        `📡 Preparing RadiAnt launcher...`,
-        {
-          duration: 10000,
-          style: {
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            color: 'white',
-            fontWeight: '600'
-          }
-        }
+        (t) => (
+          <div className="text-sm">
+            <div className="font-semibold mb-1">📥 Downloading Study...</div>
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+              <div 
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${downloadProgress}%` }}
+              ></div>
+            </div>
+            <div className="text-xs text-gray-600">
+              {downloadProgress}% • Preparing RadiAnt launch...
+            </div>
+            <button 
+              onClick={() => {
+                abortControllerRef.current?.abort();
+                toast.dismiss(t.id);
+                setIsLaunching(false);
+              }}
+              className="mt-1 text-xs bg-red-500 text-white px-2 py-1 rounded"
+            >
+              Cancel
+            </button>
+          </div>
+        ),
+        { duration: Infinity }
       );
 
       try {
-        // Option 1: Generate and download launcher file
-        const launcherUrl = `${import.meta.env.VITE_BACKEND_URL}/api/orthanc-proxy/studies/${study.orthancStudyID}/launcher?launcherType=bat&downloadType=archive`;
+        // Download with progress tracking
+        const downloadResult = await downloadWithProgress(study.orthancStudyID);
         
-        // Create download link
-        const link = document.createElement('a');
-        link.href = launcherUrl;
-        link.download = `radiant-launcher-${study.orthancStudyID}.bat`;
-        link.style.display = 'none';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-
         toast.dismiss(loadingToast);
         
-        // Show success message with instructions
+        // Trigger protocol launch
+        await triggerProtocolLaunch(downloadResult.filePath, study.orthancStudyID);
+        
         toast.success(
           (t) => (
             <div className="text-sm">
-              <div className="font-semibold mb-2">🚀 RadiAnt Launcher Downloaded!</div>
-              <div className="space-y-1 text-xs">
-                <div>📁 Check your Downloads folder</div>
-                <div>🖱️ Double-click the .bat file to launch</div>
-                <div>⏳ RadiAnt will open automatically</div>
+              <div className="font-semibold mb-1">🎉 RadiAnt Launched!</div>
+              <div className="text-xs space-y-1">
+                <div>✅ Study downloaded successfully</div>
+                <div>🖥️ Opening in RadiAnt DICOM Viewer</div>
+                <div>📁 File: {downloadResult.fileName}</div>
               </div>
               <button 
                 onClick={() => toast.dismiss(t.id)}
@@ -72,70 +84,220 @@ const LaunchButton = ({
           ),
           {
             duration: 8000,
-            icon: '🎉',
-            style: {
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: 'white',
-              fontWeight: '600'
-            }
+            icon: '🚀'
           }
         );
 
-        onLaunchSuccess?.({ method: 'download', studyId: study.orthancStudyID });
+        onLaunchSuccess?.({ 
+          method: 'protocol-launch', 
+          studyId: study.orthancStudyID,
+          fileName: downloadResult.fileName
+        });
 
       } catch (error) {
         toast.dismiss(loadingToast);
-        throw error;
+        
+        if (error.name === 'AbortError') {
+          toast('Download cancelled', { icon: '⏹️' });
+          return;
+        }
+        
+        // Fallback to manual download
+        await handleFallbackDownload(study.orthancStudyID);
       }
 
     } catch (error) {
-      console.error('Error launching RadiAnt:', error);
-      toast.dismiss();
-      
-      toast.error(
-        `Failed to generate RadiAnt launcher: ${error.message}`,
-        {
-          duration: 6000,
-          icon: '❌'
-        }
-      );
-      
+      console.error('Protocol launch failed:', error);
+      toast.error(`Launch failed: ${error.message}`);
     } finally {
       setIsLaunching(false);
+      setDownloadProgress(0);
     }
   };
 
-  // 🆕 NEW: Alternative - Direct URL approach
-  const handleDirectUrlLaunch = async () => {
-    try {
-      // Get study instances
-      const response = await api.get(`/orthanc-proxy/studies/${study.orthancStudyID}/instances`);
+  // Browser Download API with progress
+  const downloadWithProgress = async (studyId) => {
+    const downloadUrl = `${import.meta.env.VITE_BACKEND_URL}/api/orthanc-proxy/studies/${studyId}/download`;
+    
+    console.log('🚀 Starting browser download with progress tracking');
+    console.log('📥 Download URL:', downloadUrl);
+    
+    // Use fetch with ReadableStream for progress
+    const response = await fetch(downloadUrl, {
+      signal: abortControllerRef.current.signal,
+      credentials: 'include',
+      headers: {
+        'Accept': 'application/zip, */*',
+      }
+    });
+    
+    console.log('📡 Response headers:');
+    console.log('   - Status:', response.status, response.statusText);
+    console.log('   - Content-Type:', response.headers.get('content-type'));
+    console.log('   - Content-Length:', response.headers.get('content-length'));
+    console.log('   - Content-Disposition:', response.headers.get('content-disposition'));
+    console.log('   - Transfer-Encoding:', response.headers.get('transfer-encoding'));
+    
+    if (!response.ok) {
+      console.error('❌ Download request failed');
+      throw new Error(`Download failed: ${response.status} ${response.statusText}`);
+    }
+    
+    const contentLength = response.headers.get('content-length');
+    const total = contentLength ? parseInt(contentLength, 10) : 0;
+    
+    console.log(`📊 Download size: ${total > 0 ? (total / 1024 / 1024).toFixed(2) : 'Unknown'} MB`);
+    
+    const reader = response.body.getReader();
+    const chunks = [];
+    let downloaded = 0;
+    
+    while (true) {
+      const { done, value } = await reader.read();
       
-      if (response.data.success && response.data.data.primaryInstanceUrl) {
-        // Try to launch via custom protocol (if registered)
-        const protocolUrl = `radiant://open?url=${encodeURIComponent(response.data.data.studyArchiveUrl)}`;
+      if (done) break;
+      
+      chunks.push(value);
+      downloaded += value.length;
+      
+      // ✅ IMPROVED PROGRESS CALCULATION
+      if (total > 0) {
+        const progress = Math.round((downloaded / total) * 100);
+        setDownloadProgress(progress);
+        console.log(`📥 Download progress: ${progress}% (${(downloaded / 1024 / 1024).toFixed(2)} MB / ${(total / 1024 / 1024).toFixed(2)} MB)`);
+      } else {
+        // ✅ FOR UNKNOWN SIZE - PROGRESSIVE ESTIMATION
+        const downloadedMB = downloaded / 1024 / 1024;
+        let estimatedProgress;
         
-        console.log('🔗 Attempting protocol launch:', protocolUrl);
+        if (downloadedMB < 1) {
+          estimatedProgress = Math.min(downloadedMB * 30, 30); // 0-30% for first MB
+        } else if (downloadedMB < 5) {
+          estimatedProgress = 30 + ((downloadedMB - 1) * 15); // 30-90% for 1-5MB
+        } else {
+          estimatedProgress = Math.min(90 + ((downloadedMB - 5) * 2), 95); // 90-95% for >5MB
+        }
         
+        setDownloadProgress(Math.round(estimatedProgress));
+        console.log(`📥 Downloaded: ${downloadedMB.toFixed(2)} MB (estimated ${Math.round(estimatedProgress)}%)`);
+      }
+    }
+    
+    console.log(`✅ Download completed: ${(downloaded / 1024 / 1024).toFixed(2)} MB`);
+    
+    // ✅ REDUCED MINIMUM SIZE CHECK
+    if (downloaded < 1024) { // Less than 1KB is definitely an error
+      throw new Error('Downloaded file is too small (less than 1KB)');
+    }
+    
+    // ✅ SET FINAL PROGRESS TO 100%
+    setDownloadProgress(100);
+    
+    // Create blob and save to Downloads
+    const blob = new Blob(chunks);
+    const fileName = `study-${studyId}-${Date.now()}.zip`;
+    const url = window.URL.createObjectURL(blob);
+    
+    // Trigger browser download
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // ✅ IMPROVED PATH DETECTION
+    const userProfile = navigator.userAgent.includes('Windows') ? 
+      (window.navigator.userAgentData?.platform === 'Windows' ? 'User' : 'User') : 
+      'user';
+    
+    const downloadsPath = navigator.userAgent.includes('Windows') ? 
+      `C:\\Users\\${userProfile}\\Downloads\\${fileName}` : 
+      `/home/${userProfile}/Downloads/${fileName}`;
+
+    console.log('📂 Downloaded file path:', downloadsPath);
+    
+    window.URL.revokeObjectURL(url);
+    
+    console.log('✅ Download completed:', fileName);
+    
+    return {
+      fileName,
+      filePath: downloadsPath,
+      blob,
+      size: downloaded
+    };
+  };
+
+  // Trigger custom protocol
+  const triggerProtocolLaunch = async (filePath, studyId) => {
+    console.log('🔗 Triggering radiant:// protocol');
+    console.log('📁 File path:', filePath);
+    
+    // Wait a moment for download to complete
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Create protocol URL
+    const protocolUrl = `radiant://open?file=${encodeURIComponent(filePath)}&study=${studyId}&cleanup=true&source=web-portal`;
+    
+    console.log('🚀 Protocol URL:', protocolUrl);
+    
+    // Trigger protocol
+    try {
+      // Method 1: Direct assignment
+      window.location.href = protocolUrl;
+      
+      // Method 2: Hidden link (fallback)
+      setTimeout(() => {
         const link = document.createElement('a');
         link.href = protocolUrl;
         link.style.display = 'none';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        
-        toast.success('🖥️ RadiAnt protocol launched', { duration: 4000 });
-      }
+      }, 1000);
+      
     } catch (error) {
-      console.error('Direct URL launch failed:', error);
-      // Fallback to file download approach
-      handleRadiantLaunch();
+      console.error('Protocol trigger failed:', error);
+      throw new Error('Protocol handler not installed. Please run the RadiAnt Protocol Installer.');
     }
   };
 
-  // Update the button onClick to use the new method
-  const handleClick = () => {
-    handleRadiantLaunch(); // Use the download approach
+  // Fallback to manual download
+  const handleFallbackDownload = async (studyId) => {
+    console.log('🔄 Falling back to manual download');
+    
+    const downloadUrl = `${import.meta.env.VITE_BACKEND_URL}/api/orthanc-proxy/studies/${studyId}/download`;
+    
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = `study-${studyId}.zip`;
+    link.click();
+    
+    toast.success(
+      (t) => (
+        <div className="text-sm">
+          <div className="font-semibold mb-2">📁 Manual Download Started</div>
+          <div className="space-y-1 text-xs">
+            <div>📥 Check your Downloads folder</div>
+            <div>📂 Extract the ZIP file</div>
+            <div>🖱️ Drag to RadiAnt or use File → Open</div>
+          </div>
+          <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+            <div className="font-semibold text-blue-800">Want automatic opening?</div>
+            <div className="text-blue-700">Install RadiAnt Protocol Handler for one-click experience!</div>
+          </div>
+          <button 
+            onClick={() => toast.dismiss(t.id)}
+            className="mt-2 text-xs bg-white bg-opacity-20 px-2 py-1 rounded"
+          >
+            Got it!
+          </button>
+        </div>
+      ),
+      { duration: 10000 }
+    );
   };
 
   // Size classes
@@ -149,7 +311,7 @@ const LaunchButton = ({
   if (variant === 'icon') {
     return (
       <button
-        onClick={handleCStoreLaunch}
+        onClick={handleProtocolLaunch} // ✅ FIXED
         disabled={isLaunching || !study.orthancStudyID}
         className={`text-purple-600 hover:text-purple-800 transition-colors p-1 hover:bg-purple-50 rounded ${className}`}
         title="Launch in RadiAnt Desktop Viewer via C-STORE"
@@ -168,7 +330,7 @@ const LaunchButton = ({
   if (variant === 'dropdown-item') {
     return (
       <button
-        onClick={handleCStoreLaunch}
+        onClick={handleProtocolLaunch} // ✅ FIXED
         disabled={isLaunching || !study.orthancStudyID}
         className={`flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-purple-50 transition-colors disabled:opacity-50 ${className}`}
       >
@@ -176,8 +338,8 @@ const LaunchButton = ({
           <>
             <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mr-2"></div>
             <div className="text-left">
-              <div className="font-medium">Sending to RadiAnt...</div>
-              <div className="text-xs text-gray-500">Please wait while we transfer files</div>
+              <div className="font-medium">Downloading... {downloadProgress}%</div>
+              <div className="text-xs text-gray-500">Preparing RadiAnt launch</div>
             </div>
           </>
         ) : (
@@ -186,8 +348,8 @@ const LaunchButton = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             <div className="text-left">
-              <div className="font-medium">🚀 Launch RadiAnt Desktop</div>
-              <div className="text-xs text-gray-500">Send via DICOM C-STORE</div>
+              <div className="font-medium">🚀 Launch RadiAnt (Auto)</div>
+              <div className="text-xs text-gray-500">Download + auto-open</div>
             </div>
           </>
         )}
@@ -198,7 +360,7 @@ const LaunchButton = ({
   // Default button variant
   return (
     <button
-      onClick={handleCStoreLaunch}
+      onClick={handleProtocolLaunch} // ✅ FIXED
       disabled={isLaunching || !study.orthancStudyID}
       className={`
         inline-flex items-center justify-center font-medium rounded-md transition-colors
@@ -214,7 +376,7 @@ const LaunchButton = ({
       {isLaunching ? (
         <>
           <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-          <span>Sending to RadiAnt...</span>
+          <span>Launching... {downloadProgress}%</span>
         </>
       ) : (
         <>

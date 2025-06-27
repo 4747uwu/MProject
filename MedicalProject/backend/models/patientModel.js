@@ -75,6 +75,7 @@ const PatientSchema = new mongoose.Schema({
             'report_in_progress',
             'report_downloaded_radiologist',
             'report_finalized',
+            'report_drafted',
             'report_downloaded',
             'final_report_downloaded',
             'archived'
@@ -121,7 +122,7 @@ const PatientSchema = new mongoose.Schema({
 }, { 
     timestamps: true,
     // 🔧 PERFORMANCE: Optimize for read-heavy operations
-    read: 'secondaryPreferred',
+    read: 'primary',
     writeConcern: { w: 1, j: false } // Faster writes for non-critical data
 });
 

@@ -6,6 +6,7 @@ import Lab from '../models/labModel.js';
 import Document from '../models/documentModal.js'; // 🔧 NEW: Document model
 import WasabiService from '../services/wasabi.service.js'; // 🔧 NEW: Wasabi integration
 import cache from '../utils/cache.js';
+import websocketService from '../config/webSocket.js'; // 🔧 NEW: WebSocket service
 
 // 🔧 WORKFLOW STATUS MAPPING (same as existing)
 const WORKFLOW_STATUS_MAPPING = {
@@ -57,7 +58,7 @@ export const getPatientDetailedView = async (req, res) => {
           });
       }
 
-      // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS
+      // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS  
       const [patient, allStudies] = await Promise.all([
           Patient.findOne({ patientID: patientId })
               .populate('clinicalInfo.lastModifiedBy', 'fullName email')
@@ -67,18 +68,17 @@ export const getPatientDetailedView = async (req, res) => {
                   studyInstanceUID studyDate studyTime modality modalitiesInStudy 
                   accessionNumber workflowStatus caseType examDescription examType 
                   sourceLab uploadedReports createdAt referringPhysician referringPhysicianName
-                  assignment.assignedAt assignment.assignedTo reportInfo.finalizedAt
+                  assignment reportInfo.finalizedAt
                   reportInfo.startedAt timingInfo numberOfSeries numberOfImages
                   institutionName patientInfo studyPriority
                   technologist physicians modifiedDate modifiedTime reportDate reportTime
               `)
               .populate('sourceLab', 'name identifier')
+              // 🔧 FIXED: Correct populate path for assignment array
               .populate({
                   path: 'assignment.assignedTo',
-                  populate: {
-                      path: 'userAccount',
-                      select: 'fullName email'
-                  }
+                  model: 'User',
+                  select: 'fullName email'
               })
               .sort({ createdAt: -1 })
               .lean()
@@ -345,7 +345,8 @@ export const getPatientDetailedView = async (req, res) => {
               
               // 🆕 NEW: Priority and case information
               studyPriority: currentStudy.studyPriority || 'SELECT',
-              priorityLevel: currentStudy.assignment?.priority || 'NORMAL',
+              // 🔧 FIXED: Handle assignment array - get the latest assignment
+              priorityLevel: currentStudy.assignment?.length > 0 ? currentStudy.assignment[currentStudy.assignment.length - 1].priority || 'NORMAL' : 'NORMAL',
               
               // 🆕 NEW: Time tracking information
               modifiedDate: currentStudy.modifiedDate || null,
@@ -364,8 +365,11 @@ export const getPatientDetailedView = async (req, res) => {
               
               images: [],
               tat: currentStudyTAT,
-              assignedDoctor: currentStudy.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
-              assignedAt: currentStudy.assignment?.assignedAt || null,
+              // 🔧 FIXED: Handle assignment array - get the latest assigned doctor
+              assignedDoctor: currentStudy.assignment?.length > 0 ? 
+                  currentStudy.assignment[currentStudy.assignment.length - 1].assignedTo?.fullName || 'Not Assigned' : 'Not Assigned',
+              assignedAt: currentStudy.assignment?.length > 0 ? 
+                  currentStudy.assignment[currentStudy.assignment.length - 1].assignedAt || null : null,
               reportStartedAt: currentStudy.reportInfo?.startedAt || null,
               reportFinalizedAt: currentStudy.reportInfo?.finalizedAt || null
           } : {},
@@ -398,7 +402,9 @@ export const getPatientDetailedView = async (req, res) => {
               
               // 🆕 NEW: Priority information
               studyPriority: currentStudy?.studyPriority || 'SELECT',
-              priorityLevel: currentStudy?.assignment?.priority || 'NORMAL',
+              // 🔧 FIXED: Handle assignment array
+              priorityLevel: currentStudy?.assignment?.length > 0 ? 
+                  currentStudy.assignment[currentStudy.assignment.length - 1].priority || 'NORMAL' : 'NORMAL',
               
               // 🆕 NEW: Time information
               modifiedDate: currentStudy?.modifiedDate || 'N/A',
@@ -432,9 +438,9 @@ export const getPatientDetailedView = async (req, res) => {
                   
                   // 🆕 NEW: Priority information
                   studyPriority: study.studyPriority || 'SELECT',
-                  priorityLevel: study.assignment?.priority || 'NORMAL',
-                  
-                  // 🆕 NEW: Time information
+                  // 🔧 FIXED: Handle assignment array
+                  priorityLevel: study.assignment?.length > 0 ? 
+                      study.assignment[study.assignment.length - 1].priority || 'NORMAL' : 'NORMAL',
                   modifiedDate: study.modifiedDate || null,
                   modifiedTime: study.modifiedTime || 'N/A',
                   reportDate: study.reportDate || null,
@@ -451,7 +457,9 @@ export const getPatientDetailedView = async (req, res) => {
                   // 🆕 NEW: Technologist information
                   technologist: studyTechnologist,
                   
-                  assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
+                  // 🔧 FIXED: Handle assignment array
+                  assignedDoctor: study.assignment?.length > 0 ? 
+                      study.assignment[study.assignment.length - 1].assignedTo?.userAccount?.fullName || 'Not Assigned' : 'Not Assigned',
                   tat: {
                       totalDays: studyTAT.totalTATDays,
                       totalDaysFormatted: studyTAT.totalTATDays !== null ? `${studyTAT.totalTATDays} days` : 'N/A',
@@ -480,14 +488,18 @@ export const getPatientDetailedView = async (req, res) => {
                   workflowStatus: study.workflowStatus,
                   priority: study.caseType?.toUpperCase() || 'ROUTINE',
                   location: study.sourceLab?.name || 'Default Lab',
-                  assignedDoctor: study.assignment?.assignedTo?.userAccount?.fullName || 'Not Assigned',
+                  // 🔧 FIXED: Handle assignment array
+                  assignedDoctor: study.assignment?.length > 0 ? 
+                      study.assignment[study.assignment.length - 1].assignedTo?.userAccount?.fullName || 'Not Assigned' : 'Not Assigned',
                   reportFinalizedAt: study.reportInfo?.finalizedAt,
                   numberOfSeries: study.numberOfSeries || 0,
                   numberOfImages: study.numberOfImages || 0,
                   
                   // 🆕 NEW: Enhanced study information
                   studyPriority: study.studyPriority || 'SELECT',
-                  priorityLevel: study.assignment?.priority || 'NORMAL',
+                  // 🔧 FIXED: Handle assignment array
+                  priorityLevel: study.assignment?.length > 0 ? 
+                      study.assignment[study.assignment.length - 1].priority || 'NORMAL' : 'NORMAL',
                   modifiedDate: study.modifiedDate,
                   modifiedTime: study.modifiedTime,
                   reportDate: study.reportDate,
@@ -588,6 +600,328 @@ export const getPatientDetailedView = async (req, res) => {
   }
 };
 
+export const resetStudyTAT = async (req, res) => {
+  try {
+    const { studyId } = req.params;
+    const { reason = 'manual_reset' } = req.body;
+    const userId = req.user?.id;
+    
+    console.log(`[TAT Reset] 🔄 Resetting TAT for study: ${studyId}`);
+    
+    // Find the study by studyInstanceUID
+    const study = await DicomStudy.findOne({ studyInstanceUID: studyId })
+      .populate('patient', 'patientID patientNameRaw')
+      .populate('assignment.assignedTo', 'fullName');
+    
+    if (!study) {
+      return res.status(404).json({ error: 'Study not found' });
+    }
+    
+    const resetTime = new Date();
+    const previousResetCount = study.timingInfo?.tatResetCount || 0;
+    const newResetCount = previousResetCount + 1;
+    
+    console.log(`[TAT Reset] Current workflow status: ${study.workflowStatus}`);
+    console.log(`[TAT Reset] Assigned to: ${study.assignment?.assignedTo?.fullName || 'None'}`);
+    
+    // 🔧 RESET KEY TIMESTAMPS
+    
+    // 1. Reset study creation time (Phase 1 baseline)
+    study.createdAt = resetTime;
+    
+    // 2. Reset assignment time if doctor is assigned (Phase 2 baseline)
+    if (study.assignment?.assignedTo) {
+      study.assignment.assignedAt = resetTime;
+      console.log(`[TAT Reset] ✅ Reset assignment time for assigned doctor`);
+    }
+    
+    // 3. Reset report start time if report is in progress (Phase 3 baseline)
+    if (['report_in_progress', 'report_drafted', 'report_finalized'].includes(study.workflowStatus)) {
+      if (study.reportInfo) {
+        study.reportInfo.startedAt = resetTime;
+        // Clear completion times so TAT calculation continues
+        study.reportInfo.finalizedAt = null;
+        study.reportInfo.downloadedAt = null;
+        console.log(`[TAT Reset] ✅ Reset report timing`);
+      }
+    }
+    
+    // 4. Reset stored TAT values to zero
+    study.timingInfo = {
+      uploadToAssignmentMinutes: 0,
+      assignmentToReportMinutes: 0,
+      reportToDownloadMinutes: 0,
+      totalTATMinutes: 0,
+      tatResetAt: resetTime,
+      tatResetReason: reason,
+      tatResetCount: newResetCount
+    };
+    
+    // 5. Add status history entry
+    study.statusHistory.push({
+      status: study.workflowStatus,
+      changedAt: resetTime,
+      changedBy: userId,
+      note: `TAT reset (Reset #${newResetCount}): ${reason}. All timing counters reset to zero.`
+    });
+    
+    // Save the study
+    await study.save();
+    
+    console.log(`[TAT Reset] ✅ TAT reset completed for study: ${studyId} (Reset #${newResetCount})`);
+    
+    // Send WebSocket notification
+    try {
+      await websocketService.notifySimpleNewStudy();
+      console.log(`[TAT Reset] 📢 WebSocket notification sent`);
+    } catch (wsError) {
+      console.error(`[TAT Reset] ⚠️ WebSocket notification failed:`, wsError.message);
+    }
+    
+    res.json({
+      success: true,
+      message: `TAT reset successfully (Reset #${newResetCount})`,
+      data: {
+        studyId: studyId,
+        resetCount: newResetCount,
+        resetAt: resetTime,
+        resetReason: reason,
+        timingsReset: {
+          createdAt: resetTime,
+          assignedAt: study.assignment?.assignedAt || null,
+          reportStartedAt: study.reportInfo?.startedAt || null
+        },
+        currentTAT: {
+          uploadToAssignmentMinutes: 0,
+          assignmentToReportMinutes: 0,
+          reportToDownloadMinutes: 0,
+          totalTATMinutes: 0
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('[TAT Reset] ❌ Error resetting TAT:', error);
+    res.status(500).json({ 
+      error: error.message,
+      message: 'Failed to reset TAT'
+    });
+  }
+};
+
+const resetTATForPatientStudies = async (patientObjectId, changeInfo, userId) => {
+  console.log(`[TAT Reset Helper] 🔄 Starting TAT reset for patient: ${patientObjectId}`);
+  
+  const activeStudies = await DicomStudy.find({
+      patient: patientObjectId,
+      workflowStatus: { 
+          $nin: ['archived', 'final_report_downloaded'] 
+      }
+  });
+  
+  console.log(`[TAT Reset Helper] 📊 Found ${activeStudies.length} active studies`);
+  
+  if (activeStudies.length === 0) {
+      return {
+          success: true,
+          affectedStudiesCount: 0,
+          message: 'No active studies to reset'
+      };
+  }
+  
+  const resetTime = new Date();
+  let successCount = 0;
+  const resetDetails = [];
+  const updatedStudies = [];
+  
+  for (const study of activeStudies) {
+      try {
+          const newResetCount = (study.timingInfo?.tatResetCount || 0) + 1;
+          
+          console.log(`[TAT Reset] Processing study ${study.studyInstanceUID}`);
+          console.log(`[TAT Reset] Current timestamps:`, {
+              createdAt: study.createdAt,
+              assignedAt: study.assignment?.assignedAt,
+              reportStartedAt: study.reportInfo?.startedAt
+          });
+          
+          // Store original values for audit
+          const originalCreatedAt = study.createdAt;
+          const originalAssignedAt = study.assignment?.assignedAt;
+          const originalReportStartedAt = study.reportInfo?.startedAt;
+          
+          // 🔧 CRITICAL FIX: Reset the actual timestamps that TAT calculation uses
+          study.createdAt = resetTime;
+          
+          // Reset Phase 2 baseline (assignment) if assigned
+          if (study.assignment?.assignedTo) {
+              study.assignment.assignedAt = resetTime;
+              console.log(`[TAT Reset] ✅ Reset assignment time to: ${resetTime}`);
+          }
+          
+          // Reset Phase 3 baseline (report start) if in progress
+          if (['report_in_progress', 'report_drafted', 'report_finalized'].includes(study.workflowStatus)) {
+              if (study.reportInfo) {
+                  study.reportInfo.startedAt = resetTime;
+                  console.log(`[TAT Reset] ✅ Reset report start time to: ${resetTime}`);
+              }
+          }
+          
+          // 🔧 CRITICAL FIX: Reset TAT counters to zero
+          study.timingInfo = {
+              uploadToAssignmentMinutes: 0,
+              assignmentToReportMinutes: 0,
+              reportToDownloadMinutes: 0,
+              totalTATMinutes: 0,
+              tatResetAt: resetTime,
+              tatResetReason: 'clinical_history_change',
+              tatResetCount: newResetCount,
+              previousValues: {
+                  originalCreatedAt,
+                  originalAssignedAt,
+                  originalReportStartedAt
+              }
+          };
+          
+          // Add status history
+          study.statusHistory.push({
+              status: study.workflowStatus,
+              changedAt: resetTime,
+              changedBy: userId,
+              note: `TAT reset due to clinical history change (Reset #${newResetCount}). All timing counters reset to zero.`
+          });
+          
+          await study.save();
+          successCount++;
+          
+          // 🔧 CALCULATE FRESH TAT AFTER RESET
+          const freshTAT = calculateTATForStudy(study);
+          
+          console.log(`[TAT Reset] Fresh TAT after reset:`, freshTAT);
+          
+          resetDetails.push({
+              studyId: study.studyInstanceUID,
+              resetCount: newResetCount,
+              workflowStatus: study.workflowStatus,
+              freshTAT: freshTAT
+          });
+          
+          updatedStudies.push({
+              studyInstanceUID: study.studyInstanceUID,
+              tat: freshTAT,
+              resetAt: resetTime,
+              resetCount: newResetCount
+          });
+          
+          console.log(`[TAT Reset Helper] ✅ TAT reset for study: ${study.studyInstanceUID} (Reset #${newResetCount})`);
+          
+      } catch (studyError) {
+          console.error(`[TAT Reset Helper] ❌ Failed to reset TAT for study ${study.studyInstanceUID}:`, studyError.message);
+      }
+  }
+  
+  return {
+      success: true,
+      affectedStudiesCount: successCount,
+      totalStudiesFound: activeStudies.length,
+      resetDetails: resetDetails,
+      resetTime: resetTime,
+      changeInfo: changeInfo,
+      updatedStudies: updatedStudies
+  };
+};
+// 🆕 NEW: Helper function to calculate TAT for a single study (extract from getPatientDetailedView)
+// 🔧 FIXED: Helper function to calculate TAT for a single study
+const calculateTATForStudy = (study) => {
+  if (!study) return {};
+
+  console.log(`[TAT Calc] Calculating TAT for study: ${study.studyInstanceUID}`);
+  console.log(`[TAT Calc] Raw dates:`, {
+      studyDate: study.studyDate,
+      createdAt: study.createdAt,
+      assignedAt: study.assignment?.assignedAt,
+      reportFinalizedAt: study.reportInfo?.finalizedAt
+  });
+
+  // 🔧 CRITICAL FIX: Handle study date in YYYYMMDD format
+  let studyDate = null;
+  if (study.studyDate) {
+      if (typeof study.studyDate === 'string' && study.studyDate.length === 8) {
+          // Handle YYYYMMDD format (like "19960308")
+          const year = study.studyDate.substring(0, 4);
+          const month = study.studyDate.substring(4, 6);
+          const day = study.studyDate.substring(6, 8);
+          studyDate = new Date(`${year}-${month}-${day}`);
+          console.log(`[TAT Calc] Converted YYYYMMDD ${study.studyDate} to Date: ${studyDate}`);
+      } else if (typeof study.studyDate === 'string') {
+          // Try direct parsing
+          studyDate = new Date(study.studyDate);
+      } else {
+          // 🔧 FIX: Don't parse numeric values as dates directly
+          console.log(`[TAT Calc] ⚠️ Unexpected studyDate format:`, typeof study.studyDate, study.studyDate);
+          studyDate = null;
+      }
+      
+      // Validate the date
+      if (studyDate && isNaN(studyDate.getTime())) {
+          console.log(`[TAT Calc] ⚠️ Invalid study date: ${study.studyDate}`);
+          studyDate = null;
+      }
+  }
+
+  const uploadDate = study.createdAt ? new Date(study.createdAt) : null;
+  const assignedDate = study.assignment?.assignedAt ? new Date(study.assignment.assignedAt) : null;
+  const reportDate = study.reportInfo?.finalizedAt ? new Date(study.reportInfo.finalizedAt) : null;
+  const currentDate = new Date();
+
+  console.log(`[TAT Calc] Processed dates:`, {
+      studyDate: studyDate ? studyDate.toISOString() : 'null',
+      uploadDate: uploadDate ? uploadDate.toISOString() : 'null',
+      assignedDate: assignedDate ? assignedDate.toISOString() : 'null',
+      reportDate: reportDate ? reportDate.toISOString() : 'null',
+      currentDate: currentDate.toISOString()
+  });
+
+  const calculateMinutes = (start, end) => {
+      if (!start || !end) return null;
+      const minutes = Math.round((end - start) / (1000 * 60));
+      console.log(`[TAT Calc] Minutes between ${start.toISOString()} and ${end.toISOString()}: ${minutes}`);
+      return minutes;
+  };
+
+  const calculateDays = (start, end) => {
+      if (!start || !end) return null;
+      const days = Math.round((end - start) / (1000 * 60 * 60 * 24));
+      console.log(`[TAT Calc] Days between ${start.toISOString()} and ${end.toISOString()}: ${days}`);
+      return days;
+  };
+
+  // 🔧 CRITICAL FIX: Use upload date as baseline for TAT calculation after reset
+  const tatBaseline = uploadDate; // This is what gets reset
+  const endDate = reportDate || currentDate;
+  
+  const result = {
+      studyToUploadTAT: studyDate && uploadDate ? calculateMinutes(studyDate, uploadDate) : null,
+      uploadToAssignmentTAT: uploadDate && assignedDate ? calculateMinutes(uploadDate, assignedDate) : null,
+      assignmentToReportTAT: assignedDate && reportDate ? calculateMinutes(assignedDate, reportDate) : null,
+      studyToReportTAT: studyDate && reportDate ? calculateMinutes(studyDate, reportDate) : null,
+      uploadToReportTAT: uploadDate && reportDate ? calculateMinutes(uploadDate, reportDate) : null,
+      
+      // 🔧 CRITICAL FIX: Calculate TAT from upload (reset baseline) to current/report
+      totalTATDays: tatBaseline ? calculateDays(tatBaseline, endDate) : null,
+      
+      // 🔧 SEPARATE: Keep study-to-current for reference (this won't reset)
+      studyToCurrentDays: studyDate ? calculateDays(studyDate, currentDate) : null,
+      
+      // 🆕 NEW: Add reset-aware TAT (this should be 0 or very small after reset)
+      resetAwareTATDays: tatBaseline ? calculateDays(tatBaseline, currentDate) : null
+  };
+
+  console.log(`[TAT Calc] Final TAT result:`, result);
+  return result;
+};
+
+
 // 🔧 OPTIMIZED: updatePatientDetails (same name, enhanced performance)
 export const updatePatientDetails = async (req, res) => {
   try {
@@ -623,6 +957,14 @@ export const updatePatientDetails = async (req, res) => {
       let newFirstName = patient.firstName || '';
       let newLastName = patient.lastName || '';
       let nameChanged = false;
+
+      const oldClinicalHistory = patient.clinicalInfo?.clinicalHistory || '';
+      const newClinicalHistory = updateData.clinicalInfo?.clinicalHistory || '';
+      const isClinicalInfoChanged = oldClinicalHistory !== newClinicalHistory;
+
+      console.log(`[Patient Update] Clinical info changed: ${isClinicalInfoChanged}`);
+      console.log(`[Patient Update] Old clinical history: "${oldClinicalHistory}"`);
+      console.log(`[Patient Update] New clinical history: "${newClinicalHistory}"`);
 
       if (updateData.patientInfo) {
           if (updateData.patientInfo.firstName !== undefined) {
@@ -686,23 +1028,50 @@ export const updatePatientDetails = async (req, res) => {
       }
 
       // Handle clinical information
-      if (updateData.clinicalInfo) {
-          patientUpdateData.clinicalInfo = {
-              ...patient.clinicalInfo,
-              clinicalHistory: sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '',
-              previousInjury: sanitizeInput(updateData.clinicalInfo.previousInjury) || '',
-              previousSurgery: sanitizeInput(updateData.clinicalInfo.previousSurgery) || '',
-              lastModifiedBy: userId,
-              lastModifiedAt: new Date()
-          };
+      // ...existing code...
 
-          // Update denormalized medical history
-          patientUpdateData.medicalHistory = {
-              clinicalHistory: patientUpdateData.clinicalInfo.clinicalHistory,
-              previousInjury: patientUpdateData.clinicalInfo.previousInjury,
-              previousSurgery: patientUpdateData.clinicalInfo.previousSurgery
-          };
-      }
+// 🔧 ENHANCED: Handle clinical information with TAT reset detection
+if (updateData.clinicalInfo) {
+  // 🔧 DETECT CLINICAL HISTORY CHANGES
+  const oldClinicalHistory = patient.clinicalInfo?.clinicalHistory || '';
+  const newClinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '';
+  const isClinicalHistoryChanged = oldClinicalHistory !== newClinicalHistory;
+  
+  console.log(`[Clinical History] Processing clinical info update...`);
+  console.log(`[Clinical History] Old: "${oldClinicalHistory}"`);
+  console.log(`[Clinical History] New: "${newClinicalHistory}"`);
+  console.log(`[Clinical History] Changed: ${isClinicalHistoryChanged}`);
+  
+  patientUpdateData.clinicalInfo = {
+      ...patient.clinicalInfo,
+      clinicalHistory: newClinicalHistory,
+      previousInjury: sanitizeInput(updateData.clinicalInfo.previousInjury) || '',
+      previousSurgery: sanitizeInput(updateData.clinicalInfo.previousSurgery) || '',
+      lastModifiedBy: userId,
+      lastModifiedAt: new Date()
+  };
+
+  // Update denormalized medical history
+  patientUpdateData.medicalHistory = {
+      clinicalHistory: patientUpdateData.clinicalInfo.clinicalHistory,
+      previousInjury: patientUpdateData.clinicalInfo.previousInjury,
+      previousSurgery: patientUpdateData.clinicalInfo.previousSurgery
+  };
+  
+  // 🚀 FLAG FOR TAT RESET IF CLINICAL HISTORY CHANGED
+  if (isClinicalHistoryChanged) {
+      console.log(`[TAT Reset] 🔄 Clinical history changed, flagging for TAT reset`);
+      
+      // Store the flag for TAT reset after patient update
+      patientUpdateData._clinicalHistoryChanged = true;
+      patientUpdateData._clinicalHistoryChangeInfo = {
+          oldHistory: oldClinicalHistory,
+          newHistory: newClinicalHistory,
+          changedBy: userId,
+          changedAt: new Date()
+      };
+  }
+}
 
       // 🆕 ENHANCED: Handle comprehensive referring physician information
       let referringPhysicianUpdated = false;
@@ -768,6 +1137,66 @@ export const updatePatientDetails = async (req, res) => {
           });
       }
 
+      let tatResetInfo = null;
+if (patientUpdateData._clinicalHistoryChanged) {
+    console.log(`[TAT Reset] 🔄 Executing TAT reset for patient: ${patientId}`);
+    
+    try {
+        tatResetInfo = await resetTATForPatientStudies(
+            updatedPatient._id, 
+            patientUpdateData._clinicalHistoryChangeInfo,
+            userId
+        );
+        
+        console.log(`[TAT Reset] ✅ TAT reset completed: ${tatResetInfo.affectedStudiesCount} studies reset`);
+        
+        // 🆕 NEW: If TAT was reset, fetch fresh patient data with updated TAT
+        if (tatResetInfo.success && tatResetInfo.affectedStudiesCount > 0) {
+            console.log(`[TAT Reset] 🔄 Fetching fresh patient data with reset TAT values...`);
+            
+            // Clear cache and fetch fresh data
+            cache.del(`patient_detail_${patientId}`);
+            
+            // You could either:
+            // Option 1: Include fresh TAT in the response
+            const freshStudiesWithTAT = tatResetInfo.updatedStudies || [];
+            
+            // Option 2: Include a flag telling frontend to refresh
+            tatResetInfo.shouldRefreshTAT = true;
+            tatResetInfo.freshTATData = freshStudiesWithTAT;
+        }
+        
+    } catch (tatError) {
+        console.error(`[TAT Reset] ❌ TAT reset failed:`, tatError.message);
+        tatResetInfo = {
+            success: false,
+            error: tatError.message,
+            affectedStudiesCount: 0,
+            shouldRefreshTAT: false
+        };
+    }
+}
+
+    // In the response data:
+    tatResetInfo: tatResetInfo ? {
+    wasReset: tatResetInfo.success,
+    affectedStudiesCount: tatResetInfo.affectedStudiesCount,
+    resetTime: tatResetInfo.resetTime,
+    resetDetails: tatResetInfo.resetDetails,
+    error: tatResetInfo.error || null,
+    shouldRefreshTAT: tatResetInfo.shouldRefreshTAT || false, // 🆕 NEW
+    freshTATData: tatResetInfo.freshTATData || [], // 🆕 NEW
+    updatedStudies: tatResetInfo.updatedStudies || [] // 🆕 NEW
+} : {
+    wasReset: false,
+    affectedStudiesCount: 0,
+    resetTime: null,
+    resetDetails: [],
+    error: null,
+    shouldRefreshTAT: false,
+    freshTATData: [],
+    updatedStudies: []
+}
       // 🆕 ENHANCED: Update related studies with ALL NEW FIELDS
       let studyUpdateRequired = false;
       let technologistUpdated = false;
@@ -880,7 +1309,7 @@ export const updatePatientDetails = async (req, res) => {
                   }
                   
                   if (hasPriorityLevel) {
-                      studyUpdateData['assignment.priority'] = sanitizeInput(hasPriorityLevel);
+                      studyUpdateData['assignment.$[]priority'] = sanitizeInput(hasPriorityLevel);
                   }
                   
                   if (hasCaseType) {
@@ -889,8 +1318,7 @@ export const updatePatientDetails = async (req, res) => {
                   
                   console.log(`⚡ Updating priority info in studies:`, {
                       studyPriority: studyUpdateData.studyPriority,
-                      assignmentPriority: studyUpdateData['assignment.priority'],
-                      caseType: studyUpdateData.caseType
+                      assignmentPriorityInAll: studyUpdateData['assignment.$[].priority'],                      caseType: studyUpdateData.caseType
                   });
               }
           }
@@ -1037,6 +1465,26 @@ export const updatePatientDetails = async (req, res) => {
               reportDate: updateData.timeInfo?.reportDate || null,
               reportTime: updateData.timeInfo?.reportTime || ''
           },
+
+          tatResetInfo: tatResetInfo ? {
+            wasReset: tatResetInfo.success,
+            affectedStudiesCount: tatResetInfo.affectedStudiesCount,
+            resetTime: tatResetInfo.resetTime,
+            resetDetails: tatResetInfo.resetDetails,
+            error: tatResetInfo.error || null,
+            shouldRefreshTAT: tatResetInfo.shouldRefreshTAT || false, // 🆕 NEW
+            freshTATData: tatResetInfo.freshTATData || [], // 🆕 NEW
+            updatedStudies: tatResetInfo.updatedStudies || [] // 🆕 NEW
+        } : {
+            wasReset: false,
+            affectedStudiesCount: 0,
+            resetTime: null,
+            resetDetails: [],
+            error: null,
+            shouldRefreshTAT: false,
+            freshTATData: [],
+            updatedStudies: []
+        },
           
           // 🆕 ENHANCED: Comprehensive update summary
           updateSummary: {
@@ -1086,44 +1534,275 @@ export const updatePatientDetails = async (req, res) => {
 };
 
 // 🔧 UPDATED: Upload document to Wasabi instead of MongoDB
+// export const uploadDocument = async (req, res) => {
+//   console.log('🔧 Uploading document to Wasabi storage...', req.params);
+//   try {
+//     const { patientId } = req.params;
+//     const userId = req.user.id; // This is working now as we can see from logs
+//     const { type, studyId, documentType = 'clinical' } = req.body;
+//     const files = req.files;
+
+//     console.log(`📤 Uploading document for patient: ${patientId}`);
+//     console.log(`👤 User ID: ${userId}, Role: ${req.user.role}`);
+
+//     if (!files || files.length === 0) {
+//       console.log('❌ No files uploaded');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'No files uploaded'
+//       });
+//     }
+    
+//     console.log(`📁 File details:`, {
+//       name: file.originalname,
+//       size: file.size,
+//       mimetype: file.mimetype,
+//       hasBuffer: !!file.buffer
+//     });
+
+//     // Validate file size (10MB limit)
+//     if (file.size > 10 * 1024 * 1024) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'File size exceeds 10MB limit'
+//       });
+//     }
+
+//     // Validate user
+//     const user = await User.findById(userId).select('fullName email role');
+//     console.log(`🔍 Found user:`, user);
+    
+//     if (!user) {
+//       console.log('❌ User not found in database');
+//       return res.status(401).json({
+//         success: false,
+//         message: 'User not found'
+//       });
+//     }
+
+//     // Check permissions
+//     console.log(`🔐 User role: ${user.role}`);
+//     if (!['lab_staff', 'admin'].includes(user.role)) {
+//       console.log(`❌ Insufficient permissions. Role: ${user.role}`);
+//       return res.status(403).json({
+//         success: false,
+//         message: `Insufficient permissions. Required: lab_staff or admin, Got: ${user.role}`
+//       });
+//     }
+
+//     // Find patient - 🔧 IMPORTANT: Don't use .lean() here since we need to save later
+//     const patient = await Patient.findOne({ patientID: patientId });
+//     console.log(`🔍 Found patient:`, patient ? 'Yes' : 'No');
+    
+//     if (!patient) {
+//       return res.status(404).json({
+//         success: false,
+//         message: 'Patient not found'
+//       });
+//     }
+
+//     // 🔧 CRITICAL FIX: Initialize documents array if it doesn't exist
+//     if (!patient.documents) {
+//       console.log('🔧 Initializing patient.documents array (was undefined)');
+//       patient.documents = [];
+//     } else if (!Array.isArray(patient.documents)) {
+//       console.log('🔧 Converting patient.documents to array (was not an array)');
+//       patient.documents = [];
+//     }
+
+//     console.log(`🔍 Patient documents array:`, {
+//       exists: !!patient.documents,
+//       isArray: Array.isArray(patient.documents),
+//       length: patient.documents?.length || 0
+//     });
+
+//     // Find study if studyId provided
+//     let study = null;
+//     if (studyId && studyId !== 'general') {
+//       study = await DicomStudy.findOne({ studyInstanceUID: studyId });
+//       if (!study) {
+//         console.log(`⚠️ Study not found: ${studyId}, continuing without study reference`);
+//         // Don't fail, just continue without study reference
+//       }
+//     }
+
+//     // 🔧 Upload to Wasabi
+//     console.log('☁️ Uploading to Wasabi...');
+//     const wasabiResult = await WasabiService.uploadDocument(
+//       file.buffer,
+//       file.originalname,
+//       documentType,
+//       {
+//         patientId: patientId,
+//         studyId: studyId || 'general',
+//         uploadedBy: user.fullName,
+//         userId: userId
+//       }
+//     );
+
+//     if (!wasabiResult.success) {
+//       throw new Error('Failed to upload to Wasabi storage: ' + (wasabiResult.error || 'Unknown error'));
+//     }
+
+//     console.log('✅ Wasabi upload successful:', wasabiResult.key);
+
+//     // 🔧 Create document record in database
+//     const documentRecord = new Document({
+//       fileName: file.originalname,
+//       fileSize: file.size,
+//       contentType: file.mimetype,
+//       documentType: documentType,
+//       wasabiKey: wasabiResult.key,
+//       wasabiBucket: wasabiResult.bucket,
+//       patientId: patientId,
+//       studyId: study ? study._id : null,
+//       uploadedBy: userId
+//     });
+
+//     await documentRecord.save();
+//     console.log('✅ Document record saved to database:', documentRecord._id);
+
+//     // 🔧 FIXED: Create document reference for patient
+//     const documentReference = {
+//       _id: documentRecord._id,
+//       fileName: file.originalname,
+//       fileType: type || documentType,
+//       contentType: file.mimetype,
+//       size: file.size,
+//       uploadedAt: new Date(),
+//       uploadedBy: user.fullName,
+//       wasabiKey: wasabiResult.key,
+//       wasabiBucket: wasabiResult.bucket,
+//       storageType: 'wasabi'
+//     };
+
+//     // 🔧 DOUBLE CHECK: Ensure documents array is ready before pushing
+//     if (!Array.isArray(patient.documents)) {
+//       console.log('🔧 EMERGENCY FIX: Converting patient.documents to array right before push');
+//       patient.documents = [];
+//     }
+
+//     console.log('📝 Adding document reference to patient...');
+//     patient.documents.push(documentReference);
+    
+//     try {
+//       await patient.save();
+//       console.log('✅ Patient document reference saved successfully');
+//     } catch (saveError) {
+//       console.error('❌ Error saving patient document reference:', saveError);
+//       // Don't fail the entire operation, document is already in Wasabi and Document collection
+//       console.log('⚠️ Continuing despite patient save error - document is still accessible via Document collection');
+//     }
+
+//     // 🔧 Update study if provided
+//     if (study) {
+//       try {
+//         if (!study.uploadedReports) {
+//           study.uploadedReports = [];
+//         }
+
+//         const studyDocumentRef = {
+//           _id: documentRecord._id,
+//           filename: file.originalname,
+//           contentType: file.mimetype,
+//           size: file.size,
+//           reportType: 'uploaded-report',
+//           uploadedAt: new Date(),
+//           uploadedBy: user.fullName,
+//           reportStatus: 'finalized',
+//           wasabiKey: wasabiResult.key,
+//           wasabiBucket: wasabiResult.bucket,
+//           storageType: 'wasabi',
+//           documentType: documentType
+//         };
+
+//         study.uploadedReports.push(studyDocumentRef);
+        
+//         // 🔧 Update study status if this is a report
+//         if (documentType === 'report' || documentType === 'clinical') {
+//           study.ReportAvailable = true;
+          
+//           if (study.workflowStatus === 'report_in_progress') {
+//             study.workflowStatus = 'report_finalized';
+//             if (!study.statusHistory) study.statusHistory = [];
+//             study.statusHistory.push({
+//               status: 'report_finalized',
+//               changedAt: new Date(),
+//               changedBy: userId,
+//               note: `Report uploaded: ${file.originalname}`
+//             });
+//           }
+//         }
+        
+//         // 🔧 CRITICAL FIX: Normalize caseType before saving
+//         if (study.caseType) {
+//           study.caseType = study.caseType.toLowerCase();
+//           console.log(`🔧 Normalized caseType from ${study.caseType.toUpperCase()} to ${study.caseType}`);
+//         }
+        
+//         await study.save();
+//         console.log(`✅ Study ${study.studyInstanceUID} updated with document reference`);
+        
+//       } catch (studyError) {
+//         console.error('❌ Error updating study:', studyError);
+//         // Don't fail the entire operation
+//       }
+//     }
+
+//     // 🔧 Clear cache for patient details
+//     const cacheKey = `patient_detail_${patientId}`;
+//     cache.del(cacheKey);
+//     console.log('🧹 Cleared patient details cache');
+
+//     console.log('✅ Document uploaded successfully to Wasabi');
+
+//     res.json({
+//       success: true,
+//       message: 'Document uploaded successfully',
+//       document: {
+//         id: documentRecord._id,
+//         fileName: documentRecord.fileName,
+//         fileType: documentType,
+//         size: documentRecord.fileSize,
+//         uploadedAt: documentRecord.uploadedAt,
+//         uploadedBy: user.fullName,
+//         wasabiLocation: wasabiResult.location || wasabiResult.key
+//       }
+//     });
+
+//   } catch (error) {
+//     console.error('❌ Error uploading document:', error);
+//     console.error('❌ Error stack:', error.stack);
+//     res.status(500).json({
+//       success: false,
+//       message: 'Failed to upload document',
+//       error: error.message
+//     });
+//   }
+// };
+
+
 export const uploadDocument = async (req, res) => {
   console.log('🔧 Uploading document to Wasabi storage...', req.params);
   try {
     const { patientId } = req.params;
-    const userId = req.user.id; // This is working now as we can see from logs
+    const userId = req.user.id;
     const { type, studyId, documentType = 'clinical' } = req.body;
-    const file = req.file;
+    const files = req.files;
 
-    console.log(`📤 Uploading document for patient: ${patientId}`);
+    console.log(`📤 Uploading document(s) for patient: ${patientId}`);
     console.log(`👤 User ID: ${userId}, Role: ${req.user.role}`);
 
-    if (!file) {
-      console.log('❌ No file uploaded');
+    if (!files || files.length === 0) {
+      console.log('❌ No files uploaded');
       return res.status(400).json({
         success: false,
-        message: 'No file uploaded'
-      });
-    }
-
-    console.log(`📁 File details:`, {
-      name: file.originalname,
-      size: file.size,
-      mimetype: file.mimetype,
-      hasBuffer: !!file.buffer
-    });
-
-    // Validate file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
-      return res.status(400).json({
-        success: false,
-        message: 'File size exceeds 10MB limit'
+        message: 'No files uploaded'
       });
     }
 
     // Validate user
     const user = await User.findById(userId).select('fullName email role');
-    console.log(`🔍 Found user:`, user);
-    
     if (!user) {
       console.log('❌ User not found in database');
       return res.status(401).json({
@@ -1131,42 +1810,24 @@ export const uploadDocument = async (req, res) => {
         message: 'User not found'
       });
     }
-
-    // Check permissions
-    console.log(`🔐 User role: ${user.role}`);
     if (!['lab_staff', 'admin'].includes(user.role)) {
-      console.log(`❌ Insufficient permissions. Role: ${user.role}`);
       return res.status(403).json({
         success: false,
         message: `Insufficient permissions. Required: lab_staff or admin, Got: ${user.role}`
       });
     }
 
-    // Find patient - 🔧 IMPORTANT: Don't use .lean() here since we need to save later
+    // Find patient
     const patient = await Patient.findOne({ patientID: patientId });
-    console.log(`🔍 Found patient:`, patient ? 'Yes' : 'No');
-    
     if (!patient) {
       return res.status(404).json({
         success: false,
         message: 'Patient not found'
       });
     }
-
-    // 🔧 CRITICAL FIX: Initialize documents array if it doesn't exist
-    if (!patient.documents) {
-      console.log('🔧 Initializing patient.documents array (was undefined)');
-      patient.documents = [];
-    } else if (!Array.isArray(patient.documents)) {
-      console.log('🔧 Converting patient.documents to array (was not an array)');
+    if (!patient.documents || !Array.isArray(patient.documents)) {
       patient.documents = [];
     }
-
-    console.log(`🔍 Patient documents array:`, {
-      exists: !!patient.documents,
-      isArray: Array.isArray(patient.documents),
-      length: patient.documents?.length || 0
-    });
 
     // Find study if studyId provided
     let study = null;
@@ -1174,85 +1835,69 @@ export const uploadDocument = async (req, res) => {
       study = await DicomStudy.findOne({ studyInstanceUID: studyId });
       if (!study) {
         console.log(`⚠️ Study not found: ${studyId}, continuing without study reference`);
-        // Don't fail, just continue without study reference
       }
     }
 
-    // 🔧 Upload to Wasabi
-    console.log('☁️ Uploading to Wasabi...');
-    const wasabiResult = await WasabiService.uploadDocument(
-      file.buffer,
-      file.originalname,
-      documentType,
-      {
+    // Process each file
+    const uploadedDocs = [];
+    for (const file of files) {
+      // Validate file size (10MB limit)
+      if (file.size > 10 * 1024 * 1024) {
+        console.log(`❌ File size exceeds 10MB: ${file.originalname}`);
+        continue; // Skip this file
+      }
+
+      // Upload to Wasabi
+      const wasabiResult = await WasabiService.uploadDocument(
+        file.buffer,
+        file.originalname,
+        documentType,
+        {
+          patientId: patientId,
+          studyId: studyId || 'general',
+          uploadedBy: user.fullName,
+          userId: userId
+        }
+      );
+      if (!wasabiResult.success) {
+        console.log(`❌ Failed to upload to Wasabi: ${file.originalname}`);
+        continue; // Skip this file
+      }
+
+      // Create document record in database
+      const documentRecord = new Document({
+        fileName: file.originalname,
+        fileSize: file.size,
+        contentType: file.mimetype,
+        documentType: documentType,
+        wasabiKey: wasabiResult.key,
+        wasabiBucket: wasabiResult.bucket,
         patientId: patientId,
-        studyId: studyId || 'general',
+        studyId: study ? study._id : null,
+        uploadedBy: userId
+      });
+      await documentRecord.save();
+
+      // Create document reference for patient
+      const documentReference = {
+        _id: documentRecord._id,
+        fileName: file.originalname,
+        fileType: type || documentType,
+        contentType: file.mimetype,
+        size: file.size,
+        uploadedAt: new Date(),
         uploadedBy: user.fullName,
-        userId: userId
-      }
-    );
+        wasabiKey: wasabiResult.key,
+        wasabiBucket: wasabiResult.bucket,
+        storageType: 'wasabi'
+      };
+      patient.documents.push(documentReference);
 
-    if (!wasabiResult.success) {
-      throw new Error('Failed to upload to Wasabi storage: ' + (wasabiResult.error || 'Unknown error'));
-    }
-
-    console.log('✅ Wasabi upload successful:', wasabiResult.key);
-
-    // 🔧 Create document record in database
-    const documentRecord = new Document({
-      fileName: file.originalname,
-      fileSize: file.size,
-      contentType: file.mimetype,
-      documentType: documentType,
-      wasabiKey: wasabiResult.key,
-      wasabiBucket: wasabiResult.bucket,
-      patientId: patientId,
-      studyId: study ? study._id : null,
-      uploadedBy: userId
-    });
-
-    await documentRecord.save();
-    console.log('✅ Document record saved to database:', documentRecord._id);
-
-    // 🔧 FIXED: Create document reference for patient
-    const documentReference = {
-      _id: documentRecord._id,
-      fileName: file.originalname,
-      fileType: type || documentType,
-      contentType: file.mimetype,
-      size: file.size,
-      uploadedAt: new Date(),
-      uploadedBy: user.fullName,
-      wasabiKey: wasabiResult.key,
-      wasabiBucket: wasabiResult.bucket,
-      storageType: 'wasabi'
-    };
-
-    // 🔧 DOUBLE CHECK: Ensure documents array is ready before pushing
-    if (!Array.isArray(patient.documents)) {
-      console.log('🔧 EMERGENCY FIX: Converting patient.documents to array right before push');
-      patient.documents = [];
-    }
-
-    console.log('📝 Adding document reference to patient...');
-    patient.documents.push(documentReference);
-    
-    try {
-      await patient.save();
-      console.log('✅ Patient document reference saved successfully');
-    } catch (saveError) {
-      console.error('❌ Error saving patient document reference:', saveError);
-      // Don't fail the entire operation, document is already in Wasabi and Document collection
-      console.log('⚠️ Continuing despite patient save error - document is still accessible via Document collection');
-    }
-
-    // 🔧 Update study if provided
-    if (study) {
-      try {
+      // Update study if provided
+      if (study) {
         if (!study.uploadedReports) {
           study.uploadedReports = [];
         }
-
         const studyDocumentRef = {
           _id: documentRecord._id,
           filename: file.originalname,
@@ -1267,13 +1912,11 @@ export const uploadDocument = async (req, res) => {
           storageType: 'wasabi',
           documentType: documentType
         };
-
         study.uploadedReports.push(studyDocumentRef);
-        
-        // 🔧 Update study status if this is a report
+
+        // Update study status if this is a report
         if (documentType === 'report' || documentType === 'clinical') {
           study.ReportAvailable = true;
-          
           if (study.workflowStatus === 'report_in_progress') {
             study.workflowStatus = 'report_finalized';
             if (!study.statusHistory) study.statusHistory = [];
@@ -1285,33 +1928,13 @@ export const uploadDocument = async (req, res) => {
             });
           }
         }
-        
-        // 🔧 CRITICAL FIX: Normalize caseType before saving
         if (study.caseType) {
           study.caseType = study.caseType.toLowerCase();
-          console.log(`🔧 Normalized caseType from ${study.caseType.toUpperCase()} to ${study.caseType}`);
         }
-        
         await study.save();
-        console.log(`✅ Study ${study.studyInstanceUID} updated with document reference`);
-        
-      } catch (studyError) {
-        console.error('❌ Error updating study:', studyError);
-        // Don't fail the entire operation
       }
-    }
 
-    // 🔧 Clear cache for patient details
-    const cacheKey = `patient_detail_${patientId}`;
-    cache.del(cacheKey);
-    console.log('🧹 Cleared patient details cache');
-
-    console.log('✅ Document uploaded successfully to Wasabi');
-
-    res.json({
-      success: true,
-      message: 'Document uploaded successfully',
-      document: {
+      uploadedDocs.push({
         id: documentRecord._id,
         fileName: documentRecord.fileName,
         fileType: documentType,
@@ -1319,15 +1942,27 @@ export const uploadDocument = async (req, res) => {
         uploadedAt: documentRecord.uploadedAt,
         uploadedBy: user.fullName,
         wasabiLocation: wasabiResult.location || wasabiResult.key
-      }
+      });
+    }
+
+    // Save patient once after all files are processed
+    await patient.save();
+
+    // Clear cache for patient details
+    const cacheKey = `patient_detail_${patientId}`;
+    cache.del(cacheKey);
+
+    res.json({
+      success: true,
+      message: 'Document(s) uploaded successfully',
+      documents: uploadedDocs
     });
 
   } catch (error) {
     console.error('❌ Error uploading document:', error);
-    console.error('❌ Error stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload document',
+      message: 'Failed to upload document(s)',
       error: error.message
     });
   }
@@ -1424,6 +2059,7 @@ export const downloadDocument = async (req, res) => {
       console.log('✅ Document download from MongoDB successful');
       
       // Send file
+
       res.send(fileBuffer);
     }
 
@@ -1439,6 +2075,7 @@ export const downloadDocument = async (req, res) => {
 
 // 🔧 UPDATED: Delete document from Wasabi and database
 export const deleteDocument = async (req, res) => {
+  
   try {
     const { patientId, docIndex } = req.params;
     const userId = req.user.id;
@@ -1463,6 +2100,11 @@ export const deleteDocument = async (req, res) => {
       });
     }
 
+    // 🔧 Ensure documents is always an array
+    if (!Array.isArray(patient.documents)) {
+      patient.documents = [];
+    }
+
     // Validate document index
     const documentIndex = parseInt(docIndex);
     if (isNaN(documentIndex) || documentIndex < 0 || documentIndex >= patient.documents.length) {
@@ -1477,7 +2119,6 @@ export const deleteDocument = async (req, res) => {
     // 🔧 Delete from Wasabi if it's stored there
     if (documentRef.storageType === 'wasabi' && documentRef.wasabiKey) {
       console.log('☁️ Deleting from Wasabi...');
-      
       try {
         await WasabiService.deleteFile(
           documentRef.wasabiBucket,
@@ -1517,6 +2158,85 @@ export const deleteDocument = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete document',
+      error: error.message
+    });
+  }
+};
+
+export const deleteStudyReport = async (req, res) => {
+  try {
+    const { studyId, reportId } = req.params;
+    const userId = req.user.id;
+
+    console.log(`🗑️ Deleting study report ${reportId} from study: ${studyId}`);
+
+    // Validate user permissions
+    const user = await User.findById(userId).select('role');
+    if (!user || !['lab_staff', 'admin'].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Insufficient permissions'
+      });
+    }
+
+    // Find study
+    const study = await DicomStudy.findOne({ studyInstanceUID: studyId });
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // Find report index
+    const reportIndex = study.uploadedReports?.findIndex(r => r._id.toString() === reportId);
+    if (reportIndex === -1 || reportIndex === undefined) {
+      return res.status(404).json({
+        success: false,
+        message: 'Report not found in study'
+      });
+    }
+
+    const reportRef = study.uploadedReports[reportIndex];
+
+    // Delete from Wasabi if needed
+    if (reportRef.storageType === 'wasabi' && reportRef.wasabiKey) {
+      try {
+        await WasabiService.deleteFile(
+          reportRef.wasabiBucket,
+          reportRef.wasabiKey,
+          true
+        );
+        console.log('✅ Study report file deleted from Wasabi');
+      } catch (err) {
+        console.warn('⚠️ Failed to delete study report from Wasabi:', err.message);
+      }
+    }
+
+    // Delete from Document collection
+    if (reportRef._id) {
+      try {
+        await Document.findByIdAndDelete(reportRef._id);
+        console.log('✅ Study report document record deleted from database');
+      } catch (err) {
+        console.warn('⚠️ Failed to delete study report document record:', err.message);
+      }
+    }
+
+    // Remove from uploadedReports array
+    study.uploadedReports.splice(reportIndex, 1);
+    await study.save();
+
+    res.json({
+      success: true,
+      message: 'Study report deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error deleting study report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete study report',
       error: error.message
     });
   }
@@ -2118,6 +2838,9 @@ const parseValidDate = (dateInput) => {
     const date = new Date(dateInput);
     return isNaN(date.getTime()) ? null : date;
 };
+
+// 🔧 HELPER: Reset TAT for all patient's active studies
+
 
 export default {
   getPatientDetailedView,

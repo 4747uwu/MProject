@@ -4,6 +4,7 @@ import User from '../models/userModel.js';
 import DicomStudy from '../models/dicomStudyModel.js';
 import cookie from 'cookie';
 import dotenv from 'dotenv';
+import url from "url";
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ class WebSocketService {
   initialize(server) {
     this.wss = new WebSocketServer({ 
       server,
-      path: '/ws/admin',
+      // path: '/ws/admin',
       perMessageDeflate: false,
       maxPayload: 16 * 1024 * 1024, // 16MB
       clientTracking: true
@@ -30,20 +31,28 @@ class WebSocketService {
     this.wss.on('connection', async (ws, request) => {
       try {
         console.log('🔌 New WebSocket connection attempt...');
+        // console.log(request.headers);
         
         // Extract token from cookies
         let token = null;
         
-        if (request.headers.cookie) {
-          const cookies = cookie.parse(request.headers.cookie);
-          token = cookies[COOKIE_NAME];
+        // if (request.headers.cookie) {
+        //   const cookies = cookie.parse(request.headers.cookie);
+        //   token = cookies[COOKIE_NAME];
+        // }
+        console.log(request.url);
+        if (!token) {
+          const parsedUrl = url.parse(request.url, true);
+          token = parsedUrl.query.token;
+          console.log(parsedUrl);
+          console.log('🔑 Extracted token:', token ? 'Present' : 'Not found');
         }
 
-        if (!token) {
-          console.log('❌ WebSocket connection rejected: No authentication token found');
-          ws.close(4001, 'Authentication required');
-          return;
-        }
+        // if (!token) {
+        //   console.log('❌ WebSocket connection rejected: No authentication token found');
+        //   ws.close(4001, 'Authentication required');
+        //   return;
+        // }
 
         // Verify JWT token
         let decoded;

@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { debounce } from 'lodash';
+import { debounce, values } from 'lodash';
 import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
+import { Link } from 'react-router-dom';
 
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
@@ -23,12 +24,19 @@ const WorklistSearch = React.memo(({
   onCustomDateChange,
   dateType = 'UploadDate',
   onDateTypeChange,
-  onSearchWithBackend
+  onSearchWithBackend,
+  values = [],
+  // 🆕 NEW: Integrated dashboard props
+  newStudyCount = 0,
+  connectionStatus = 'connecting',
+  onManualRefresh,
+  onResetNewStudyCount,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchType, setSearchType] = useState("");
   const [quickSearchTerm, setQuickSearchTerm] = useState("");
   const [selectedLocation, setSelectedLocation] = useState('ALL');
+  console.log(values)
   
   // Basic filters for advanced search
   const [patientName, setPatientName] = useState('');
@@ -330,40 +338,50 @@ const WorklistSearch = React.memo(({
     studyType, modalities, dateFilter, customDateFrom, customDateTo
   ]);
 
-  return (
-    <div className="space-y-2">
-      {/* 🎨 COMPACT UI: Enhanced Search Controls */}
-      <div className="relative">
-        {/* Main Search Header */}
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200 p-3 shadow-sm">
-          {/* 📊 COMPACT: Results Summary */}
-          {hasActiveFilters && (
-            <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
-                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-                {filteredStudies.length}/{allStudies.length}
-              </span>
-              <button
-                onClick={handleClear}
-                className="inline-flex items-center px-2 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full hover:bg-red-200 transition-all"
-              >
-                <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Clear
-              </button>
-            </div>
-          )}
+  // 🆕 NEW: Connection status display logic
+  const statusDisplay = useMemo(() => {
+    switch (connectionStatus) {
+      case 'connected':
+        return {
+          color: 'bg-emerald-500',
+          text: 'Live',
+          textColor: 'text-emerald-700'
+        };
+      case 'connecting':
+        return {
+          color: 'bg-amber-500 animate-pulse',
+          text: 'Connecting...',
+          textColor: 'text-amber-700'
+        };
+      case 'error':
+        return {
+          color: 'bg-red-500',
+          text: 'Offline',
+          textColor: 'text-red-700'
+        };
+      default:
+        return {
+          color: 'bg-gray-500',
+          text: 'Offline',
+          textColor: 'text-gray-700'
+        };
+    }
+  }, [connectionStatus]);
 
-          {/* 🎨 CONSISTENT HEIGHT: Main Search Controls */}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+  return (
+    <div className="space-y-1 flex flex-col flex-1 min-h-0">
+      {/* 🎯 SINGLE LINE: Compact Search-First Design */}
+      <div className="relative">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          
+          {/* 🚀 SINGLE ROW: All controls in one line */}
+          <div className="px-3 py-2 flex items-center justify-between gap-3">
             
-            {/* Search Type Dropdown */}
-            <div className="relative min-w-0 sm:w-20">
+            {/* 🔍 LEFT: Search Controls (Priority 1) */}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              {/* Search Type */}
               <select 
-                className="appearance-none bg-white border border-gray-300 rounded px-2 py-2 pr-6 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all w-full h-9 shadow-sm"
+                className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-16 flex-shrink-0"
                 value={searchType}
                 onChange={(e) => setSearchType(e.target.value)}
               >
@@ -372,34 +390,27 @@ const WorklistSearch = React.memo(({
                 <option value="patientId">ID</option>
                 <option value="accession">Acc#</option>
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-1 pointer-events-none">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+              
+              {/* Search Input */}
+              <div className="flex-1 relative min-w-0 max-w-xs">
+                <form onSubmit={handleQuickSearch} className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                    <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search patients..."
+                    className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    onChange={(e) => debouncedSetQuickSearchTerm(e.target.value)}
+                  />
+                </form>
               </div>
-            </div>
-            
-            {/* Search Input */}
-            <div className="flex-1 sm:max-w-xs">
-              <form onSubmit={handleQuickSearch} className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Search patients..."
-                  className="w-full bg-white border border-gray-300 rounded pl-9 pr-3 py-2 text-sm placeholder-gray-500 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all h-9 shadow-sm"
-                  onChange={(e) => debouncedSetQuickSearchTerm(e.target.value)}
-                />
-              </form>
-            </div>
 
-            {/* All Labs Dropdown */}
-            <div className="relative min-w-0 sm:w-24">
+              {/* Labs Dropdown */}
               <select 
-                className="appearance-none bg-white border border-gray-300 rounded px-2 py-2 pr-6 text-sm font-medium text-gray-700 hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all w-full h-9 shadow-sm"
+                className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-20 flex-shrink-0"
                 value={selectedLocation}
                 onChange={(e) => setSelectedLocation(e.target.value)}
               >
@@ -408,72 +419,248 @@ const WorklistSearch = React.memo(({
                   <option key={loc.id} value={loc.id}>{loc.name}</option>
                 ))}
               </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-1 pointer-events-none">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+
+              {/* Search & Filter Buttons */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleBackendSearch}
+                  className="inline-flex items-center px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span className="hidden sm:inline">Search</span>
+                </button>
+
+                <button 
+                  className={`inline-flex items-center px-2 py-1.5 border rounded text-xs font-medium transition-colors ${
+                    isExpanded 
+                      ? 'bg-blue-600 border-blue-600 text-white' 
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                  onClick={toggleExpanded}
+                >
+                  <svg className="w-3 h-3 sm:mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
+                  </svg>
+                  <span className="hidden sm:inline">Advanced</span>
+                </button>
+                
+                <button 
+                  onClick={handleClear}
+                  className="inline-flex items-center px-2 py-1.5 bg-red-600 text-white rounded text-xs font-medium hover:bg-red-700 transition-colors"
+                >
+                  <svg className="w-3 h-3 sm:mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  <span className="hidden sm:inline">Clear</span>
+                </button>
               </div>
             </div>
 
-            {/* Consistent Button Group */}
-            <div className="flex gap-2">
-              {/* Search Button */}
+            {/* 📅 CENTER: Quick Date Filters - Doctor-specific */}
+            <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
+              {userRole === 'doctor' ? (
+                // 🆕 DOCTOR: Include "Assigned Today" filter
+                ['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
+                  <button
+                    key={filter}
+                    onClick={() => onDateFilterChange(filter)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
+                      dateFilter === filter 
+                        ? 'bg-blue-500 text-white shadow-sm' 
+                        : 'text-gray-600 hover:bg-white hover:shadow-sm'
+                    }`}
+                  >
+                    {filter === 'last24h' ? '24h' : 
+                     filter === 'today' ? 'Today' :
+                     filter === 'yesterday' ? 'Yesterday' :
+                     filter === 'thisWeek' ? 'Week' : 
+                     filter === 'thisMonth' ? 'Month' :
+                     filter === 'assignedToday' ? 'Assigned Today' : filter}
+                  </button>
+                ))
+              ) : (
+                // 🔧 ADMIN: Standard date filters
+                ['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth'].map(filter => (
+                  <button
+                    key={filter}
+                    onClick={() => onDateFilterChange(filter)}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
+                      dateFilter === filter 
+                        ? 'bg-blue-500 text-white shadow-sm' 
+                        : 'text-gray-600 hover:bg-white hover:shadow-sm'
+                    }`}
+                  >
+                    {filter === 'last24h' ? '24h' : 
+                     filter === 'today' ? 'Today' :
+                     filter === 'yesterday' ? 'Yesterday' :
+                     filter === 'thisWeek' ? 'Week' : 'Month'}
+                  </button>
+                ))
+              )}
               <button
-                type="button"
-                onClick={handleBackendSearch}
-                className="inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 focus:ring-1 focus:ring-blue-200 focus:outline-none transition-all shadow-sm h-9"
-                title="Search"
-              >
-                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                Search
-              </button>
-
-              {/* Advanced Button */}
-              <button 
-                className={`inline-flex items-center justify-center px-4 py-2 border text-sm font-medium rounded transition-all h-9 shadow-sm ${
-                  isExpanded 
-                    ? 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700' 
-                    : 'bg-white border-gray-300 text-gray-700 hover:bg-blue-50 hover:border-blue-400'
+                onClick={() => onDateFilterChange('custom')}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
+                  dateFilter === 'custom' 
+                    ? 'bg-purple-500 text-white shadow-sm' 
+                    : 'text-gray-600 hover:bg-white hover:shadow-sm'
                 }`}
-                onClick={toggleExpanded}
               >
-                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4" />
-                </svg>
-                Advanced
-              </button>
-              
-              {/* Clear Button */}
-              <button 
-                onClick={handleClear}
-                className="inline-flex items-center justify-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 focus:ring-1 focus:ring-red-200 focus:outline-none transition-all shadow-sm h-9"
-              >
-                <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Clear
+                Custom
               </button>
             </div>
+
+            {/* 📊 RIGHT: Status & Actions */}
+            <div className="flex items-center gap-3">
+              {/* Status Info */}
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-gray-600 font-medium whitespace-nowrap">
+                  📊 {totalRecords.toLocaleString()} studies
+                </span>
+                
+                <div className="flex items-center gap-1">
+                  <div className={`w-2 h-2 rounded-full ${statusDisplay.color}`}></div>
+                  <span className={`${statusDisplay.textColor} font-medium whitespace-nowrap`}>
+                    {statusDisplay.text}
+                  </span>
+                </div>
+                
+                {newStudyCount > 0 && (
+                  <span className="bg-red-500 text-white px-2 py-1 rounded-full font-semibold animate-pulse text-xs whitespace-nowrap">
+                    🔔 {newStudyCount} new
+                  </span>
+                )}
+              </div>
+
+              {/* Action Buttons - Role-specific */}
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => {
+                    onManualRefresh && onManualRefresh();
+                    onResetNewStudyCount && onResetNewStudyCount();
+                  }}
+                  disabled={loading}
+                  className="inline-flex items-center px-3 py-1.5 bg-gray-600 text-white rounded text-xs font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
+                  title="Refresh data"
+                >
+                  <svg className={`w-3 h-3 sm:mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
+                  </svg>
+                  <span className="hidden lg:inline">Refresh</span>
+                </button>
+
+                {(userRole === 'admin' && (
+                  // 🔧 ADMIN: Lab and Doctor management buttons
+                  <>
+                    <Link 
+                      to="/admin/new-lab" 
+                      className="inline-flex items-center px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors"
+                      title="Add New Lab"
+                    >
+                      <svg className="w-3 h-3 sm:mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      <span className="hidden lg:inline">Lab</span>
+                    </Link>
+
+                    <Link 
+                      to="/admin/new-doctor" 
+                      className="inline-flex items-center px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600 transition-colors"
+                      title="Add New Doctor"
+                    >
+                      <svg className="w-3 h-3 sm:mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                      </svg>
+                      <span className="hidden lg:inline">Doctor</span>
+                    </Link>
+                  </>
+                ) 
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* 🔧 CONDITIONAL: Custom Date Range */}
+          {dateFilter === 'custom' && (
+            <div className="px-3 py-2 bg-purple-50 border-t border-purple-200">
+              <div className="flex items-center gap-3 text-xs">
+                <select
+                  value={dateType}
+                  onChange={(e) => onDateTypeChange && onDateTypeChange(e.target.value)}
+                  className="px-2 py-1 border border-purple-300 rounded text-xs bg-white focus:ring-1 focus:ring-purple-500"
+                >
+                  <option value="UploadDate">Upload Date</option>
+                  <option value="StudyDate">Study Date</option>
+                </select>
+                
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customDateFrom}
+                    onChange={(e) => onCustomDateChange && onCustomDateChange(e.target.value, customDateTo)}
+                    className="px-2 py-1 border border-purple-300 rounded text-xs bg-white focus:ring-1 focus:ring-purple-500"
+                  />
+                  
+                  <span className="text-purple-600 font-medium">to</span>
+                  
+                  <input
+                    type="date"
+                    value={customDateTo}
+                    onChange={(e) => onCustomDateChange && onCustomDateChange(customDateFrom, e.target.value)}
+                    className="px-2 py-1 border border-purple-300 rounded text-xs bg-white focus:ring-1 focus:ring-purple-500"
+                  />
+                </div>
+                
+                <button
+                  onClick={() => {
+                    onCustomDateChange && onCustomDateChange('', '');
+                    onDateFilterChange && onDateFilterChange('last24h');
+                  }}
+                  className="px-2 py-1 text-xs text-purple-600 hover:text-purple-800 underline font-medium"
+                >
+                  Clear Dates
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 🔧 CONDITIONAL: Active Filters */}
+          {hasActiveFilters && (
+            <div className="px-3 py-2 bg-blue-50 border-t border-blue-200">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-blue-800 font-medium">
+                  🔍 Showing {filteredStudies.length} of {allStudies.length} studies
+                </span>
+                <button
+                  onClick={handleClear}
+                  className="inline-flex items-center text-blue-600 hover:text-blue-800 underline font-medium"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Clear All Filters
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 🎨 FIXED ADVANCED SEARCH PANEL - Now properly positioned and expands space */}
+        {/* 🔧 EXPANDED: Advanced Search Panel */}
         {isExpanded && (
-          <div className="mt-2 bg-white border border-gray-200 rounded-lg shadow-xl transition-all duration-300 ease-in-out">
-            {/* Compact Header */}
-            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 px-4 py-2 border-b border-gray-200 rounded-t-lg">
+          <div className="mt-2 bg-white border border-gray-200 rounded-lg shadow-lg">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 border-b border-gray-200 rounded-t-lg">
               <div className="flex items-center justify-between">
-                <div className="flex items-center">
-                  <svg className="w-4 h-4 text-indigo-600 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <h3 className="text-sm font-semibold text-gray-800 flex items-center">
+                  <svg className="w-4 h-4 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                  <h3 className="text-sm font-semibold text-gray-800">Advanced Search</h3>
-                </div>
+                  Advanced Search Options
+                </h3>
                 <button 
                   onClick={toggleExpanded} 
-                  className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                  className="inline-flex items-center p-1.5 text-gray-400 hover:text-gray-600 hover:bg-white rounded-md transition-colors"
                 >
                   <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -482,17 +669,15 @@ const WorklistSearch = React.memo(({
               </div>
             </div>
             
-            {/* Compact Content */}
+            {/* Content */}
             <div className="p-4">
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {/* Patient Info Section */}
                 <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
-                    <svg className="w-3 h-3 mr-1 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    Patient Info
-                  </h3>
+                  <h4 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2 flex items-center">
+                    <span className="mr-2">👤</span>
+                    Patient Information
+                  </h4>
                   
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Patient ID</label>
@@ -500,8 +685,8 @@ const WorklistSearch = React.memo(({
                       type="text"
                       value={patientId}
                       onChange={(e) => setPatientId(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      placeholder="Enter ID..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter patient ID..."
                     />
                   </div>
                   
@@ -511,31 +696,18 @@ const WorklistSearch = React.memo(({
                       type="text"
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      placeholder="Enter name..."
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Referring Doctor</label>
-                    <input
-                      type="text"
-                      value={refName}
-                      onChange={(e) => setRefName(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      placeholder="Enter doctor..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter patient name..."
                     />
                   </div>
                 </div>
 
                 {/* Study Info Section */}
                 <div className="space-y-3">
-                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
-                    <svg className="w-3 h-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    Study Info
-                  </h3>
+                  <h4 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2 flex items-center">
+                    <span className="mr-2">📋</span>
+                    Study Information
+                  </h4>
                   
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Accession Number</label>
@@ -543,19 +715,8 @@ const WorklistSearch = React.memo(({
                       type="text"
                       value={accessionNumber}
                       onChange={(e) => setAccessionNumber(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      placeholder="Enter accession..."
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Study Description</label>
-                    <input
-                      type="text"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      placeholder="Enter description..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter accession number..."
                     />
                   </div>
                   
@@ -564,7 +725,7 @@ const WorklistSearch = React.memo(({
                     <select
                       value={workflowStatus}
                       onChange={(e) => setWorkflowStatus(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="all">All Status</option>
                       <option value="pending">Pending</option>
@@ -574,169 +735,77 @@ const WorklistSearch = React.memo(({
                   </div>
                 </div>
 
-                {/* Date Range & Filters */}
-                <div className="space-y-3 md:col-span-2 xl:col-span-1">
-                  <h3 className="text-xs font-semibold text-gray-900 border-b border-gray-200 pb-1 flex items-center">
-                    <svg className="w-3 h-3 mr-1 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Date & Filters
-                  </h3>
+                {/* Filters Section */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-semibold text-gray-900 border-b border-gray-200 pb-2 flex items-center">
+                    <span className="mr-2">🔧</span>
+                    Filters & Options
+                  </h4>
                   
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Date Type</label>
-                    <select
-                      value={dateType}
-                      onChange={(e) => onDateTypeChange && onDateTypeChange(e.target.value)}
-                      className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all mb-2"
-                    >
-                      <option value="StudyDate">Study Date</option>
-                      <option value="UploadDate">Upload Date</option>
-                      <option value="DOB">Date of Birth</option>
-                    </select>
-                    
-                    {/* Compact Date Presets */}
-                    <div className="grid grid-cols-3 gap-1 mb-2">
-                      {['today', 'yesterday', 'thisWeek', 'thisMonth', 'thisYear', 'custom'].map(preset => (
-                        <button
-                          key={preset}
-                          onClick={() => setDatePreset(preset)}
-                          className={`px-1 py-1 text-xs rounded transition-all font-medium ${
-                            dateFilter === preset 
-                              ? preset === 'custom'
-                                ? 'bg-purple-600 text-white shadow-sm'
-                                : 'bg-blue-600 text-white shadow-sm'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {preset === 'today' ? 'Today' : 
-                           preset === 'yesterday' ? 'Yesterday' :
-                           preset === 'thisWeek' ? 'Week' : 
-                           preset === 'thisMonth' ? 'Month' : 
-                           preset === 'thisYear' ? 'Year' : 'Custom'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* Compact Custom date inputs */}
-                  {dateFilter === 'custom' && (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">From</label>
-                        <input
-                          type="date"
-                          value={customDateFrom}
-                          onChange={(e) => handleCustomDateFromChange(e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-700 mb-1">To</label>
-                        <input
-                          type="date"
-                          value={customDateTo}
-                          onChange={(e) => handleCustomDateToChange(e.target.value)}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Compact Modality Checkboxes */}
+                  {/* Modality Checkboxes */}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-2">Modality</label>
-                    <div className="grid grid-cols-3 gap-1">
+                    <div className="grid grid-cols-3 gap-2">
                       {Object.entries(modalities).map(([modality, checked]) => (
-                        <label key={modality} className="flex items-center text-xs">
+                        <label key={modality} className="flex items-center text-sm">
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={(e) => handleModalityChange(modality, e.target.checked)}
-                            className="mr-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3 h-3"
+                            className="mr-2 w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                           />
-                          <span className="font-medium text-gray-700">{modality}</span>
+                          <span className="text-gray-700">{modality}</span>
                         </label>
                       ))}
                     </div>
                   </div>
 
-                  {/* Compact Additional Filters */}
+                  {/* Additional Filters */}
                   <div className="space-y-2">
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="flex items-center text-xs">
-                        <input
-                          type="checkbox"
-                          checked={emergencyCase}
-                          onChange={(e) => setEmergencyCase(e.target.checked)}
-                          className="mr-1 rounded border-gray-300 text-red-600 focus:ring-red-500 w-3 h-3"
-                        />
-                        <span className="font-medium text-red-700">Emergency</span>
-                      </label>
-                      <label className="flex items-center text-xs">
-                        <input
-                          type="checkbox"
-                          checked={mlcCase}
-                          onChange={(e) => setMlcCase(e.target.checked)}
-                          className="mr-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500 w-3 h-3"
-                        />
-                        <span className="font-medium text-orange-700">MLC Case</span>
-                      </label>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Study Type</label>
-                      <select
-                        value={studyType}
-                        onChange={(e) => setStudyType(e.target.value)}
-                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none transition-all"
-                      >
-                        <option value="all">All Types</option>
-                        <option value="routine">Routine</option>
-                        <option value="urgent">Urgent</option>
-                        <option value="stat">STAT</option>
-                      </select>
-                    </div>
+                    <label className="flex items-center text-sm">
+                      <input
+                        type="checkbox"
+                        checked={emergencyCase}
+                        onChange={(e) => setEmergencyCase(e.target.checked)}
+                        className="mr-2 w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                      />
+                      <span className="text-gray-700">Emergency Cases Only</span>
+                    </label>
+                    <label className="flex items-center text-sm">
+                      <input
+                        type="checkbox"
+                        checked={mlcCase}
+                        onChange={(e) => setMlcCase(e.target.checked)}
+                        className="mr-2 w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                      />
+                      <span className="text-gray-700">MLC Cases Only</span>
+                    </label>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Compact Action Buttons */}
-            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-t border-gray-200 p-3 bg-gray-50 rounded-b-lg space-y-2 sm:space-y-0">
-              <div className="text-xs text-gray-600 text-center sm:text-left">
-                {hasActiveFilters ? (
-                  <span className="flex items-center justify-center sm:justify-start">
-                    <svg className="w-3 h-3 mr-1 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {filteredStudies.length} studies found
-                  </span>
-                ) : (
-                  'No filters applied'
-                )}
-              </div>
-              <div className="flex space-x-2 justify-center sm:justify-end">
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
                 <button
                   onClick={handleClear}
-                  className="inline-flex items-center px-3 py-1.5 text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 focus:ring-1 focus:ring-gray-200 focus:outline-none transition-all text-xs font-medium"
+                  className="inline-flex items-center px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md text-sm font-medium hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
                 >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
-                  Reset
+                  Reset All
                 </button>
                 <button
                   onClick={() => {
                     handleBackendSearch();
                     toggleExpanded();
                   }}
-                  className="inline-flex items-center px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition-all focus:ring-1 focus:ring-blue-200 focus:outline-none shadow-sm"
+                  className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500"
                 >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
-                  Apply
+                  Apply Filters
                 </button>
               </div>
             </div>
@@ -744,8 +813,8 @@ const WorklistSearch = React.memo(({
         )}
       </div>
 
-      {/* 🎨 WORKLIST TABLE - Now properly positioned and shifts down when advanced search is open */}
-      <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'mt-2' : 'mt-0'}`}>
+      {/* Worklist Table */}
+      <div className="flex-1 min-h-0">
         <WorklistTable 
           studies={filteredStudies}
           loading={loading}
@@ -756,6 +825,10 @@ const WorklistSearch = React.memo(({
           recordsPerPage={recordsPerPage}
           onRecordsPerPageChange={onRecordsPerPageChange}
           usePagination={false}
+          values={values}
+
+          activeCategory={activeCategory}
+        onCategoryChange={onCategoryChange}
         />
       </div>
     </div>

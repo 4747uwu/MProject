@@ -341,6 +341,177 @@ class DocumentController {
     }
 }
 
+// Add this new method to your DocumentController class
+
+// In your controller file (e.g., documentController.js)
+
+static async getInitialReportData(req, res) {
+  console.log("getInitialReportData hit by user:", req.user.id);
+  
+  try {
+      const { studyId } = req.params;
+      const doctorId = req.user.id;
+    // Find the doctor whose userAccount is the current user's id
+      const requestingDoctor = await Doctor.findOne({ userAccount: doctorId });
+      console.log('🔍 Requesting doctor:', requestingDoctor);
+
+      if (!requestingDoctor) {
+           return res.status(403).json({ 
+               success: false, 
+               message: 'No valid doctor profile associated with this user.' 
+           });
+      }
+
+      const study = await DicomStudy.findById(studyId)
+          .select('patientInfo patient')
+          .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
+
+      if (!study) {
+          return res.status(404).json({ 
+              success: false, 
+              message: 'Study not found' 
+          });
+      }
+
+      console.log('🔍 Study data:', {
+          patientInfo: study.patientInfo,
+          patient: study.patient
+      });
+
+      // 🔧 EXTRACT PATIENT DATA WITH PROPER LOGIC
+      let patientName = 'Unknown Patient';
+      let patientAge = 'Unknown';
+      let patientGender = 'Unknown';
+      
+      if (study.patient) {
+          // Handle patient name
+          if (study.patient.computed?.fullName) {
+              patientName = study.patient.computed.fullName;
+          } else if (study.patient.firstName || study.patient.lastName) {
+              const firstName = study.patient.firstName || '';
+              const lastName = study.patient.lastName || '';
+              patientName = `${firstName} ${lastName}`.trim();
+          } else if (study.patient.patientNameRaw) {
+              const nameParts = study.patient.patientNameRaw.split('^');
+              const lastName = nameParts[0] || '';
+              const firstName = nameParts[1] || '';
+              patientName = `${firstName} ${lastName}`.trim();
+          } else if (study.patient.patientID) {
+              patientName = `Patient ${study.patient.patientID}`;
+          }
+          
+          // 🔧 HANDLE AGE FROM PATIENT MODEL
+          if (study.patient.ageString) {
+              // Parse DICOM age format like "065Y", "045M", "021D"
+              const ageString = study.patient.ageString;
+              const ageNumber = parseInt(ageString.substring(0, 3));
+              const ageUnit = ageString.substring(3);
+              
+              switch(ageUnit) {
+                  case 'Y':
+                      patientAge = `${ageNumber} years`;
+                      break;
+                  case 'M':
+                      patientAge = `${ageNumber} months`;
+                      break;
+                  case 'D':
+                      patientAge = `${ageNumber} days`;
+                      break;
+                  default:
+                      patientAge = ageString;
+              }
+          } else if (study.patient.dateOfBirth) {
+              // Calculate age from date of birth
+              const birthDate = new Date(study.patient.dateOfBirth);
+              const today = new Date();
+              const age = today.getFullYear() - birthDate.getFullYear();
+              const monthDiff = today.getMonth() - birthDate.getMonth();
+              
+              if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+                  patientAge = `${age - 1} years`;
+              } else {
+                  patientAge = `${age} years`;
+              }
+          } else if (study.patientInfo?.age) {
+              patientAge = study.patientInfo.age;
+          }
+          
+          // Handle gender
+          if (study.patient.gender) {
+              patientGender = study.patient.gender === 'M' ? 'Male' : 
+                            study.patient.gender === 'F' ? 'Female' : 
+                            study.patient.gender;
+          } else if (study.patientInfo?.gender) {
+              patientGender = study.patientInfo.gender === 'M' ? 'Male' : 
+                             study.patientInfo.gender === 'F' ? 'Female' : 
+                             study.patientInfo.gender;
+          }
+      }
+      
+      // Fallback to patientInfo if patient data is incomplete
+      if (patientName === 'Unknown Patient' && study.patientInfo?.patientName) {
+          patientName = study.patientInfo.patientName;
+      }
+
+      console.log('📋 Extracted patient data:', {
+          patientName,
+          patientAge,
+          patientGender,
+          patientID: study.patient?.patientID || study.patientInfo?.patientID
+      });
+
+      // 🔧 EXTRACT DOCTOR NAME PROPERLY
+      let doctorName = 'Unknown Doctor';
+      
+      // Try from the requesting doctor's user account first
+      if (requestingDoctor.userAccount?.fullName) {
+          doctorName = requestingDoctor.userAccount.fullName;
+      } else if (req.user?.fullName) {
+          doctorName = req.user.fullName;
+      } else if (req.user?.username) {
+          doctorName = req.user.username;
+      }
+
+      console.log('👨‍⚕️ Doctor info:', {
+          doctorName,
+          hasSignature: !!requestingDoctor.signature,
+          signatureLength: requestingDoctor.signature ? requestingDoctor.signature.length : 0,
+          signatureMimeType: requestingDoctor.signatureMetadata?.mimeType
+      });
+      
+      // Prepare the clean object for the C# launcher
+      const initialData = {
+          studyId: study._id.toString(),
+          patientName: patientName,
+          age: patientAge,
+          sex: patientGender,
+          patientID: study.patient?.patientID || study.patientInfo?.patientID || 'N/A',
+          
+          // 🔧 DOCTOR INFO AND BASE64 SIGNATURE
+          doctorName: doctorName,
+          doctorSignatureBase64: requestingDoctor.signature || null, // Base64 string from MongoDB
+          doctorSignatureMimeType: requestingDoctor.signatureMetadata?.mimeType || 'image/jpeg' // Default to jpeg based on your data
+      };
+
+      console.log("✅ Sending initial data (signature redacted):", { 
+          ...initialData, 
+          doctorSignatureBase64: initialData.doctorSignatureBase64 ? 
+              `[BASE64_DATA_${initialData.doctorSignatureBase64.length}_CHARS]` : null 
+      });
+      
+      res.json(initialData);
+
+  } catch (error) {
+      console.error('❌ Error fetching initial report data:', error);
+      res.status(500).json({ 
+          success: false, 
+          message: 'Server error',
+          error: error.message 
+      });
+  }
+}
+
+
   // Generic document generator function (unchanged)
   static async generateDocument(templateName, data) {
     try {
@@ -622,6 +793,7 @@ static async getStudyReport(req, res) {
   // List reports for a study (only uploaded reports)
 // 🔧 FIXED: Upload study report function
 static async uploadStudyReport(req, res) {
+  console.log(req.body)
   console.log('🔧 Uploading study report with Wasabi integration...'); 
   try {
       const { studyId } = req.params;
@@ -820,21 +992,23 @@ static async uploadStudyReport(req, res) {
   }
 }
 
-// 🔧 FIXED: Get study reports function
 static async getStudyReports(req, res) {
   console.log('📋 Fetching study reports from doctorReports...');
   try {
       const { studyId } = req.params;
       
-      // 🔧 FIXED: Select doctorReports instead of uploadedReports
+      // Corrected Population Strategy:
+      // 1. Populate the 'assignment' array itself.
+      // 2. Within each 'assignment' object, populate the 'assignedTo' field.
+      // 3. Since 'assignedTo' directly references the 'User' model,
+      //    directly select 'fullName' from the User document.
       const study = await DicomStudy.findById(studyId)
-          .select('doctorReports workflowStatus reportInfo assignment ReportAvailable')
-          .populate('assignment.assignedTo', 'userAccount')
+          .select('doctorReports workflowStatus reportInfo ReportAvailable assignment') // Ensure 'assignment' is selected
           .populate({
-              path: 'assignment.assignedTo',
+              path: 'assignment', // Populates the 'assignment' array
               populate: {
-                  path: 'userAccount',
-                  select: 'fullName'
+                  path: 'assignedTo', // Populates the 'assignedTo' field within each assignment object
+                  select: 'fullName' // Directly select 'fullName' from the User document
               }
           });
       
@@ -845,7 +1019,6 @@ static async getStudyReports(req, res) {
           });
       }
 
-      // 🔧 FIXED: Return metadata from doctorReports
       const reportsMetadata = study.doctorReports?.map((report, index) => ({
           index: index,
           _id: report._id,
@@ -858,7 +1031,7 @@ static async getStudyReports(req, res) {
           uploadedBy: report.uploadedBy,
           doctorId: report.doctorId,
           storageType: report.storageType || 'wasabi',
-          // 🔧 ADDED: Additional metadata for UI
+          // Additional metadata for UI
           formattedSize: (report.size / 1024 / 1024).toFixed(2) + ' MB',
           formattedDate: new Date(report.uploadedAt).toLocaleDateString('en-US', {
               year: 'numeric',
@@ -867,14 +1040,31 @@ static async getStudyReports(req, res) {
               hour: '2-digit',
               minute: '2-digit'
           }),
-          // 🔧 ADDED: Status indicators
+          // Status indicators
           isDraft: report.reportStatus === 'draft',
           isFinalized: report.reportStatus === 'finalized',
           canDownload: true // All Wasabi reports are downloadable
       })) || [];
 
-      // 🔧 ADDED: Additional study information for UI
-      const assignedDoctor = study.assignment?.assignedTo;
+      // Determine the assigned doctor from the 'assignment' array
+      let assignedDoctor = null;
+      if (study.assignment && study.assignment.length > 0) {
+          // Sort by 'assignedAt' to get the latest assignment, assuming 'assignedAt' exists
+          const sortedAssignments = [...study.assignment].sort((a, b) => {
+              const dateA = a.assignedAt ? new Date(a.assignedAt) : 0;
+              const dateB = b.assignedAt ? new Date(b.assignedAt) : 0;
+              return dateA - dateB;
+          });
+          const latestAssignment = sortedAssignments[sortedAssignments.length - 1];
+          
+          // Now, `latestAssignment.assignedTo` is the populated User document
+          if (latestAssignment && latestAssignment.assignedTo) {
+              assignedDoctor = {
+                  _id: latestAssignment.assignedTo._id,
+                  fullName: latestAssignment.assignedTo.fullName || 'Unknown', // Directly access fullName from the User model
+              };
+          }
+      }
       
       res.json({ 
           success: true, 
@@ -882,7 +1072,7 @@ static async getStudyReports(req, res) {
           totalReports: reportsMetadata.length,
           workflowStatus: study.workflowStatus,
           reportAvailable: study.ReportAvailable,
-          // 🔧 ADDED: Enhanced response data
+          // Enhanced response data
           studyInfo: {
               _id: study._id,
               hasReports: reportsMetadata.length > 0,
@@ -890,10 +1080,7 @@ static async getStudyReports(req, res) {
               hasFinalizedReports: reportsMetadata.some(r => r.isFinalized),
               latestReportDate: reportsMetadata.length > 0 ? 
                   reportsMetadata[reportsMetadata.length - 1].uploadedAt : null,
-              assignedDoctor: assignedDoctor ? {
-                  _id: assignedDoctor._id,
-                  fullName: assignedDoctor.userAccount?.fullName || 'Unknown',
-              } : null,
+              assignedDoctor: assignedDoctor, // This now contains the latest assigned doctor's info
               reportInfo: study.reportInfo
           }
       });

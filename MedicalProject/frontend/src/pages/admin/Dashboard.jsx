@@ -16,15 +16,15 @@ const AdminDashboard = React.memo(() => {
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
   
-  // 🔧 SIMPLIFIED: Single page mode state management
+  // Single page mode state management
   const [recordsPerPage, setRecordsPerPage] = useState(20);
   const [totalRecords, setTotalRecords] = useState(0);
   
-  // 🆕 NEW: Date filter state for backend integration
-  const [dateFilter, setDateFilter] = useState('today'); // Default to 24 hours
+  // Date filter state for backend integration
+  const [dateFilter, setDateFilter] = useState('today');
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
-  const [dateType, setDateType] = useState('UploadDate'); // StudyDate, UploadDate
+  const [dateType, setDateType] = useState('UploadDate');
   
   const [dashboardStats, setDashboardStats] = useState({
     totalStudies: 0,
@@ -34,21 +34,46 @@ const AdminDashboard = React.memo(() => {
     activeLabs: 0,
     activeDoctors: 0
   });
+
+  const [values, setValues] = useState({
+    today: 0,
+    pending: 0,
+    inprogress: 0,
+    completed: 0,
+  });
   
   const intervalRef = useRef(null);
 
-  // 🔧 ENHANCED: Fetch studies with date filters
-  const fetchStudies = useCallback(async (searchParams = {}) => {
+  // 🆕 NEW: API endpoint mapping for tabs
+  const getEndpointForCategory = useCallback((category) => {
+    switch (category) {
+      case 'pending':
+        return '/admin/studies/pending';
+      case 'inprogress':
+        return '/admin/studies/inprogress';
+      case 'completed':
+        return '/admin/studies/completed';
+      case 'all':
+      default:
+        return '/admin/studies';
+    }
+  }, []);
+  console.log(activeCategory)
+
+  // 🔧 UPDATED: Fetch studies with dynamic endpoint
+  const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
-      console.log(`🔄 Fetching studies with limit: ${recordsPerPage}, category: ${activeCategory}, dateFilter: ${dateFilter}`);
+      console.log(`🔄 Fetching ${activeCategory} studies with synchronized filters`);
       
-      // 🆕 NEW: Build API parameters including date filters
+      // 🆕 NEW: Use category-specific endpoint
+      const endpoint = getEndpointForCategory(activeCategory);
+      
+      // Build common API parameters
       const apiParams = {
         limit: recordsPerPage,
-        category: activeCategory !== 'all' ? activeCategory : undefined,
         dateType: dateType,
-        ...searchParams // Allow override from WorklistSearch
+        ...searchParams
       };
 
       // Add date filter parameters
@@ -65,55 +90,85 @@ const AdminDashboard = React.memo(() => {
         apiParams[key] === undefined && delete apiParams[key]
       );
 
-      console.log('📤 API Parameters:', apiParams);
+      console.log(`📤 API Parameters for ${activeCategory}:`, apiParams);
+      console.log(`🎯 Using endpoint: ${endpoint}`);
       
-      const response = await api.get('/admin/studies', {
-        params: apiParams
-      });
+      // 🔧 UPDATED: Make API calls to category-specific endpoints
+      const [studiesResponse, valuesResponse] = await Promise.all([
+        api.get(endpoint, { params: apiParams }),
+        api.get('/admin/values', { params: apiParams })
+      ]);
       
-      console.log('📊 Studies response:', response.data);
-      
-      if (response.data.success) {
-        setAllStudies(response.data.data);
-        setTotalRecords(response.data.totalRecords);
+      // Process studies response
+      if (studiesResponse.data.success) {
+        setAllStudies(studiesResponse.data.data);
+        setTotalRecords(studiesResponse.data.totalRecords);
         
         // Update dashboard stats from backend response
-        if (response.data.summary?.byCategory) {
+        if (studiesResponse.data.summary?.byCategory) {
           setDashboardStats({
-            totalStudies: response.data.summary.byCategory.all || response.data.totalRecords,
-            pendingStudies: response.data.summary.byCategory.pending || 0,
-            inProgressStudies: response.data.summary.byCategory.inprogress || 0,
-            completedStudies: response.data.summary.byCategory.completed || 0,
-            activeLabs: response.data.summary.activeLabs || 
-                        [...new Set(response.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
-            activeDoctors: response.data.summary.activeDoctors || 
-                           [...new Set(response.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
+            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            activeLabs: studiesResponse.data.summary.activeLabs || 
+                        [...new Set(studiesResponse.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
+            activeDoctors: studiesResponse.data.summary.activeDoctors || 
+                           [...new Set(studiesResponse.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
           });
         }
-        
-        console.log('✅ Studies fetched successfully:', {
-          count: response.data.data.length,
-          totalRecords: response.data.totalRecords,
-          dateFilter: dateFilter,
-          isSinglePage: response.data.pagination?.isSinglePage || true
+      }
+
+      // Process values response
+      if (valuesResponse.data && valuesResponse.data.success) {
+        setValues({
+          today: valuesResponse.data.total || 0,
+          pending: valuesResponse.data.pending || 0,
+          inprogress: valuesResponse.data.inprogress || 0,
+          completed: valuesResponse.data.completed || 0,
         });
       }
+    
+      
+      console.log(`✅ ${activeCategory} data fetched successfully`);
+      
     } catch (error) {
-      console.error('❌ Error fetching studies:', error);
+      console.error(`❌ Error fetching ${activeCategory} data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
+      setValues({
+        today: 0,
+        pending: 0,
+        inprogress: 0,
+        completed: 0,
+      });
     } finally {
       setLoading(false);
     }
-  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
 
-  // Initial fetch when component mounts or dependencies change
+  console.log(allStudies)
+  // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
   useEffect(() => {
-    console.log(`🔄 useEffect triggered - Records: ${recordsPerPage}, Category: ${activeCategory}, DateFilter: ${dateFilter}`);
-    fetchStudies();
-  }, [fetchStudies]);
+    console.log(`🔄 Data dependencies changed - fetching fresh data`);
+    fetchAllData();
+  }, [fetchAllData]);
 
-  // 🆕 NEW: Date filter handlers
+  // 🔧 SIMPLIFIED: Single auto-refresh interval
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      console.log('🔄 Auto-refreshing all data...');
+      fetchAllData();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [fetchAllData]);
+
+  // Date filter handlers
   const handleDateFilterChange = useCallback((newDateFilter) => {
     console.log(`📅 DASHBOARD: Changing date filter to ${newDateFilter}`);
     setDateFilter(newDateFilter);
@@ -136,27 +191,13 @@ const AdminDashboard = React.memo(() => {
     resetNewStudyCount();
   }, [resetNewStudyCount]);
 
-  // 🆕 NEW: Handle search with backend parameters
+  // Handle search with backend parameters
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 DASHBOARD: Handling search with backend params:', searchParams);
-    fetchStudies(searchParams);
-  }, [fetchStudies]);
+    fetchAllData(searchParams);
+  }, [fetchAllData]);
 
-  // Auto-refresh setup
-  useEffect(() => {
-    intervalRef.current = setInterval(() => {
-      console.log('🔄 Auto-refreshing studies data...');
-      fetchStudies();
-    }, 5 * 60 * 1000); // 5 minutes
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [fetchStudies]);
-
-  // 🔧 SIMPLIFIED: Handle records per page change (no pagination)
+  // Handle records per page change
   const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
     console.log(`📊 DASHBOARD: Changing records per page from ${recordsPerPage} to ${newRecordsPerPage}`);
     setRecordsPerPage(newRecordsPerPage);
@@ -164,25 +205,29 @@ const AdminDashboard = React.memo(() => {
   }, [recordsPerPage, resetNewStudyCount]);
 
   const handleAssignmentComplete = useCallback(() => {
-    console.log('📋 Assignment completed, refreshing studies...');
-    fetchStudies();
-  }, [fetchStudies]);
+    console.log('📋 Assignment completed, refreshing data...');
+    fetchAllData();
+  }, [fetchAllData]);
 
   const handleManualRefresh = useCallback(() => {
-    console.log('🔄 Manual refresh triggered');
-    fetchStudies();
+    console.log('🔄 Manual refresh triggered for all data');
+    fetchAllData();
     resetNewStudyCount();
-  }, [fetchStudies, resetNewStudyCount]);
+  }, [fetchAllData, resetNewStudyCount]);
 
   const handleWorklistView = useCallback(() => {
     resetNewStudyCount();
   }, [resetNewStudyCount]);
 
   const handleCategoryChange = useCallback((category) => {
-    console.log(`🏷️ Changing category to: ${category}`);
-    setActiveCategory(category);
-    resetNewStudyCount();
-  }, [resetNewStudyCount]);
+    console.log(`🏷️ DASHBOARD: Changing category from ${activeCategory} to ${category}`);
+    
+    // 🔧 FIXED: Only change if actually different
+    if (activeCategory !== category) {
+      setActiveCategory(category);
+      resetNewStudyCount();
+    }
+  }, [activeCategory, resetNewStudyCount]);
 
   // Connection status display logic
   const statusDisplay = useMemo(() => {
@@ -218,178 +263,10 @@ const AdminDashboard = React.memo(() => {
     <div className="min-h-screen bg-gray-50">
       <UniversalNavbar />
 
-      {/* 🔧 ULTRA COMPACT: Much tighter container */}
-      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3">
-        {/* 🔧 COMPACT: Header with minimal spacing */}
-        <div className="mb-1 sm:mb-2">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-1 lg:gap-2 mb-1">
-            {/* Title and Info Section */}
-            <div className="min-w-0 flex-1">
-              <h1 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 truncate">
-                Studies Worklist
-              </h1>
-              
-              {/* 🔧 ULTRA COMPACT: Tighter info badges */}
-              <div className="flex flex-wrap items-center gap-0.5 sm:gap-1 mt-0.5 text-xs">
-                <span className="text-gray-600 whitespace-nowrap">
-                  {totalRecords.toLocaleString()} total studies
-                </span>
-                <span className="text-gray-500 whitespace-nowrap hidden sm:inline">
-                  ({recordsPerPage} per page)
-                </span>
-                
-                {/* Date filter indicator */}
-                <span className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
-                  📅 {dateFilter === 'custom' 
-                    ? `Custom Range` 
-                    : dateFilter === 'last24h' ? '24h' 
-                    : dateFilter}
-                </span>
-                
-                <span className="bg-green-100 text-green-800 px-1 py-0.5 rounded-full text-xs whitespace-nowrap">
-                  📜 All loaded
-                </span>
-                
-                {/* Connection status */}
-                <div className="flex items-center gap-0.5">
-                  <div className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${statusDisplay.color}`}></div>
-                  <span className={`text-xs ${statusDisplay.textColor} whitespace-nowrap`}>
-                    {statusDisplay.text}
-                  </span>
-                </div>
-                
-                {newStudyCount > 0 && (
-                  <span className="bg-red-500 text-white text-xs px-1 py-0.5 rounded-full font-semibold animate-pulse whitespace-nowrap">
-                    {newStudyCount} new
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* 🔧 ULTRA COMPACT: Controls section */}
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1 lg:gap-2">
-              {/* Quick Date Filter Controls */}
-              <div className="flex items-center gap-0.5 bg-white rounded border border-gray-200 p-0.5 overflow-x-auto">
-                {['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth'].map(filter => (
-                  <button
-                    key={filter}
-                    onClick={() => handleDateFilterChange(filter)}
-                    className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
-                      dateFilter === filter 
-                        ? 'bg-blue-500 text-white' 
-                        : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                  >
-                    {filter === 'last24h' ? '24h' : 
-                     filter === 'today' ? 'Today' :
-                     filter === 'yesterday' ? 'Yesterday' :
-                     filter === 'thisWeek' ? 'Week' : 'Month'}
-                  </button>
-                ))}
-                <button
-                  onClick={() => handleDateFilterChange('custom')}
-                  className={`px-1 py-0.5 text-xs whitespace-nowrap rounded transition-colors flex-shrink-0 ${
-                    dateFilter === 'custom' 
-                      ? 'bg-purple-500 text-white' 
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Custom
-                </button>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex items-center gap-1">
-                <button 
-                  onClick={handleManualRefresh}
-                  disabled={loading}
-                  className="inline-flex items-center px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 transition-all duration-200 text-xs font-medium whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed h-6"
-                  title="Refresh data"
-                >
-                  <svg className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0V9a8 8 0 1115.356 2M15 15v-2a8 8 0 01-15.356-2" />
-                  </svg>
-                  <span className="hidden sm:inline">Refresh</span>
-                  <span className="sm:hidden">↻</span>
-                </button>
-
-                <Link 
-                  to="/admin/new-lab" 
-                  className="inline-flex items-center px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
-                >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  <span className="hidden sm:inline">Lab</span>
-                  <span className="sm:hidden">Lab</span>
-                </Link>
-
-                <Link 
-                  to="/admin/new-doctor" 
-                  className="inline-flex items-center px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-all duration-200 text-xs font-medium whitespace-nowrap h-6"
-                >
-                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                  <span className="hidden sm:inline">Doctor</span>
-                  <span className="sm:hidden">Doc</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-
-          {dateFilter === 'custom' && (
-            <div className="bg-purple-50 border border-purple-200 rounded p-1 sm:p-2 mt-1">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-1 sm:gap-2 text-xs">
-                <select
-                  value={dateType}
-                  onChange={(e) => handleDateTypeChange(e.target.value)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                >
-                  <option value="UploadDate">Upload Date</option>
-                  <option value="StudyDate">Study Date</option>
-                </select>
-                
-                <input
-                  type="date"
-                  value={customDateFrom}
-                  onChange={(e) => handleCustomDateChange(e.target.value, customDateTo)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                  placeholder="From"
-                />
-                
-                <span className="text-purple-600 hidden sm:inline">to</span>
-                
-                <input
-                  type="date"
-                  value={customDateTo}
-                  onChange={(e) => handleCustomDateChange(customDateFrom, e.target.value)}
-                  className="px-1 py-0.5 text-xs border border-purple-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
-                  placeholder="To"
-                />
-                
-                <button
-                  onClick={() => {
-                    setCustomDateFrom('');
-                    setCustomDateTo('');
-                    setDateFilter('last24h');
-                  }}
-                  className="px-1 py-0.5 text-xs text-purple-600 hover:text-purple-800 underline"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-          )}
-        
-
-        </div>
-
-        
-
-        {/* 🔧 ULTRA COMPACT: Main Content with minimal padding */}
-        <div className="bg-white rounded border border-gray-200 overflow-hidden">
-          <div className="p-1 sm:p-2 lg:p-3">
+      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3 flex-1 flex flex-col">
+        {/* Main Content - Now WorklistSearch handles all controls */}
+        <div className="bg-white flex-1 min-h-0 rounded border border-gray-200 overflow-hidden flex flex-col">
+          <div className="p-0 sm:p-2 lg:p-3 flex-1 min-h-0 flex flex-col">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
@@ -402,7 +279,6 @@ const AdminDashboard = React.memo(() => {
               categoryStats={dashboardStats}
               recordsPerPage={recordsPerPage}
               onRecordsPerPageChange={handleRecordsPerPageChange}
-              // 🆕 NEW: Pass date filter props
               dateFilter={dateFilter}
               onDateFilterChange={handleDateFilterChange}
               customDateFrom={customDateFrom}
@@ -411,11 +287,17 @@ const AdminDashboard = React.memo(() => {
               dateType={dateType}
               onDateTypeChange={handleDateTypeChange}
               onSearchWithBackend={handleSearchWithBackend}
+              values={values}
+              // 🆕 NEW: Pass additional props for integrated controls
+              newStudyCount={newStudyCount}
+              connectionStatus={connectionStatus}
+              onManualRefresh={handleManualRefresh}
+              onResetNewStudyCount={resetNewStudyCount}
             />
           </div>
         </div>
 
-        {/* 🔧 ULTRA COMPACT: Mobile Stats */}
+        {/* Mobile Stats - Keep this for mobile view */}
         <div className="lg:hidden mt-1 sm:mt-2">
           <details className="bg-white rounded border border-gray-200 shadow-sm">
             <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">

@@ -57,7 +57,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-      <WebSocketProvider>
+      
 
         <div className="min-h-screen bg-gray-50">
           <Routes>
@@ -294,7 +294,7 @@ function App() {
             </div>
           )}
         />
-              </WebSocketProvider>
+              
 
       </AuthProvider>
     </BrowserRouter>

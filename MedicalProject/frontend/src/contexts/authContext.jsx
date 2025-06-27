@@ -1,10 +1,12 @@
 import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
+import sessionManager from '../services/sessionManager';
 
 // ✅ Use environment variable instead of hardcoded localhost
 const API_URL = import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_BACKEND_URL !== ''
   ? `${import.meta.env.VITE_BACKEND_URL}/api`  // Development: use external URL
   : '/api';  // Production: use nginx proxy
+
 
 console.log('🔍 API_URL:', API_URL); // Debug log
 
@@ -15,18 +17,21 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user is already logged in (on component mount)
+  // ✅ Check if user is already logged in using sessionManager
   useEffect(() => {
     const checkLoggedIn = async () => {
       try {
-        console.log('🔍 Checking auth at:', `${API_URL}/auth/me`);
-        const res = await axios.get(`${API_URL}/auth/me`, { withCredentials: true });
-        if (res.data.success) {
-          setCurrentUser(res.data.data);
+        // First check sessionStorage for existing session
+        const session = sessionManager.getSession();
+        if (session) {
+          setCurrentUser(session.user);
+          console.log('✅ Session restored from sessionStorage:', session.user.email);
+        } else {
+          console.log('❌ No valid session found in sessionStorage');
         }
       } catch (err) {
-        // User not logged in or token expired - that's okay
-        console.log("Not logged in or session expired");
+        console.log("Error checking session:", err);
+        sessionManager.clearSession();
       } finally {
         setLoading(false);
       }
@@ -35,19 +40,23 @@ export const AuthProvider = ({ children }) => {
     checkLoggedIn();
   }, []);
 
-  // Login function
+  // ✅ Updated login function to use sessionManager
   const login = async (email, password) => {
     setError(null);
     try {
       console.log('🔍 Attempting login at:', `${API_URL}/auth/login`);
-      const res = await axios.post(`${API_URL}/auth/login`, 
-        { email, password },
-        { withCredentials: true } // Important for cookies
-      );
+      
+      // ✅ Don't send withCredentials since we're not using cookies anymore
+      const res = await axios.post(`${API_URL}/auth/login`, { email, password });
       
       if (res.data.success) {
-        setCurrentUser(res.data.user);
-        return res.data.user;
+        const { user, token, expiresIn } = res.data;
+        
+        // ✅ Store session using sessionManager (tab-specific)
+        sessionManager.setSession(token, user, expiresIn);
+        setCurrentUser(user);
+        
+        return user;
       } else {
         throw new Error(res.data.message || 'Login failed');
       }
@@ -58,14 +67,30 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout function
+  // ✅ Updated logout function to use sessionManager
   const logout = async () => {
     try {
-      await axios.post(`${API_URL}/auth/logout`, {}, { withCredentials: true });
-      setCurrentUser(null);
+      const token = sessionManager.getToken();
+      if (token) {
+        // Call logout endpoint with authorization header
+        await axios.post(`${API_URL}/auth/logout`, {}, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+      }
     } catch (err) {
       console.error("Logout error:", err);
+    } finally {
+      // ✅ Clear session from this tab
+      sessionManager.clearSession();
+      setCurrentUser(null);
     }
+  };
+
+  // ✅ Add method to check if authenticated using sessionManager
+  const isAuthenticated = () => {
+    return sessionManager.isAuthenticated();
   };
 
   // Get user dashboard route based on role
@@ -91,6 +116,7 @@ export const AuthProvider = ({ children }) => {
       error,
       login, 
       logout, 
+      isAuthenticated, // ✅ Add this
       getDashboardRoute
     }}>
       {children}

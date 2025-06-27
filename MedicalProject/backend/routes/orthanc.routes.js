@@ -33,7 +33,7 @@ class StableStudyQueue {
     this.processing = new Set();
     this.nextJobId = 1;
     this.isProcessing = false;
-    this.concurrency = 2; // Process max 2 stable studies simultaneously
+    this.concurrency = 10; // Process max 2 stable studies simultaneously
   }
 
   async add(jobData) {

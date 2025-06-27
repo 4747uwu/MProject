@@ -2,18 +2,16 @@
 import User from '../models/userModel.js';
 import Doctor from '../models/doctorModel.js';
 import Lab from '../models/labModel.js';
-
 import generateToken from '../utils/generateToken.js';
 import ms from 'ms'; 
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs'; // Ensure bcrypt is imported for password hashing
 
 dotenv.config();
 
-const COOKIE_NAME = process.env.JWT_COOKIE_NAME || 'jwtAuthToken';
-
-
 export const loginUser = async (req, res) => {
     const { email, password } = req.body;
+    console.log('Login attempt with email:', email);
 
     if (!email || !password) {
         return res.status(400).json({ success: false, message: 'Please provide email and password.' });
@@ -24,23 +22,20 @@ export const loginUser = async (req, res) => {
             .select('+password') 
             .populate('lab', 'name identifier isActive'); 
 
-        if (!user || !(await user.comparePassword(password))) {
-            return res.status(401).json({ success: false, message: 'Invalid email or password.' });
-        }
+            if (!user || !(await bcrypt.compare(password, user.password))) {
+                return res.status(401).json({ success: false, message: 'Invalid email or password.' });
+            }
 
         if (!user.isActive) {
             return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
         }
-        user.isLoggedIn = true;
-        await user.save();
+
+        // ✅ UPDATE: Track login but don't set global isLoggedIn to true
+        // Instead, we'll track active sessions separately
         const token = generateToken(user._id, user.role);
 
-        res.cookie(COOKIE_NAME, token, {
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-            maxAge: ms(process.env.JWT_EXPIRES_IN || '1h'),
-        });
+        // ✅ REMOVE: Don't set cookies anymore
+        // res.cookie(COOKIE_NAME, token, { ... });
 
         const userResponseData = {
             _id: user._id,
@@ -49,9 +44,8 @@ export const loginUser = async (req, res) => {
             fullName: user.fullName,
             role: user.role,
             isActive: user.isActive,
-            isLoggedIn: true, // Default to true if not set
+            isLoggedIn: true,
         };
-        console.log('User response data:', userResponseData);
 
         if (user.role === 'lab_staff' && user.lab) {
             userResponseData.lab = user.lab; 
@@ -63,10 +57,13 @@ export const loginUser = async (req, res) => {
             }
         }
 
+        // ✅ NEW: Return token in response body instead of cookie
         res.json({
             success: true,
             message: 'Login successful.',
             user: userResponseData,
+            token: token, // ✅ Send token in response
+            expiresIn: process.env.JWT_EXPIRES_IN || '1h'
         });
 
     } catch (error) {
@@ -75,16 +72,12 @@ export const loginUser = async (req, res) => {
     }
 };
 
-// @desc    Get current logged-in user profile
-// @route   GET /api/auth/me
-// @access  Private (Protected by 'protect' middleware)
 export const getMe = async (req, res) => {
-    // req.user is populated by the 'protect' middleware (with lab info if applicable)
-    const userPayload = req.user.toObject(); // Convert Mongoose doc to plain object
+    const userPayload = req.user.toObject();
 
     if (userPayload.role === 'doctor_account') {
         const doctorProfile = await Doctor.findOne({ userAccount: userPayload._id })
-                                    .select('-userAccount -createdAt -updatedAt -__v'); // Exclude fields
+                                    .select('-userAccount -createdAt -updatedAt -__v');
         if (doctorProfile) {
             userPayload.doctorProfile = doctorProfile.toObject();
         }
@@ -96,26 +89,35 @@ export const getMe = async (req, res) => {
     });
 };
 
-// @desc    Log user out / clear cookie
-// @route   POST /api/auth/logout
-// @access  Private (user must be logged in to log out)
+// ✅ UPDATE: Simplified logout (no cookie clearing needed)
 export const logoutUser = async (req, res) => {
     try {
-        // 🔧 FIX: Update isLoggedIn to false when user logs out
-        if (req.user && req.user._id) {
-            await User.findByIdAndUpdate(req.user._id, { isLoggedIn: false });
-        }
-
-        res.cookie(COOKIE_NAME, '', { // Set cookie to empty
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            expires: new Date(0), // Expire immediately
-        });
+        // Optional: Track logout in database if needed
+        // Note: We don't set isLoggedIn to false globally since other tabs might be active
         
-        res.status(200).json({ success: true, message: 'Logged out successfully.' });
+        res.status(200).json({ 
+            success: true, 
+            message: 'Logged out successfully. Please clear your session data.' 
+        });
     } catch (error) {
         console.error('Logout error:', error);
-        res.status(200).json({ success: true, message: 'Logged out successfully.' }); // Still clear cookie even if DB update fails
+        res.status(200).json({ success: true, message: 'Logged out successfully.' });
+    }
+};
+
+// ✅ NEW: Refresh token endpoint for extending sessions
+export const refreshToken = async (req, res) => {
+    try {
+        // Token is already validated by protect middleware
+        const newToken = generateToken(req.user._id, req.user.role);
+        
+        res.json({
+            success: true,
+            token: newToken,
+            expiresIn: process.env.JWT_EXPIRES_IN || '1h'
+        });
+    } catch (error) {
+        console.error('Token refresh error:', error);
+        res.status(500).json({ success: false, message: 'Failed to refresh token.' });
     }
 };

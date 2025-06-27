@@ -10,7 +10,8 @@ import {
   updateStudyStatus,
   getAllPatients,
   bulkUpdateStudies,
-  downloadStudyReport // 🔧 NEW: Import the downloadStudyReport controller
+  downloadStudyReport, // 🔧 NEW: Import the downloadStudyReport controller
+  deleteStudyReport
 } from '../controllers/labEdit.controller.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 import multer from 'multer';
@@ -25,7 +26,7 @@ const upload = multer({
   storage,
   limits: { 
     fileSize: 10 * 1024 * 1024, // 10MB limit for documents
-    files: 1 // Single file upload
+    files: 10 // Single file upload
   },
   fileFilter: (req, file, cb) => {
     console.log(`🔍 File filter - Original name: ${file.originalname}, MIME type: ${file.mimetype}`);
@@ -76,6 +77,12 @@ router.get('/patients/:patientId/documents',
   getPatientDocuments
 );
 
+router.delete(
+  '/studies/:studyId/reports/:reportId',
+  authorize('lab_staff', 'admin'),
+  deleteStudyReport
+);
+
 // Upload document for patient (Lab Staff + Admin only)
 router.post('/patients/:patientId/documents', 
   authorize('lab_staff', 'admin'),
@@ -83,7 +90,7 @@ router.post('/patients/:patientId/documents',
     console.log(`🔍 Upload middleware - User: ${req.user?.role}, Patient: ${req.params.patientId}`);
     next();
   },
-  upload.single('file'), 
+  upload.array('files', 10), // Allow up to 10 files at once 
   uploadDocument
 );
 
@@ -109,7 +116,7 @@ router.delete('/patients/:patientId/documents/:docIndex',
 
 // Get detailed patient view
 router.get('/patients/:patientId', 
-  authorize('lab_staff', 'admin'),
+  authorize('lab_staff', 'admin', 'doctor_account'),
   getPatientDetailedView
 );
 
@@ -129,7 +136,7 @@ router.get('/patients',
 
 // Update study workflow status
 router.put('/studies/:studyId/status', 
-  authorize('lab_staff', 'admin'),
+  authorize('lab_staff', 'admin', 'doctor_account'),
   updateStudyStatus
 );
 

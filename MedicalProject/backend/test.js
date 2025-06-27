@@ -1,31 +1,59 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import DicomStudy from './models/dicomStudyModel.js';
-import Patient from './models/patientModel.js'; // Assuming you have this
+import Patient from './models/patientModel.js';
+import Doctor from './models/doctorModel.js';
+import User from './models/userModel.js';
 import { faker } from '@faker-js/faker';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
-class LoadTestSimulator {
+class MedicalDatabaseSimulator {
     constructor() {
         this.results = [];
         
         // 🔧 ENHANCED SAFETY: Use dedicated test URI if available
-        this.connectionString = process.env.MONGODB_TEST_URI;
-        this.testDatabaseName = 'medical_project_load_test';
-        this.testCollectionName = 'dicom_studies_test';
+        this.connectionString = process.env.MONGODB_TEST_URI || process.env.MONGODB_URI;
+        this.testDatabaseName = 'medical_project_comprehensive_test';
         
-        this.totalStudies = 40000;
-        this.studiesPerDay = 1000;
-        this.totalDays = 40;
+        // 🆕 COMPREHENSIVE SCALE
+        this.totalStudies = 55000;      // 50,000+ studies
+        this.totalPatients = 32000;     // 30,000+ patients
+        this.totalDoctors = 250;        // 200+ doctors
+        this.totalUsers = 400;          // Users (including doctors, lab staff, admins)
+        this.totalLabs = 850;           // 800+ labs
+        
+        this.studiesPerDay = 1200;
+        this.totalDays = 46;
         this.batchSize = 500;
         
-        this.maxTestDocuments = 50000;
+        this.maxTestDocuments = 200000;
         this.dryRun = false;
         
-        // 🔧 SAFETY: Log which database we're using
-        console.log('🔗 Database configuration:');
-        console.log(`   Using URI: ${this.connectionString.replace(/:[^:@]*@/, ':***@')}`);
+        // Collections - using your actual model names
+        this.collections = {
+            studies: 'dicomstudies',
+            patients: 'patients',
+            doctors: 'doctors',
+            users: 'users',
+            labs: 'labs'
+        };
+        
+        // Generated data storage
+        this.generatedData = {
+            patients: [],
+            doctors: [],
+            users: [],
+            labs: []
+        };
+        
+        console.log('🏥 Medical Database Simulator Configuration:');
+        console.log(`   Studies: ${this.totalStudies.toLocaleString()}`);
+        console.log(`   Patients: ${this.totalPatients.toLocaleString()}`);
+        console.log(`   Doctors: ${this.totalDoctors}`);
+        console.log(`   Users: ${this.totalUsers}`);
+        console.log(`   Labs: ${this.totalLabs}`);
         console.log(`   Target database: ${this.testDatabaseName}`);
     }
 
@@ -88,7 +116,7 @@ class LoadTestSimulator {
         }
         
         // Check 2: Check existing document count
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const existingCount = await collection.countDocuments();
         console.log(`   Existing test documents: ${existingCount}`);
         
@@ -476,7 +504,7 @@ class LoadTestSimulator {
             return;
         }
         
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         
         // 🔧 SAFE CLEANUP: Only clear test collection in test database
         console.log('🧹 Clearing existing test data in TEST DATABASE ONLY...');
@@ -534,7 +562,7 @@ class LoadTestSimulator {
     async testQueryPerformance(queryName, query, expectedDuration = 1000) {
         console.log(`\n🔍 Testing: ${queryName}`);
         
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const start = Date.now();
         let result;
         let error = null;
@@ -586,7 +614,7 @@ class LoadTestSimulator {
         await this.createTestIndexes();
         
         // Check if we need to generate data
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const existingCount = await collection.countDocuments();
         
         if (existingCount < this.totalStudies) {
@@ -773,7 +801,7 @@ class LoadTestSimulator {
     async testConcurrentLoad() {
         console.log('\n🔄 === CONCURRENT ACCESS TEST ===');
         
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const concurrentQueries = 10;
         const queries = [];
         
@@ -890,7 +918,7 @@ class LoadTestSimulator {
             return;
         }
         
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const deleteResult = await collection.deleteMany({});
         
         console.log(`   ✅ Deleted ${deleteResult.deletedCount} test documents from TEST DATABASE`);
@@ -928,7 +956,7 @@ class LoadTestSimulator {
         await this.safetyCheck();
         
         // Test basic query performance on existing data
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         const count = await collection.countDocuments();
         
         if (count > 0) {
@@ -949,7 +977,7 @@ class LoadTestSimulator {
     async createTestIndexes() {
         console.log('\n📊 Creating performance indexes...');
         
-        const collection = mongoose.connection.db.collection(this.testCollectionName);
+        const collection = mongoose.connection.db.collection(this.collections.studies);
         
         try {
             // Critical indexes for performance testing
@@ -991,11 +1019,693 @@ class LoadTestSimulator {
             // Continue execution - this is not a critical failure
         }
     }
+
+    async createAllIndexes() {
+        console.log('\n📊 Creating comprehensive indexes...');
+        
+        try {
+            // Studies indexes
+            const studiesCollection = mongoose.connection.db.collection(this.collections.studies);
+            await studiesCollection.createIndex({ "createdAt": -1 });
+            await studiesCollection.createIndex({ "patient": 1 });
+            await studiesCollection.createIndex({ "sourceLab": 1 });
+            await studiesCollection.createIndex({ "assignment.assignedTo": 1 });
+            await studiesCollection.createIndex({ "workflowStatus": 1 });
+            await studiesCollection.createIndex({ "modality": 1 });
+            await studiesCollection.createIndex({ "createdAt": -1, "workflowStatus": 1 });
+            await studiesCollection.createIndex({ "sourceLab": 1, "createdAt": -1 });
+            console.log('   ✅ Created studies indexes');
+            
+            // Patients indexes
+            const patientsCollection = mongoose.connection.db.collection(this.collections.patients);
+            await patientsCollection.createIndex({ "patientID": 1 }, { unique: true });
+            await patientsCollection.createIndex({ "mrn": 1 });
+            await patientsCollection.createIndex({ "lastName": 1, "firstName": 1 });
+            await patientsCollection.createIndex({ "dateOfBirth": 1 });
+            await patientsCollection.createIndex({ "currentWorkflowStatus": 1 });
+            console.log('   ✅ Created patients indexes');
+            
+            // Doctors indexes
+            const doctorsCollection = mongoose.connection.db.collection(this.collections.doctors);
+            await doctorsCollection.createIndex({ "userAccount": 1 }, { unique: true });
+            await doctorsCollection.createIndex({ "licenseNumber": 1 }, { unique: true, sparse: true });
+            await doctorsCollection.createIndex({ "specialization": 1 });
+            await doctorsCollection.createIndex({ "department": 1 });
+            await doctorsCollection.createIndex({ "assigned": 1 });
+            console.log('   ✅ Created doctors indexes');
+            
+            // Users indexes
+            const usersCollection = mongoose.connection.db.collection(this.collections.users);
+            await usersCollection.createIndex({ "username": 1 }, { unique: true });
+            await usersCollection.createIndex({ "email": 1 }, { unique: true });
+            await usersCollection.createIndex({ "role": 1 });
+            await usersCollection.createIndex({ "isActive": 1 });
+            console.log('   ✅ Created users indexes');
+            
+            // Labs indexes
+            const labsCollection = mongoose.connection.db.collection(this.collections.labs);
+            await labsCollection.createIndex({ "labCode": 1 }, { unique: true });
+            await labsCollection.createIndex({ "isActive": 1 });
+            await labsCollection.createIndex({ "labType": 1 });
+            console.log('   ✅ Created labs indexes');
+            
+        } catch (error) {
+            console.log(`   ⚠️ Some indexes may already exist or failed to create: ${error.message}`);
+            // Continue execution - this is not a critical failure
+        }
+        
+        console.log('   ✅ All indexes created successfully');
+    }
+
+    async generateLabs() {
+        const labs = [];
+        const labTypes = ['Hospital', 'Independent Lab', 'Imaging Center', 'Clinic', 'University Medical Center', 'Specialty Clinic'];
+        const certifications = ['CAP', 'CLIA', 'Joint Commission', 'ISO 15189', 'AAAHC'];
+        const cities = Array.from({length: 50}, () => faker.location.city());
+        
+        for (let i = 0; i < this.totalLabs; i++) {
+            const labId = new mongoose.Types.ObjectId();
+            const city = faker.helpers.arrayElement(cities);
+            
+            const lab = {
+                _id: labId,
+                labCode: `LAB${(i + 1).toString().padStart(4, '0')}`,
+                labName: `${city} ${faker.helpers.arrayElement(labTypes)}`,
+                labType: faker.helpers.arrayElement(labTypes),
+                
+                // Contact Information
+                address: {
+                    street: faker.location.streetAddress(),
+                    city: city,
+                    state: faker.location.state(),
+                    zipCode: faker.location.zipCode(),
+                    country: 'United States'
+                },
+                phone: faker.phone.number(),
+                fax: faker.phone.number(),
+                email: `contact@${faker.internet.domainName()}`,
+                website: `https://www.${faker.internet.domainName()}`,
+                
+                // Administrative
+                directorName: `Dr. ${faker.person.firstName()} ${faker.person.lastName()}`,
+                directorEmail: faker.internet.email(),
+                adminContactName: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                adminContactEmail: faker.internet.email(),
+                
+                // Accreditation & Certification
+                cliaNumber: `${faker.string.numeric(2)}D${faker.string.numeric(7)}`,
+                accreditation: faker.helpers.arrayElements(certifications, { min: 1, max: 3 }),
+                licenseNumber: `LIC${faker.string.numeric(8)}`,
+                licenseExpiry: faker.date.future({ years: faker.number.int({ min: 1, max: 5 }) }),
+                
+                // Capabilities
+                modalities: faker.helpers.arrayElements(['CT', 'MRI', 'XR', 'US', 'DX', 'CR', 'MG', 'NM', 'PT'], { min: 2, max: 8 }),
+                specialties: faker.helpers.arrayElements([
+                    'General Radiology', 'Neuroradiology', 'Cardiovascular Imaging', 'Musculoskeletal Imaging',
+                    'Abdominal Imaging', 'Chest Imaging', 'Interventional Radiology', 'Nuclear Medicine',
+                    'Mammography', 'Pediatric Imaging', 'Emergency Radiology'
+                ], { min: 2, max: 5 }),
+                
+                // Technical Information
+                pacsSystem: faker.helpers.arrayElement(['Centricity PACS', 'IMPAX', 'Synapse', 'PowerScribe', 'Vue PACS']),
+                pacsVersion: `${faker.number.int({ min: 1, max: 9 })}.${faker.number.int({ min: 0, max: 99 })}`,
+                hl7Interface: true,
+                dicomAeTitle: `${faker.string.alpha({ length: 8, casing: 'upper' })}`,
+                
+                // Business Information
+                established: faker.date.past({ years: faker.number.int({ min: 5, max: 50 }) }),
+                employeeCount: faker.number.int({ min: 10, max: 500 }),
+                monthlyStudyVolume: faker.number.int({ min: 500, max: 10000 }),
+                
+                // Status
+                isActive: Math.random() > 0.05,
+                preferredLab: Math.random() > 0.7,
+                emergencyCapable: Math.random() > 0.6,
+                
+                // Metadata
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date(),
+                createdBy: 'system_admin',
+                notes: Math.random() > 0.7 ? faker.lorem.paragraph() : null
+            };
+            
+            labs.push(lab);
+            this.generatedData.labs.push(lab);
+        }
+        
+        const collection = mongoose.connection.db.collection(this.collections.labs);
+        await this.insertInBatches(collection, labs, 'Labs');
+        
+        console.log(`   ✅ Generated ${labs.length} labs with complete profiles`);
+    }
+
+    async generateStudiesWithRelationships() {
+        console.log(`🚀 Generating ${this.totalStudies} DICOM studies with relationships...`);
+        
+        const collection = mongoose.connection.db.collection(this.collections.studies);
+        let totalInserted = 0;
+        const startTime = Date.now();
+
+        for (let day = 0; day < this.totalDays; day++) {
+            console.log(`📅 Generating studies for day ${day + 1}/${this.totalDays}...`);
+            
+            const dayStudies = [];
+            for (let i = 0; i < this.studiesPerDay; i++) {
+                dayStudies.push(this.generateRealisticStudyWithRelationships(day));
+            }
+
+            for (let i = 0; i < dayStudies.length; i += this.batchSize) {
+                const batch = dayStudies.slice(i, i + this.batchSize);
+                
+                try {
+                    await collection.insertMany(batch, { 
+                        ordered: false,
+                        writeConcern: { w: 1, j: true }
+                    });
+                    totalInserted += batch.length;
+                    
+                    if (totalInserted % 5000 === 0) {
+                        console.log(`   📊 Inserted ${totalInserted}/${this.totalStudies} studies`);
+                        
+                        // Memory check
+                        const memUsage = process.memoryUsage();
+                        if (memUsage.heapUsed > 1024 * 1024 * 1024) {
+                            console.log('   ⚠️ High memory usage, pausing...');
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
+                    }
+                } catch (error) {
+                    console.error(`   ❌ Batch insertion failed: ${error.message}`);
+                }
+            }
+            
+            if (day % 10 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        const duration = Date.now() - startTime;
+        console.log(`✅ Studies generation complete! ${totalInserted} studies in ${duration}ms`);
+        console.log(`📈 Insertion rate: ${Math.round((totalInserted / duration) * 1000)} studies/second`);
+    }
+
+    async runComprehensiveTests() {
+        console.log('\n🧪 Running comprehensive load tests...\n');
+        
+        // Test Suite 1: Core Admin Queries
+        console.log('\n🎯 === CORE ADMIN QUERY TESTS ===');
+        
+        await this.testQueryPerformance(
+            "Last 24 Hours - No Filter",
+            { createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) } },
+            200
+        );
+
+        await this.testQueryPerformance(
+            "Last 24 Hours + Status",
+            [
+                { $match: { 
+                    createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) },
+                    workflowStatus: "pending_assignment"
+                }},
+                { $sort: { createdAt: -1 } },
+                { $limit: 50 }
+            ],
+            300
+        );
+
+        await this.testQueryPerformance(
+            "Last 24 Hours + Modality",
+            [
+                { $match: { 
+                    createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) },
+                    modality: "CT"
+                }},
+                { $sort: { createdAt: -1 } },
+                { $limit: 50 }
+            ],
+            300
+        );
+
+        // Test Suite 2: Search Performance
+        console.log('\n🔍 === SEARCH & FILTER TESTS ===');
+        
+        await this.testQueryPerformance(
+            "Patient ID Search",
+            [
+                { $match: { 
+                    createdAt: { $gte: new Date(Date.now() - 7*24*60*60*1000) },
+                    patientId: { $regex: /^PAT1/, $options: 'i' }
+                }},
+                { $limit: 20 }
+            ],
+            400
+        );
+
+        await this.testQueryPerformance(
+            "Status Distribution",
+            [
+                { $match: { createdAt: { $gte: new Date(Date.now() - 24*60*60*1000) } } },
+                { $group: {
+                    _id: "$workflowStatus",
+                    count: { $sum: 1 }
+                }},
+                { $sort: { count: -1 } }
+            ],
+            400
+        );
+
+        this.generateComprehensiveReport();
+    }
+
+    async insertInBatches(collection, data, entityName) {
+        const batchSize = 1000;
+        let inserted = 0;
+        
+        for (let i = 0; i < data.length; i += batchSize) {
+            const batch = data.slice(i, i + batchSize);
+            await collection.insertMany(batch, { ordered: false });
+            inserted += batch.length;
+            
+            if (inserted % 5000 === 0) {
+                console.log(`   📊 Inserted ${inserted}/${data.length} ${entityName}`);
+            }
+        }
+    }
+
+    async generateUsers() {
+        const users = [];
+        const defaultPassword = await bcrypt.hash('MedicalCenter2024!', 12);
+        
+        // Create lab staff users
+        for (let i = 0; i < 100; i++) {
+            const firstName = faker.person.firstName();
+            const lastName = faker.person.lastName();
+            
+            const user = {
+                _id: new mongoose.Types.ObjectId(),
+                username: `labstaff${(i + 1).toString().padStart(3, '0')}`,
+                email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@medicalcenter.com`,
+                password: defaultPassword,
+                fullName: `${firstName} ${lastName}`,
+                role: 'lab_staff',
+                isLoggedIn: false,
+                isActive: Math.random() > 0.05,
+                lab: this.generatedData.labs.length > 0 ? faker.helpers.arrayElement(this.generatedData.labs)._id : null,
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date()
+            };
+            
+            users.push(user);
+            this.generatedData.users.push(user);
+        }
+        
+        // Create admin users
+        for (let i = 0; i < 50; i++) {
+            const firstName = faker.person.firstName();
+            const lastName = faker.person.lastName();
+            
+            const user = {
+                _id: new mongoose.Types.ObjectId(),
+                username: `admin${(i + 1).toString().padStart(3, '0')}`,
+                email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@medicalcenter.com`,
+                password: defaultPassword,
+                fullName: `${firstName} ${lastName}`,
+                role: 'admin',
+                isLoggedIn: false,
+                isActive: Math.random() > 0.02,
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date()
+            };
+            
+            users.push(user);
+            this.generatedData.users.push(user);
+        }
+        
+        // Create doctor account users
+        for (let i = 0; i < this.totalDoctors; i++) {
+            const firstName = faker.person.firstName();
+            const lastName = faker.person.lastName();
+            
+            const user = {
+                _id: new mongoose.Types.ObjectId(),
+                username: `doctor${(i + 1).toString().padStart(3, '0')}`,
+                email: `dr.${firstName.toLowerCase()}.${lastName.toLowerCase()}@medicalcenter.com`,
+                password: defaultPassword,
+                fullName: `Dr. ${firstName} ${lastName}`,
+                role: 'doctor_account',
+                isLoggedIn: false,
+                isActive: Math.random() > 0.02,
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date()
+            };
+            
+            users.push(user);
+            this.generatedData.users.push(user);
+        }
+        
+        const collection = mongoose.connection.db.collection(this.collections.users);
+        await this.insertInBatches(collection, users, 'Users');
+        
+        console.log(`   ✅ Generated ${users.length} users with proper roles`);
+    }
+
+    async generateDoctors() {
+        const doctors = [];
+        const specialties = [
+            'Radiology', 'Emergency Medicine', 'Internal Medicine', 'Cardiology', 'Neurology',
+            'Orthopedics', 'Oncology', 'Pediatrics', 'Surgery', 'Anesthesiology'
+        ];
+        const departments = [
+            'Radiology', 'Emergency', 'Cardiology', 'Neurology', 'Orthopedics', 'Oncology'
+        ];
+        
+        // Get doctor_account users
+        const doctorUsers = this.generatedData.users.filter(u => u.role === 'doctor_account');
+        
+        for (let i = 0; i < this.totalDoctors && i < doctorUsers.length; i++) {
+            const user = doctorUsers[i];
+            const specialty = faker.helpers.arrayElement(specialties);
+            
+            const doctor = {
+                _id: new mongoose.Types.ObjectId(),
+                userAccount: user._id,
+                specialization: specialty,
+                licenseNumber: `MD${faker.string.numeric(6)}`,
+                department: faker.helpers.arrayElement(departments),
+                qualifications: faker.helpers.arrayElements([
+                    'MD', 'MBBS', 'DO', 'PhD', 'Fellowship in ' + specialty
+                ], { min: 1, max: 3 }),
+                yearsOfExperience: faker.number.int({ min: 1, max: 40 }),
+                contactPhoneOffice: faker.phone.number(),
+                assigned: Math.random() > 0.7,
+                signature: '',
+                signatureMetadata: {
+                    uploadedAt: new Date(),
+                    originalSize: 0,
+                    optimizedSize: 0,
+                    originalName: '',
+                    mimeType: 'image/png',
+                    lastUpdated: new Date(),
+                    format: 'base64',
+                    width: 400,
+                    height: 200
+                },
+                assignedStudies: [],
+                completedStudies: [],
+                isActiveProfile: Math.random() > 0.05,
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date()
+            };
+            
+            doctors.push(doctor);
+            this.generatedData.doctors.push(doctor);
+        }
+        
+        const collection = mongoose.connection.db.collection(this.collections.doctors);
+        await this.insertInBatches(collection, doctors, 'Doctors');
+        
+        console.log(`   ✅ Generated ${doctors.length} doctors with User account links`);
+    }
+
+    async generatePatients() {
+        const patients = [];
+        const workflowStatuses = [
+            'no_active_study',
+            'new_study_received',
+            'pending_assignment',
+            'assigned_to_doctor',
+            'report_in_progress',
+            'report_downloaded_radiologist',
+            'report_finalized',
+            'report_downloaded',
+            'final_report_downloaded',
+            'archived'
+        ];
+        
+        for (let i = 0; i < this.totalPatients; i++) {
+            const firstName = faker.person.firstName();
+            const lastName = faker.person.lastName();
+            const birthDate = faker.date.birthdate({ min: 1, max: 100, mode: 'age' });
+            const age = new Date().getFullYear() - birthDate.getFullYear();
+            
+            const patient = {
+                _id: new mongoose.Types.ObjectId(),
+                patientID: `PAT${(i + 1).toString().padStart(6, '0')}`,
+                mrn: `MRN${faker.string.numeric(8)}`,
+                issuerOfPatientID: `${faker.location.city()} Medical Center`,
+                
+                salutation: faker.helpers.arrayElement(['Mr.', 'Ms.', 'Mrs.', 'Dr.', '']),
+                firstName: firstName,
+                lastName: lastName,
+                patientNameRaw: `${lastName}^${firstName}^^`,
+                dateOfBirth: birthDate.toISOString().split('T')[0],
+                gender: faker.helpers.arrayElement(['M', 'F', 'O', '']),
+                ageString: age.toString().padStart(3, '0') + 'Y',
+                
+                contactInformation: {
+                    phone: faker.phone.number(),
+                    email: Math.random() > 0.3 ? faker.internet.email() : ''
+                },
+                
+                clinicalInfo: {
+                    clinicalHistory: Math.random() > 0.7 ? faker.lorem.paragraph() : '',
+                    previousInjury: Math.random() > 0.8 ? faker.lorem.sentence() : '',
+                    previousSurgery: Math.random() > 0.8 ? faker.lorem.sentence() : '',
+                    lastModifiedBy: this.generatedData.users.length > 0 ? faker.helpers.arrayElement(this.generatedData.users)._id : null,
+                    lastModifiedAt: faker.date.recent()
+                },
+                
+                currentWorkflowStatus: faker.helpers.arrayElement(workflowStatuses),
+                activeDicomStudyRef: null,
+                
+                studyCount: faker.number.int({ min: 0, max: 20 }),
+                lastStudyDate: faker.date.recent(),
+                computed: {
+                    fullName: `${firstName} ${lastName}`,
+                    displayAge: `${age} years`,
+                    lastActivity: faker.date.recent()
+                },
+                
+                createdAt: faker.date.past({ years: 2 }),
+                updatedAt: new Date()
+            };
+            
+            patients.push(patient);
+            this.generatedData.patients.push(patient);
+        }
+        
+        const collection = mongoose.connection.db.collection(this.collections.patients);
+        await this.insertInBatches(collection, patients, 'Patients');
+        
+        console.log(`   ✅ Generated ${patients.length} patients with proper workflow status`);
+    }
+
+    generateRealisticStudyWithRelationships(dayOffset = 0) {
+        const patient = this.generatedData.patients.length > 0 ? faker.helpers.arrayElement(this.generatedData.patients) : null;
+        const assignedDoctor = Math.random() > 0.3 && this.generatedData.doctors.length > 0 ? faker.helpers.arrayElement(this.generatedData.doctors) : null;
+        const assignedUser = assignedDoctor ? this.generatedData.users.find(u => u._id.equals(assignedDoctor.userAccount)) : null;
+        
+        const workflowStatuses = [
+            'new_study_received',
+            'pending_assignment',
+            'assigned_to_doctor',
+            'doctor_opened_report',
+            'report_in_progress',
+            'report_drafted',
+            'report_finalized',
+            'report_uploaded',
+            'report_downloaded_radiologist',
+            'report_downloaded',
+            'final_report_downloaded',
+            'archived'
+        ];
+        
+        const modalities = ['CT', 'MRI', 'XR', 'US', 'DX', 'CR', 'MG', 'NM', 'PT'];
+        const priorities = ['LOW', 'NORMAL', 'HIGH', 'URGENT'];
+        const studyPriorities = ['SELECT', 'Emergency Case', 'Meet referral doctor', 'MLC Case', 'Study Exception'];
+        const caseTypes = ['routine', 'urgent', 'stat', 'emergency', 'Billed Study', 'New Study'];
+        
+        const baseDate = new Date();
+        baseDate.setDate(baseDate.getDate() - dayOffset);
+        
+        const workflowStatus = faker.helpers.arrayElement(workflowStatuses);
+        const modality = faker.helpers.arrayElement(modalities);
+        
+        return {
+            _id: new mongoose.Types.ObjectId(),
+            studyInstanceUID: `1.2.826.0.1.3680043.8.498.${faker.string.numeric(10)}`,
+            
+            // Patient reference
+            patient: patient ? patient._id : new mongoose.Types.ObjectId(),
+            patientId: patient ? patient.patientID : `PAT${faker.string.numeric(6)}`,
+            patientInfo: {
+                patientID: patient ? patient.patientID : `PAT${faker.string.numeric(6)}`,
+                patientName: patient ? patient.patientNameRaw : `${faker.person.lastName()}^${faker.person.firstName()}^^`,
+                age: patient ? patient.ageString : faker.number.int({ min: 1, max: 100 }).toString().padStart(3, '0') + 'Y',
+                gender: patient ? patient.gender : faker.helpers.arrayElement(['M', 'F', 'O', ''])
+            },
+            
+            // Study metadata
+            studyDate: faker.date.between({
+                from: new Date(baseDate.getTime() - 24*60*60*1000),
+                to: baseDate
+            }),
+            studyTime: faker.date.recent().toTimeString().split(' ')[0].replace(/:/g, ''),
+            modality: modality,
+            modalitiesInStudy: [modality],
+            accessionNumber: `ACC${faker.string.numeric(8)}`,
+            examDescription: faker.helpers.arrayElement([
+                'CT Head without contrast',
+                'MRI Brain with contrast',
+                'Chest X-Ray PA and Lateral',
+                'Ultrasound Abdomen Complete'
+            ]),
+            institutionName: `${faker.location.city()} Medical Center`,
+            orthancStudyID: faker.string.alphanumeric(8),
+            
+            workflowStatus: workflowStatus,
+            currentCategory: workflowStatus,
+            
+            technologist: {
+                name: `${faker.person.firstName()} ${faker.person.lastName()}`,
+                mobile: faker.phone.number(),
+                comments: Math.random() > 0.7 ? faker.lorem.sentence() : '',
+                reasonToSend: Math.random() > 0.8 ? faker.lorem.sentence() : ''
+            },
+            
+            assignment: {
+                assignedTo: assignedUser ? assignedUser._id : null,
+                assignedAt: assignedUser ? faker.date.recent() : null,
+                assignedBy: this.generatedData.users.length > 0 ? faker.helpers.arrayElement(this.generatedData.users.filter(u => u.role === 'admin'))._id : null,
+                dueDate: faker.date.future(),
+                priority: faker.helpers.arrayElement(priorities)
+            },
+            
+            studyPriority: faker.helpers.arrayElement(studyPriorities),
+            lastAssignedDoctor: assignedDoctor ? assignedDoctor._id : null,
+            lastAssignmentAt: assignedDoctor ? faker.date.recent() : null,
+            
+            statusHistory: [{
+                status: workflowStatus,
+                changedAt: faker.date.recent(),
+                changedBy: this.generatedData.users.length > 0 ? faker.helpers.arrayElement(this.generatedData.users)._id : null,
+                note: faker.lorem.sentence()
+            }],
+            
+            reportInfo: {
+                startedAt: Math.random() > 0.7 ? faker.date.recent() : null,
+                finalizedAt: Math.random() > 0.8 ? faker.date.recent() : null,
+                downloadedAt: Math.random() > 0.9 ? faker.date.recent() : null,
+                reporterName: assignedDoctor ? assignedUser.fullName : null,
+                reportContent: Math.random() > 0.8 ? faker.lorem.paragraphs(3) : ''
+            },
+            
+            seriesCount: faker.number.int({ min: 1, max: 20 }),
+            instanceCount: faker.number.int({ min: 50, max: 2000 }),
+            seriesImages: `${faker.number.int({ min: 1, max: 10 })}/${faker.number.int({ min: 50, max: 500 })}`,
+            
+            sourceLab: this.generatedData.labs.length > 0 ? faker.helpers.arrayElement(this.generatedData.labs)._id : null,
+            ReportAvailable: Math.random() > 0.7,
+            
+            referringPhysician: {
+                name: `Dr. ${faker.person.firstName()} ${faker.person.lastName()}`,
+                institution: `${faker.location.city()} Medical Group`,
+                contactInfo: faker.phone.number()
+            },
+            referringPhysicianName: `Dr. ${faker.person.firstName()} ${faker.person.lastName()}`,
+            
+            physicians: {
+                referring: {
+                    name: `Dr. ${faker.person.firstName()} ${faker.person.lastName()}`,
+                    email: faker.internet.email(),
+                    mobile: faker.phone.number(),
+                    institution: `${faker.location.city()} Medical Group`
+                },
+                requesting: {
+                    name: `Dr. ${faker.person.firstName()} ${faker.person.lastName()}`,
+                    email: faker.internet.email(),
+                    mobile: faker.phone.number(),
+                    institution: `${faker.location.city()} Hospital`
+                }
+            },
+            
+            caseType: faker.helpers.arrayElement(caseTypes),
+            uploadedReports: [],
+            doctorReports: [],
+            
+            dicomFiles: Array.from({length: faker.number.int({ min: 1, max: 5 })}, () => ({
+                sopInstanceUID: `1.2.826.0.1.3680043.8.498.${faker.string.numeric(10)}`,
+                seriesInstanceUID: `1.2.826.0.1.3680043.8.498.${faker.string.numeric(10)}`,
+                orthancInstanceId: faker.string.alphanumeric(8),
+                modality: modality,
+                storageType: 'orthanc',
+                uploadedAt: faker.date.recent()
+            })),
+            
+            searchText: `${patient ? patient.firstName : faker.person.firstName()} ${patient ? patient.lastName : faker.person.lastName()} ${patient ? patient.patientID : 'PAT' + faker.string.numeric(6)} ${modality}`.toLowerCase(),
+            
+            timingInfo: {
+                uploadToAssignmentMinutes: faker.number.int({ min: 5, max: 120 }),
+                assignmentToReportMinutes: faker.number.int({ min: 30, max: 480 }),
+                reportToDownloadMinutes: faker.number.int({ min: 10, max: 60 }),
+                totalTATMinutes: faker.number.int({ min: 60, max: 600 })
+            },
+            
+            modifiedDate: faker.date.recent(),
+            modifiedTime: faker.date.recent().toTimeString().split(' ')[0].replace(/:/g, ''),
+            reportDate: Math.random() > 0.8 ? faker.date.recent() : null,
+            reportTime: Math.random() > 0.8 ? faker.date.recent().toTimeString().split(' ')[0].replace(/:/g, '') : null,
+            
+            createdAt: faker.date.between({
+                from: new Date(baseDate.getTime() - 23*60*60*1000),
+                to: new Date(baseDate.getTime() - 1*60*60*1000)
+            }),
+            updatedAt: new Date()
+        };
+    }
+
+    generateFinalReport() {
+        console.log('\n🎯 === COMPREHENSIVE DATABASE REPORT ===');
+        console.log('='.repeat(70));
+        
+        console.log('\n📊 GENERATED ENTITIES:');
+        console.log(`   Studies: ${this.totalStudies.toLocaleString()}`);
+        console.log(`   Patients: ${this.totalPatients.toLocaleString()}`);
+        console.log(`   Doctors: ${this.totalDoctors}`);
+        console.log(`   Users: ${this.totalUsers}`);
+        console.log(`   Labs: ${this.totalLabs}`);
+        
+        console.log('\n🔗 RELATIONSHIPS:');
+        console.log(`   Every study linked to: Patient, User (if assigned), Doctor (if assigned)`);
+        console.log(`   Doctors linked to: User accounts with role 'doctor_account'`);
+        console.log(`   Users have roles: 'lab_staff', 'admin', 'doctor_account'`);
+        
+        console.log('\n🔐 AUTHENTICATION INFO:');
+        console.log(`   Default Password: "MedicalCenter2024!"`);
+        console.log(`   User Roles and Examples:`);
+        console.log(`     - Lab Staff: labstaff001 / MedicalCenter2024!`);
+        console.log(`     - Admin: admin001 / MedicalCenter2024!`);
+        console.log(`     - Doctor: doctor001 / MedicalCenter2024!`);
+        
+        console.log('\n📁 DATABASE COLLECTIONS:');
+        Object.entries(this.collections).forEach(([key, collection]) => {
+            console.log(`   ${key}: ${collection}`);
+        });
+        
+        console.log('\n💡 WORKFLOW STATUSES:');
+        console.log('   Patient Workflow: no_active_study, new_study_received, pending_assignment, assigned_to_doctor, etc.');
+        console.log('   Study Workflow: new_study_received, pending_assignment, assigned_to_doctor, report_drafted, etc.');
+        
+        console.log('\n✅ Database generation complete! Ready for production testing.');
+    }
+
+    // Command line interface
 }
 
-// 🆕 NEW: Command line options
+// Command line interface
 const args = process.argv.slice(2);
-const simulator = new LoadTestSimulator();
+const simulator = new MedicalDatabaseSimulator();
 
 if (args.includes('--dry-run')) {
     simulator.dryRun = true;
@@ -1006,6 +1716,11 @@ if (args.includes('--quick')) {
     simulator.quickValidation().catch(console.error);
 } else if (args.includes('--cleanup')) {
     simulator.emergencyCleanup().catch(console.error);
+} else if (args.includes('--generate-only')) {
+    simulator.generateComprehensiveDatabase().catch(console.error);
 } else {
-    simulator.runLoadTests().catch(console.error);
+    // Full generation + testing
+    simulator.generateComprehensiveDatabase()
+        .then(() => simulator.runComprehensiveTests())
+        .catch(console.error);
 }

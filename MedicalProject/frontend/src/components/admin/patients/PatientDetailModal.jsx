@@ -18,7 +18,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('clinical');
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [uploadType, setUploadType] = useState('Clinical');
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -188,98 +188,50 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       toast.error('You do not have permission to upload files');
       return;
     }
-    setSelectedFile(e.target.files[0]);
+    setSelectedFiles(Array.from(e.target.files));
   };
 
   const handleUploadFile = async () => {
-    if (!selectedFile || !canUpload) {
-      toast.error('Please select a file or check your permissions');
+    if (!selectedFiles.length || !canUpload) {
+      toast.error('Please select file(s) or check your permissions');
       return;
     }
-    
-    
-    
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('documentType', uploadType.toLowerCase());
-    formData.append('type', uploadType);
-    
-    // 🔧 FIXED: Use the correct path to get study ID
+
     let currentStudyId = null;
-    
-    // Method 1: From studies array (✅ This is where the data actually is)
     if (patientDetails?.studies && patientDetails.studies.length > 0) {
       currentStudyId = patientDetails.studies[0].studyInstanceUID;
-      console.log('🔬 Found study ID in studies[0]:', currentStudyId);
-    }
-    // Method 2: From studyInfo (fallback, currently undefined)
-    else if (patientDetails?.studyInfo?.studyId) {
+    } else if (patientDetails?.studyInfo?.studyId) {
       currentStudyId = patientDetails.studyInfo.studyId;
-      console.log('🔬 Found study ID in studyInfo:', currentStudyId);
-    }
-    // Method 3: From allStudies (fallback, currently undefined)
-    else if (patientDetails?.allStudies && patientDetails.allStudies.length > 0) {
+    } else if (patientDetails?.allStudies && patientDetails.allStudies.length > 0) {
       currentStudyId = patientDetails.allStudies[0].studyId;
-      console.log('🔬 Found study ID in allStudies[0]:', currentStudyId);
     }
-    // Method 4: No study ID found
-    else {
-      console.log('⚠️ No study ID found anywhere, uploading as general document');
-    }
-    
-    if (currentStudyId) {
-      formData.append('studyId', currentStudyId);
-      console.log('🔬 Appending studyId to FormData:', currentStudyId);
-    }
-    
-    // 🔧 DEBUG: Log all FormData entries
-    console.log('🔧 FormData contents:');
-    for (let [key, value] of formData.entries()) {
-      console.log(`  ${key}:`, value);
-    }
-    
+
     setUploading(true);
-    
+
     try {
-      console.log('🔧 Uploading file:', {
-        fileName: selectedFile.name,
-        size: selectedFile.size,
-        type: selectedFile.type,
-        documentType: uploadType.toLowerCase(),
-        studyId: currentStudyId || 'none'
-      });
+      // Use FormData and append all files
+      const formData = new FormData();
+      selectedFiles.forEach(file => formData.append('files', file));
+      formData.append('documentType', uploadType.toLowerCase());
+      formData.append('type', uploadType);
+      if (currentStudyId) {
+        formData.append('studyId', currentStudyId);
+      }
 
       const response = await api.post(`/labEdit/patients/${patientId}/documents`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000
       });
-      
-      console.log('✅ Upload response:', response.data);
-      
-      if (response.data.document?.studyLinked) {
-        toast.success(`Document uploaded and linked to study ${response.data.document.studyId}`);
-      } else {
-        toast.success('Document uploaded successfully to cloud storage');
-      }
-      
-      setSelectedFile(null);
+
+      toast.success('Document(s) uploaded successfully');
+      setSelectedFiles([]);
       const fileInput = document.querySelector('input[type="file"]');
       if (fileInput) fileInput.value = '';
-      
       await fetchPatientDetails();
-      
+
     } catch (error) {
-      console.error('❌ Error uploading file:', error);
-      
-      if (error.response?.status === 403) {
-        toast.error('Access denied. Please check your permissions.');
-      } else if (error.response?.status === 401) {
-        toast.error('Authentication required. Please log in again.');
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to upload document');
-      }
+      console.error('❌ Error uploading file(s):', error);
+      toast.error(error.response?.data?.message || 'Failed to upload document(s)');
     } finally {
       setUploading(false);
     }
@@ -357,20 +309,46 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       
       console.log('✅ Update response:', response.data);
       
-      // 🆕 ENHANCED: Show detailed success message
-      const updatedFields = [];
-      if (response.data.data?.updateSummary?.technologistUpdated) updatedFields.push('technologist');
-      if (response.data.data?.updateSummary?.priorityInfoUpdated) updatedFields.push('priority settings');
-      if (response.data.data?.updateSummary?.referringPhysicianUpdated) updatedFields.push('referring physician');
-      if (response.data.data?.updateSummary?.requestingPhysicianUpdated) updatedFields.push('requesting physician');
-      
-      let successMessage = 'Patient information updated successfully';
-      if (updatedFields.length > 0) {
-        successMessage += ` (including ${updatedFields.join(', ')})`;
+      // 🆕 NEW: Handle TAT reset response
+      if (response.data.data?.tatResetInfo?.wasReset) {
+        const tatInfo = response.data.data.tatResetInfo;
+        
+        toast.success(
+          `✅ Patient updated successfully!\n🔄 TAT Reset: ${tatInfo.affectedStudiesCount} studies reset due to clinical history change.`,
+          {
+            duration: 6000,
+            style: {
+              background: '#10B981',
+              color: 'white',
+            },
+            icon: '🔄',
+          }
+        );
+        
+        // 🆕 NEW: If TAT was reset, refresh the patient details to show updated values
+        if (tatInfo.shouldRefreshTAT) {
+          console.log('🔄 TAT was reset, refreshing patient details...');
+          setTimeout(() => {
+            fetchPatientDetails(); // Refresh to get updated TAT values
+          }, 1000);
+        }
+      } else {
+        // Regular success message
+        let successMessage = 'Patient information updated successfully';
+        const updatedFields = [];
+        
+        if (response.data.data?.updateSummary?.technologistUpdated) updatedFields.push('technologist');
+        if (response.data.data?.updateSummary?.priorityInfoUpdated) updatedFields.push('priority settings');
+        if (response.data.data?.updateSummary?.referringPhysicianUpdated) updatedFields.push('referring physician');
+        if (response.data.data?.updateSummary?.requestingPhysicianUpdated) updatedFields.push('requesting physician');
+        
+        if (updatedFields.length > 0) {
+          successMessage += ` (including ${updatedFields.join(', ')})`;
+        }
+        
+        toast.success(successMessage);
+        fetchPatientDetails(); // Refresh data
       }
-      
-      toast.success(successMessage);
-      fetchPatientDetails(); // Refresh data
       
     } catch (error) {
       console.error('Error saving patient data:', error);
@@ -598,49 +576,99 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     }
   };
 
+  const calculateFrontendTAT = (patientDetails) => {
+    console.log(`[Frontend TAT] Calculating TAT with data:`, {
+        hasStudies: !!patientDetails?.studies?.length,
+        hasResetInfo: !!patientDetails?.tatResetInfo,
+        resetWasPerformed: !!patientDetails?.tatResetInfo?.wasReset,
+        hasFreshTATData: !!patientDetails?.tatResetInfo?.freshTATData?.length,
+        hasVisitInfo: !!patientDetails?.visitInfo
+    });
+
+    // 🔧 PRIORITY 1: Check if we just performed a TAT reset and have fresh data
+    if (patientDetails?.tatResetInfo?.wasReset && 
+        patientDetails?.tatResetInfo?.freshTATData && 
+        patientDetails.tatResetInfo.freshTATData.length > 0) {
+        
+        const freshTAT = patientDetails.tatResetInfo.freshTATData[0].tat;
+        console.log(`[Frontend TAT] Found fresh TAT data from reset:`, freshTAT);
+        
+        // Use resetAwareTATDays if available, otherwise totalTATDays
+        if (freshTAT.resetAwareTATDays !== null && freshTAT.resetAwareTATDays !== undefined) {
+            console.log(`[Frontend TAT] Using fresh resetAwareTATDays: ${freshTAT.resetAwareTATDays} days`);
+            return freshTAT.resetAwareTATDays;
+        } else if (freshTAT.totalTATDays !== null && freshTAT.totalTATDays !== undefined) {
+            console.log(`[Frontend TAT] Using fresh totalTATDays: ${freshTAT.totalTATDays} days`);
+            return freshTAT.totalTATDays;
+        }
+    }
+
+    // 🔧 PRIORITY 2: Use backend calculated TAT from studies if available
+    if (patientDetails?.studies?.[0]?.tat?.totalTATDays !== null && 
+        patientDetails?.studies?.[0]?.tat?.totalTATDays !== undefined) {
+        console.log(`[Frontend TAT] Using backend calculated TAT: ${patientDetails.studies[0].tat.totalTATDays} days`);
+        return patientDetails.studies[0].tat.totalTATDays;
+    }
+    
+    // 🔧 PRIORITY 3: Use reset-aware TAT from studies if TAT was reset
+    if (patientDetails?.studies?.[0]?.tat?.resetAwareTATDays !== null && 
+        patientDetails?.studies?.[0]?.tat?.resetAwareTATDays !== undefined) {
+        console.log(`[Frontend TAT] Using reset-aware TAT: ${patientDetails.studies[0].tat.resetAwareTATDays} days`);
+        return patientDetails.studies[0].tat.resetAwareTATDays;
+    }
+    
+    // 🔧 FALLBACK: Calculate from order date if no backend TAT
+    if (patientDetails?.visitInfo?.orderDate) {
+        const startDate = new Date(patientDetails.visitInfo.orderDate);
+        if (!isNaN(startDate.getTime())) {
+            const currentDate = new Date();
+            const totalDays = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            console.log(`[Frontend TAT] Calculated from order date: ${totalDays} days`);
+            return totalDays;
+        }
+    }
+    
+    console.log(`[Frontend TAT] No valid TAT data found, returning 0`);
+    return 0;
+};
+    
+
   // 🔧 ENHANCED: Delete function (only for patient documents)
   const handleDeleteDocument = async (doc, index) => {
     if (!canEdit) {
       toast.error('You do not have permission to delete documents');
       return;
     }
-
-    // Prevent deletion of study documents
-    if (doc.source === 'study') {
-      toast.error('Study reports cannot be deleted from here. They are managed through the study workflow.');
-      return;
-    }
-
+  
     const documentName = doc.fileName || `Document #${index + 1}`;
-
+  
     if (!window.confirm(`Are you sure you want to delete "${documentName}"?\n\nThis action cannot be undone.`)) {
       return;
     }
-
+  
     try {
-      console.log(`🗑️ Deleting patient document:`, doc);
-      
-      // Find the actual index in patient.documents
-      const patientDocIndex = patientDetails.documents.findIndex(d => d._id === doc._id);
-      
-      if (patientDocIndex === -1) {
-        toast.error('Document not found in patient records');
+      let deleteUrl = '';
+      if (doc.source === 'patient') {
+        // Patient document: use patient document delete route
+        deleteUrl = `/labEdit/patients/${patientId}/documents/${index}`;
+      } else if (doc.source === 'study') {
+        // Study report: use new study report delete route
+        deleteUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}`;
+      } else {
+        toast.error('Unknown document type');
         return;
       }
-      
-      const response = await api.delete(`/labEdit/patients/${patientId}/documents/${patientDocIndex}`);
-      
-      console.log('✅ Delete response:', response.data);
+  
+      const response = await api.delete(deleteUrl);
+  
       toast.success(`Document "${documentName}" deleted successfully`);
-      
       await fetchPatientDetails();
-      
+  
     } catch (error) {
       console.error('❌ Error deleting document:', error);
       toast.error(error.response?.data?.message || 'Failed to delete document');
     }
   };
-
   if (!isOpen) return null;
 
   // 🔧 UPDATED FORMAT DATE FUNCTION
@@ -731,8 +759,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
             ALL STUDIES ({patientDetails?.allStudies?.length || 0})
           </button>
           <div className="flex-grow bg-gray-700 text-white px-4 flex items-center justify-between">
-            <div>TOTAL TAT: {patientDetails?.visitInfo?.orderDate ? 
-              Math.floor((new Date() - new Date(patientDetails.visitInfo.orderDate)) / (1000 * 60 * 60 * 24)) : 0} days</div>
+            <div>TOTAL TAT: {calculateFrontendTAT(patientDetails)} days</div>
             <div>STATUS: {formatWorkflowStatus(patientDetails?.visitInfo?.studyStatus)}</div>
           </div>
         </div>
@@ -1097,6 +1124,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                                 className="hidden" 
                                 onChange={handleFileChange}
                                 accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt"
+                                multiple
                               />
                             </label>
                             
@@ -1114,24 +1142,29 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                             
                             <button 
                               className={`ml-2 py-1 px-2 text-sm transition-colors ${
-                                canUpload && selectedFile && !uploading 
+                                canUpload && selectedFiles.length > 0 && !uploading 
                                   ? 'bg-green-600 hover:bg-green-700 text-white' 
                                   : 'bg-gray-400 text-gray-200 cursor-not-allowed'
                               }`}
                               onClick={handleUploadFile}
-                              disabled={!selectedFile || uploading || !canUpload}
+                              disabled={uploading || !canUpload}
                             >
                               {uploading ? 'Uploading...' : 'Upload File'}
                             </button>
                           </div>
                         )}
 
-                        {/* Selected file display */}
-                        {selectedFile && (
+                        {/* Selected files display */}
+                        {selectedFiles.length > 0 && (
                           <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
-                            <strong>Selected:</strong> {selectedFile.name}
-                            <br />
-                            <strong>Size:</strong> {(selectedFile.size / 1024).toFixed(1)} KB
+                            <strong>Selected:</strong>
+                            <ul className="list-disc list-inside">
+                              {selectedFiles.map((file, index) => (
+                                <li key={index}>
+                                  {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
                         
@@ -1194,7 +1227,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                                           Download
                                         </button>
                                       )}
-                                      {canEdit && doc.source === 'patient' && (
+                                      
                                         <button 
                                           className="text-red-600 hover:text-red-800 text-sm font-medium transition-colors"
                                           onClick={() => handleDeleteDocument(doc, index)}
@@ -1202,12 +1235,8 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                                         >
                                           Delete
                                         </button>
-                                      )}
-                                      {doc.source === 'study' && (
-                                        <span className="text-gray-500 text-sm" title="Study reports are managed through the study workflow">
-                                          Study Managed
-                                        </span>
-                                      )}
+                                     
+                                      
                                     </div>
                                   </td>
                                 </tr>

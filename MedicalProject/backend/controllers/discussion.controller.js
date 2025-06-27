@@ -29,6 +29,9 @@ export const getStudyDiscussions = async (req, res, next) => {
  * Add a new discussion to a study
  */
 export const addStudyDiscussion = async (req, res, next) => {
+  console.log(req.body)
+  console.log(req.params
+  )
   try {
     const { studyId } = req.params;
     const { comment, userName, userRole } = req.body;
@@ -46,6 +49,7 @@ export const addStudyDiscussion = async (req, res, next) => {
       ]
     });
     
+    
     if (!study) {
       return res.status(404).json({ message: 'Study not found' });
     }
@@ -58,12 +62,15 @@ export const addStudyDiscussion = async (req, res, next) => {
       userRole: req.user?.role || userRole || 'User',
       dateTime: new Date()
     };
+
+    console.log(newDiscussion)
     
     // Initialize discussions array if it doesn't exist
     study.discussions = study.discussions || [];
     study.discussions.push(newDiscussion);
     
     await study.save();
+   
     
     return res.status(201).json(newDiscussion);
   } catch (error) {

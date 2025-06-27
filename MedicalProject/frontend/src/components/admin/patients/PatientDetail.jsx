@@ -179,7 +179,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">TechnologistName</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.technologistName || patientData.studyData?.technologistName || 'TWC'}</td>
+                      <td className="px-4 py-2 border border-gray-200">{study.technologistName || patientData.studyData?.technologistName }</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200"></td>
                       <td className="px-4 py-2 border border-gray-200"></td>
                     </tr>
@@ -202,8 +202,8 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                   </thead>
                   <tbody>
                     <tr>
-                      <td className="px-4 py-2 border border-gray-200">TWC</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.assignedDoctorName || study.reportedBy || 'DR ANKUR AGGARAWAL'}</td>
+                      <td className="px-4 py-2 border border-gray-200">Xcentic</td>
+                      <td className="px-4 py-2 border border-gray-200">{study.assignedDoctorName || study.reportedBy}</td>
                       <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.assignedDate || study.lastAssignmentAt) || ''}</td>
                     </tr>
                   </tbody>
@@ -226,7 +226,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                     {study.downloadHistory?.length > 0 ? (
                       study.downloadHistory.map((download, idx) => (
                         <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'DR ANKUR AGGARAWAL'}</td>
+                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user }</td>
                           <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
                         </tr>
                       ))
@@ -257,7 +257,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                     {study.reportDownloadHistory?.length > 0 ? (
                       study.reportDownloadHistory.map((download, idx) => (
                         <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'KMC DIGITAL HOSPITAL'}</td>
+                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user }</td>
                           <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
                         </tr>
                       ))
@@ -288,7 +288,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                   <tbody>
                     {study.reportedBy ? (
                       <tr>
-                        <td className="px-4 py-2 border border-gray-200">{study.reportedBy || 'DR ANKUR AGGARAWAL'}</td>
+                        <td className="px-4 py-2 border border-gray-200">{study.reportedBy }</td>
                         <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.reportDate || study.reportFinalizedAt) || ''}</td>
                         <td className="px-4 py-2 border border-gray-200">{study.diffAssignAndReportTAT || '29 Minutes'}</td>
                       </tr>

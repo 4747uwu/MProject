@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../hooks/useAuth';
 import { Link, Navigate, useNavigate, useLocation } from 'react-router-dom';
 // 🆕 ADD: Import the logo
-import starRadiologyLogo from '../../assets/xcentic.png';
-import RadiantStatus from '../../components/admin/RadiantStatus';
+// 🆕 ADD: Import the logo
+// 🆕 ADD: Import the logo
+import starRadiologyLogo from '../../assets/starradiology_logo-1 (1).png';
 
 
 const UniversalNavbar = () => {
@@ -46,7 +47,7 @@ const UniversalNavbar = () => {
           activeColor: 'text-blue-600 bg-blue-50',
           links: [
             { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
-            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
+            // { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
             { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
           ]
         };
@@ -293,7 +294,7 @@ const UniversalNavbar = () => {
       {/* Modern Glass-morphism Navbar */}
       <nav className="bg-white/95 backdrop-blur-md border-b border-gray-200/50 sticky top-0 z-50 shadow-sm">
         <div className="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="flex justify-between items-center h-12">
             
             {/* 🔧 UPDATED: Left - Brand with Logo */}
             <div className="flex items-center space-x-4">
@@ -304,7 +305,7 @@ const UniversalNavbar = () => {
                   <img 
                     src={starRadiologyLogo} 
                     alt="Star Radiology" 
-                    className="h-10 w-auto object-contain"
+                    className="h-8 w-auto object-contain"
                     onError={(e) => {
                       // Fallback if image fails to load
                       console.error('Logo failed to load:', e);
@@ -349,9 +350,7 @@ const UniversalNavbar = () => {
 
             {/* Right - User Menu */}
             <div className="flex items-center space-x-4">
-            <div className="hidden md:block">
-              <RadiantStatus showDetails={true} />
-            </div>
+           
               {/* Greeting (Desktop) */}
               <div className="hidden md:block text-right">
                 <p className="text-sm font-medium text-gray-900">

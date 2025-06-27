@@ -20,13 +20,13 @@ const useAllowedRoles = () => {
       case 'clinical_info':
         return checkRole(['lab_staff', 'admin']);
       case 'documents':
-        return checkRole(['lab_staff', 'admin']);
+        return checkRole(['lab_staff']);
       case 'physician_info':
         return checkRole(['lab_staff', 'admin']);
       case 'study_assignments':
         return checkRole(['admin']);
       case 'reports':
-        return checkRole(['doctor_account', 'admin']);
+        return checkRole(['doctor_account']);
       default:
         return false;
     }

@@ -34,8 +34,19 @@ const upload = multer({
   }
 });
 
+
+
+
 // Apply protection to all routes
 router.use(protect);
+router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
+
+
+router.post('/study/:studyId/upload', 
+  // authorize('admin', 'lab_staff', 'doctor_account'),
+  upload.single('file'), // FIXED: Changed to match frontend
+  DocumentController.uploadStudyReport
+);
 
 // Generate patient report (NO STORAGE - direct download)
 router.get('/study/:studyId/generate-patient-report', 
@@ -64,7 +75,7 @@ router.get('/study/:studyId/reports/:reportIndex/download',
 
 // Delete specific report by index
 router.delete('/study/:studyId/reports/:reportIndex', 
-  authorize('admin', 'lab_staff'),
+  authorize('admin', 'lab_staff', 'doctor_account'),
   DocumentController.deleteStudyReport
 );
 
