@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 
 const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
   const [patientData, setPatientData] = useState(null);
@@ -54,9 +53,10 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
         }
         
         // Otherwise fetch it from the API
-        const backendUrl = import.meta.env.VITE_BACKEND_URL || '';
-        const response = await axios.get(`${backendUrl}/api/patients/${patientId}`);
-        setPatientData(response.data);
+        const backendUrl = import.meta?.env?.VITE_BACKEND_URL || '';
+        const response = await fetch(`${backendUrl}/api/patients/${patientId}`);
+        const data = await response.json();
+        setPatientData(data);
         setLoading(false);
       } catch (err) {
         console.error('Error fetching patient data:', err);
@@ -155,172 +155,192 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
     return 0;
 };
 
+  // Mobile-friendly table component
+  const ResponsiveTable = ({ data, headers, title, emptyMessage }) => (
+    <div className="mb-4">
+      <div className="bg-slate-700 text-white px-3 sm:px-4 py-2">
+        <h3 className="font-medium text-sm sm:text-base">{title}</h3>
+      </div>
+      
+      {/* Mobile Card Layout */}
+      <div className="block md:hidden">
+        {data && data.length > 0 ? (
+          data.map((row, index) => (
+            <div key={index} className="border-b border-gray-200 p-3">
+              <div className="flex justify-between items-start mb-2">
+                <span className="bg-slate-600 text-white px-2 py-1 rounded text-xs font-medium">#{index + 1}</span>
+              </div>
+              <div className="space-y-2">
+                {headers.map((header, headerIndex) => (
+                  <div key={headerIndex}>
+                    <span className="text-xs text-gray-600 font-medium">{header}:</span>
+                    <div className="text-sm mt-1">{row[headerIndex] || 'N/A'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="p-4 text-center text-sm text-gray-500">
+            {emptyMessage}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Table Layout */}
+      <div className="hidden md:block overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr>
+              {headers.map((header, index) => (
+                <th key={index} className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600 text-sm">
+                  {header}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data && data.length > 0 ? (
+              data.map((row, index) => (
+                <tr key={index} className="hover:bg-gray-50">
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex} className="px-4 py-2 border border-gray-200 text-sm">
+                      {cell || 'N/A'}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={headers.length} className="px-4 py-2 text-center border border-gray-200 text-sm">
+                  {emptyMessage}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Mobile-friendly info grid component
+  const InfoGrid = ({ data, title }) => (
+    <div className="mb-4">
+      <div className="bg-slate-700 text-white px-3 sm:px-4 py-2">
+        <h3 className="font-medium text-sm sm:text-base">{title}</h3>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-gray-300">
+        {data.map((item, index) => (
+          <div key={index} className="bg-white">
+            <div className="px-3 sm:px-4 py-2 bg-gray-100 font-medium border-b border-gray-200 text-xs sm:text-sm">
+              {item.label}
+            </div>
+            <div className="px-3 sm:px-4 py-2 text-xs sm:text-sm break-words">
+              {item.value || 'N/A'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black bg-opacity-50 flex items-center justify-center">
-      <div className="relative w-[90%] max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-xl">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black bg-opacity-50 flex items-start justify-center p-2 sm:p-4">
+      <div className="relative w-full max-w-6xl max-h-[95vh] sm:max-h-[90vh] overflow-hidden bg-white rounded-lg shadow-xl flex flex-col">
         {/* Modal Header */}
-        <div className="sticky top-0 z-10 bg-slate-600 text-white px-6 py-3 flex items-center justify-between rounded-t-lg">
-          <h2 className="text-lg font-semibold">Patient Information</h2>
+        <div className="flex-shrink-0 bg-slate-600 text-white px-3 sm:px-6 py-3 flex items-center justify-between rounded-t-lg">
+          <h2 className="text-sm sm:text-lg font-semibold truncate pr-2">Patient Information</h2>
           <button 
             onClick={onClose}
-            className="text-white hover:text-gray-300 focus:outline-none"
+            className="text-white hover:text-gray-300 focus:outline-none p-1 rounded-full hover:bg-slate-700 transition-colors flex-shrink-0"
           >
-            <span className="text-xl font-bold">×</span>
+            <span className="text-xl sm:text-2xl font-bold leading-none">×</span>
           </button>
         </div>
         
         {/* Modal Content */}
-        <div className="p-0">
+        <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-500 border-t-transparent"></div>
-              <p className="ml-3 text-gray-600">Loading patient information...</p>
+              <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-4 border-blue-500 border-t-transparent"></div>
+              <p className="ml-3 text-sm sm:text-base text-gray-600">Loading patient information...</p>
             </div>
           ) : error ? (
-            <div className="bg-red-50 p-4 rounded-md">
-              <p className="text-red-500">{error}</p>
+            <div className="bg-red-50 p-4 rounded-md m-4">
+              <p className="text-red-500 text-sm">{error}</p>
             </div>
           ) : patientData ? (
-            <div>
+            <div className="p-0">
               {/* Study Information Section */}
-              <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Study Information</h3>
-                </div>
-                <table className="w-full border-collapse">
-                  <tbody>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200 w-1/6">StudyId</td>
-                      <td className="px-4 py-2 border border-gray-200 w-1/3">{patientData.studyData?.studyId || study._id || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200 w-1/6">Study InstanceUID</td>
-                      <td className="px-4 py-2 border border-gray-200 w-1/3">{patientData.studyData?.studyInstanceUID || study.studyInstanceUID || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientId</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.patientID || study.patientId || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Study Description</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyDescription || study.description || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientName</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.patientNameRaw || study.patientName || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Image Center Name</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.imageCenter || study.location || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientAge</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.ageString || (study.ageGender ? study.ageGender.split(' / ')[0] : '')}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Modality</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.modality || study.modality || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientGender</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.gender || (study.ageGender ? study.ageGender.split(' / ')[1] : '')}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">StudyStatus</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyStatus || study.workflowStatus || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">StudyDate</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyDate || formatDateString(study.studyDateTime || study.studyDate) || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">NoOfSeries</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.noOfSeries || (study.series ? study.series.split('/')[0] : '') || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Referring Physician Name</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.referringPhysician || study.referringPhysicianName || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">NoOfImages</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.noOfImages || (study.series ? study.series.split('/')[1] : '') || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Accession Number</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.accessionNumber || study.accessionNumber || ''}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">UploadDate</td>
-                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.uploadDate || formatDateTimeString(study.uploadDateTime) || ''}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Priority</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.priority || 'NORMAL'}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Case Type</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.caseType || 'routine'}</td>
-                    </tr>
-                    <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Clinical History</td>
-                      <td className="px-4 py-2 border border-gray-200 text-sm">{study.clinicalHistory || 'Not provided'}</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Orthanc Study ID</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.orthancStudyID || ''}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <InfoGrid 
+                title="Study Information"
+                data={[
+                  { label: 'StudyId', value: patientData.studyData?.studyId || study._id },
+                  { label: 'Study InstanceUID', value: patientData.studyData?.studyInstanceUID || study.studyInstanceUID },
+                  { label: 'PatientId', value: patientData.patientID || study.patientId },
+                  { label: 'Study Description', value: patientData.studyData?.studyDescription || study.description },
+                  { label: 'PatientName', value: patientData.patientNameRaw || study.patientName },
+                  { label: 'Image Center Name', value: patientData.studyData?.imageCenter || study.location },
+                  { label: 'PatientAge', value: patientData.ageString || (study.ageGender ? study.ageGender.split(' / ')[0] : '') },
+                  { label: 'Modality', value: patientData.studyData?.modality || study.modality },
+                  { label: 'PatientGender', value: patientData.gender || (study.ageGender ? study.ageGender.split(' / ')[1] : '') },
+                  { label: 'StudyStatus', value: patientData.studyData?.studyStatus || study.workflowStatus },
+                  { label: 'StudyDate', value: patientData.studyData?.studyDate || formatDateString(study.studyDateTime || study.studyDate) },
+                  { label: 'NoOfSeries', value: patientData.studyData?.noOfSeries || (study.series ? study.series.split('/')[0] : '') },
+                  { label: 'Referring Physician Name', value: patientData.studyData?.referringPhysician || study.referringPhysicianName },
+                  { label: 'NoOfImages', value: patientData.studyData?.noOfImages || (study.series ? study.series.split('/')[1] : '') },
+                  { label: 'Accession Number', value: patientData.studyData?.accessionNumber || study.accessionNumber },
+                  { label: 'UploadDate', value: patientData.studyData?.uploadDate || formatDateTimeString(study.uploadDateTime) },
+                  { label: 'Priority', value: study.priority || 'NORMAL' },
+                  { label: 'Case Type', value: study.caseType || 'routine' },
+                  { label: 'Clinical History', value: study.clinicalHistory || 'Not provided' },
+                  { label: 'Orthanc Study ID', value: study.orthancStudyID }
+                ]}
+              />
               
-              {/* Assigned Information Section */}
-              <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Assignment Information</h3>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Assignment #</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Doctor Name</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Specialization</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Date Assigned</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {study.doctorAssignments && study.doctorAssignments.length > 0 ? (
-                      study.doctorAssignments.map((assignment, index) => (
-                        <tr key={index}>
-                          <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
-                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorDetails?.fullName || 'Unknown'}</td>
-                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorDetails?.specialization || 'Unknown'}</td>
-                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(assignment.assignedAt) || ''}</td>
-                          <td className="px-4 py-2 border border-gray-200">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              assignment.doctorDetails?.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {assignment.doctorDetails?.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="5" className="px-4 py-2 text-center border border-gray-200">
-                          No assignments found
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              {/* Assignment Information Section */}
+              <ResponsiveTable
+                title="Assignment Information"
+                headers={['Assignment #', 'Doctor Name', 'Specialization', 'Date Assigned', 'Status']}
+                data={study.doctorAssignments?.map((assignment, index) => [
+                  index + 1,
+                  assignment.doctorDetails?.fullName || 'Unknown',
+                  assignment.doctorDetails?.specialization || 'Unknown',
+                  formatDateTimeString(assignment.assignedAt),
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    assignment.doctorDetails?.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {assignment.doctorDetails?.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                ]) || []}
+                emptyMessage="No assignments found"
+              />
               
               {/* Current Assignment Summary */}
               {study.latestAssignedDoctorDetails && (
                 <div className="mb-4">
-                  <div className="bg-slate-700 text-white px-4 py-2">
-                    <h3 className="font-medium">Current Assignment</h3>
+                  <div className="bg-slate-700 text-white px-3 sm:px-4 py-2">
+                    <h3 className="font-medium text-sm sm:text-base">Current Assignment</h3>
                   </div>
-                  <div className="p-4 bg-blue-50 border border-blue-200">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="p-3 sm:p-4 bg-blue-50 border border-blue-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-xs sm:text-sm">
                       <div>
                         <span className="font-medium text-gray-600">Doctor:</span>
-                        <p className="font-semibold text-blue-800">{study.latestAssignedDoctorDetails.fullName}</p>
+                        <p className="font-semibold text-blue-800 mt-1">{study.latestAssignedDoctorDetails.fullName}</p>
                       </div>
                       <div>
                         <span className="font-medium text-gray-600">Specialization:</span>
-                        <p className="text-gray-800">{study.latestAssignedDoctorDetails.specialization}</p>
+                        <p className="text-gray-800 mt-1">{study.latestAssignedDoctorDetails.specialization}</p>
                       </div>
                       <div>
                         <span className="font-medium text-gray-600">Email:</span>
-                        <p className="text-gray-800">{study.latestAssignedDoctorDetails.email}</p>
+                        <p className="text-gray-800 mt-1 break-all">{study.latestAssignedDoctorDetails.email}</p>
                       </div>
                       <div>
                         <span className="font-medium text-gray-600">Assigned Date:</span>
-                        <p className="text-gray-800">{formatDateTimeString(study.latestAssignedDoctorDetails.assignedAt)}</p>
+                        <p className="text-gray-800 mt-1">{formatDateTimeString(study.latestAssignedDoctorDetails.assignedAt)}</p>
                       </div>
                     </div>
                   </div>
@@ -328,173 +348,95 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
               )}
               
               {/* Study Download Information Section */}
-              <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Study Download Information</h3>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">UserName</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Download Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {study.downloadHistory?.length > 0 ? (
-                      study.downloadHistory.map((download, idx) => (
-                        <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'Unknown User'}</td>
-                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="2" className="px-4 py-2 text-center border border-gray-200">
-                          No Study Download Status Found...!
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <ResponsiveTable
+                title="Study Download Information"
+                headers={['UserName', 'Download Date']}
+                data={study.downloadHistory?.map(download => [
+                  download.userName || download.user || 'Unknown User',
+                  formatDateTimeString(download.date || download.downloadedAt)
+                ]) || []}
+                emptyMessage="No Study Download Status Found...!"
+              />
               
               {/* Report Download Information Section */}
-              <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Report Download Information</h3>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">UserName</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Download Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {study.reportDownloadHistory?.length > 0 ? (
-                      study.reportDownloadHistory.map((download, idx) => (
-                        <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'Unknown User'}</td>
-                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="2" className="px-4 py-2 text-center border border-gray-200">
-                          No Report Download Status Found...!
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <ResponsiveTable
+                title="Report Download Information"
+                headers={['UserName', 'Download Date']}
+                data={study.reportDownloadHistory?.map(download => [
+                  download.userName || download.user || 'Unknown User',
+                  formatDateTimeString(download.date || download.downloadedAt)
+                ]) || []}
+                emptyMessage="No Report Download Status Found...!"
+              />
               
               {/* Reported Information Section */}
-              <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Reported Information</h3>
-                </div>
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Reported By</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">ReportDate</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">TurnAroundTime</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Report Available</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {study.reportedBy ? (
-                      <tr>
-                        <td className="px-4 py-2 border border-gray-200">{study.reportedBy}</td>
-                        <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.reportDate || study.reportFinalizedAt) || 'Not reported yet'}</td>
-                        <td className="px-4 py-2 border border-gray-200">{study.diffAssignAndReportTAT || 'Pending'}</td>
-                        <td className="px-4 py-2 border border-gray-200">
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            study.ReportAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {study.ReportAvailable ? 'Available' : 'Not Available'}
-                          </span>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr>
-                        <td colSpan="4" className="px-4 py-2 text-center border border-gray-200">
-                          No Report Status Found...!
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <ResponsiveTable
+                title="Reported Information"
+                headers={['Reported By', 'ReportDate', 'TurnAroundTime', 'Report Available']}
+                data={study.reportedBy ? [[
+                  study.reportedBy,
+                  formatDateTimeString(study.reportDate || study.reportFinalizedAt) || 'Not reported yet',
+                  study.diffAssignAndReportTAT || 'Pending',
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    study.ReportAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {study.ReportAvailable ? 'Available' : 'Not Available'}
+                  </span>
+                ]] : []}
+                emptyMessage="No Report Status Found...!"
+              />
               
               {/* Assignment History Section */}
               {study.assignmentChain && study.assignmentChain.length > 0 && (
-                <div className="mb-4">
-                  <div className="bg-slate-700 text-white px-4 py-2">
-                    <h3 className="font-medium">Assignment Chain History</h3>
-                  </div>
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr>
-                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Step</th>
-                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Doctor Name</th>
-                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Assigned Date</th>
-                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {study.assignmentChain.map((assignment, index) => (
-                        <tr key={index}>
-                          <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
-                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorName}</td>
-                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(assignment.assignedAt)}</td>
-                          <td className="px-4 py-2 border border-gray-200">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              assignment.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                            }`}>
-                              {assignment.isActive ? 'Active' : 'Inactive'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <ResponsiveTable
+                  title="Assignment Chain History"
+                  headers={['Step', 'Doctor Name', 'Assigned Date', 'Status']}
+                  data={study.assignmentChain.map((assignment, index) => [
+                    index + 1,
+                    assignment.doctorName,
+                    formatDateTimeString(assignment.assignedAt),
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      assignment.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {assignment.isActive ? 'Active' : 'Inactive'}
+                    </span>
+                  ])}
+                  emptyMessage="No assignment history found"
+                />
               )}
               
               {/* Dispatched Information Section */}
               <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Dispatched Information</h3>
+                <div className="bg-slate-700 text-white px-3 sm:px-4 py-2">
+                  <h3 className="font-medium text-sm sm:text-base">Dispatched Information</h3>
                 </div>
-                <div className="px-4 py-10 text-center border border-gray-200">
-                  <p className="text-gray-500">No Dispatch Status Found</p>
+                <div className="px-3 sm:px-4 py-8 sm:py-10 text-center border border-gray-200">
+                  <p className="text-gray-500 text-sm">No Dispatch Status Found</p>
                 </div>
               </div>
               
               {/* Description Modified Information Section */}
               <div className="mb-4">
-                <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Exam Description Modified Information</h3>
+                <div className="bg-slate-700 text-white px-3 sm:px-4 py-2">
+                  <h3 className="font-medium text-sm sm:text-base">Exam Description Modified Information</h3>
                 </div>
-                <div className="px-4 py-10 text-center border border-gray-200">
-                  <p className="text-gray-500">No Records Found...!</p>
+                <div className="px-3 sm:px-4 py-8 sm:py-10 text-center border border-gray-200">
+                  <p className="text-gray-500 text-sm">No Records Found...!</p>
                 </div>
               </div>
             </div>
           ) : (
             <div className="p-4 text-center text-gray-500">
-              No patient data available
+              <p className="text-sm">No patient data available</p>
             </div>
           )}
         </div>
         
         {/* Modal Footer */}
-        <div className="bg-gray-100 px-6 py-3 flex justify-end rounded-b-lg">
+        <div className="flex-shrink-0 bg-gray-100 px-3 sm:px-6 py-3 flex justify-end rounded-b-lg border-t border-gray-200">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
+            className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors text-sm sm:text-base"
           >
             Close
           </button>

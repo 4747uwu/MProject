@@ -15,11 +15,11 @@ const LabDashboard = React.memo(() => {
   const [loading, setLoading] = useState(true);
   const [activeCategory, setActiveCategory] = useState('all');
   
-  // 🔧 SIMPLIFIED: Single page mode state management (matching doctor)
+  // 🔧 SIMPLIFIED: Single page mode state management (matching admin/doctor)
   const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [totalRecords, setTotalRecords] = useState(0);
   
-  // 🆕 NEW: Date filter state for backend integration (matching doctor)
+  // 🆕 NEW: Date filter state for backend integration (matching admin/doctor)
   const [dateFilter, setDateFilter] = useState('last24h'); // Default to 24 hours
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
@@ -47,21 +47,35 @@ const LabDashboard = React.memo(() => {
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
 
-  // 🔧 ENHANCED: Fetch studies with date filters (keeping existing API call structure)
-  const fetchStudies = useCallback(async (showLoadingState = true, searchParams = {}) => {
+  // 🆕 NEW: API endpoint mapping for tabs (EXACTLY like admin dashboard)
+  const getEndpointForCategory = useCallback((category) => {
+    switch (category) {
+      case 'pending':
+        return '/lab/studies/pending';
+      case 'inprogress':
+        return '/lab/studies/processing';  // Note: using 'processing' endpoint for 'inprogress' category
+      case 'completed':
+        return '/lab/studies/completed';
+      case 'all':
+      default:
+        return '/lab/studies';
+    }
+  }, []);
+
+  // 🔧 UPDATED: Fetch studies with dynamic endpoint (EXACTLY like admin dashboard)
+  const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
-      if (showLoadingState) {
-        setLoading(true);
-      }
+      setLoading(true);
+      console.log(`🔄 LAB: Fetching ${activeCategory} studies with synchronized filters`);
       
-      console.log(`🔄 LAB: Fetching studies with limit: ${recordsPerPage}, category: ${activeCategory}, dateFilter: ${dateFilter}`);
+      // 🆕 NEW: Use category-specific endpoint
+      const endpoint = getEndpointForCategory(activeCategory);
       
-      // 🆕 NEW: Build API parameters including date filters (keeping existing structure)
+      // Build common API parameters
       const apiParams = {
         limit: recordsPerPage,
-        category: activeCategory !== 'all' ? activeCategory : undefined,
         dateType: dateType,
-        ...searchParams // Allow override from WorklistSearch
+        ...searchParams
       };
 
       // Add date filter parameters
@@ -78,65 +92,65 @@ const LabDashboard = React.memo(() => {
         apiParams[key] === undefined && delete apiParams[key]
       );
 
-      console.log('📤 LAB API Parameters:', apiParams);
+      console.log(`📤 LAB: API Parameters for ${activeCategory}:`, apiParams);
+      console.log(`🎯 LAB: Using endpoint: ${endpoint}`);
       
-      const response = await api.get('/lab/studies', {
-        params: apiParams
-      });
+      // 🔧 UPDATED: Make API calls to category-specific endpoints
+      const [studiesResponse, valuesResponse] = await Promise.all([
+        api.get(endpoint, { params: apiParams }),
+        api.get('/lab/values', { params: apiParams })
+      ]);
       
-      console.log('📊 LAB Studies response:', response.data);
-      
-      if (response.data.success) {
-        setAllStudies(response.data.data);
-        setTotalRecords(response.data.totalRecords);
+      // Process studies response
+      if (studiesResponse.data.success) {
+        setAllStudies(studiesResponse.data.data);
+        setTotalRecords(studiesResponse.data.totalRecords);
         setLastRefresh(new Date());
         
-        // Use the backend-provided category counts if available
-        if (response.data.summary?.byCategory) {
+        // Update dashboard stats from backend response
+        if (studiesResponse.data.summary?.byCategory) {
           setDashboardStats({
-            totalStudies: response.data.summary.byCategory.all || response.data.totalRecords,
-            pendingUpload: response.data.summary.byCategory.pending || 0,
-            uploadedToday: response.data.summary.uploadedToday || 0,
-            processingStudies: response.data.summary.byCategory.processing || 0,
-            completedStudies: response.data.summary.byCategory.completed || 0,
-            urgentStudies: response.data.summary.urgentStudies || 
-                           response.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingUpload: studiesResponse.data.summary.byCategory.pending || 0,
+            uploadedToday: studiesResponse.data.summary.uploadedToday || 0,
+            processingStudies: studiesResponse.data.summary.byCategory.processing || studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            urgentStudies: studiesResponse.data.summary.urgentStudies || 
+                           studiesResponse.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length
           });
         } else {
-          // Fallback to the client-side counting (less efficient)
-          const studies = response.data.data;
+          // Fallback to client-side counting (less efficient)
+          const studies = studiesResponse.data.data;
           const today = new Date().toDateString();
           
           setDashboardStats({
-            totalStudies: response.data.totalRecords,
+            totalStudies: studiesResponse.data.totalRecords,
             pendingUpload: studies.filter(s => s.workflowStatus === 'pending_upload' || s.currentCategory === 'pending').length,
             uploadedToday: studies.filter(s => {
               const uploadDate = s.uploadDateTime || s.createdAt;
               return uploadDate && new Date(uploadDate).toDateString() === today;
             }).length,
-            processingStudies: studies.filter(s => ['processing', 'in_progress'].includes(s.workflowStatus)).length,
+            processingStudies: studies.filter(s => ['processing', 'in_progress'].includes(s.workflowStatus) || s.currentCategory === 'inprogress').length,
             completedStudies: studies.filter(s => s.workflowStatus === 'completed' || s.currentCategory === 'completed').length,
             urgentStudies: studies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length
           });
         }
+      }
 
-        // 🆕 NEW: Calculate values for WorklistSearch compatibility
+      // Process values response
+      if (valuesResponse.data && valuesResponse.data.success) {
         setValues({
-          today: response.data.data.length,
-          pending: response.data.data.filter(s => s.currentCategory === 'pending').length,
-          inprogress: response.data.data.filter(s => s.currentCategory === 'inprogress').length,
-          completed: response.data.data.filter(s => s.currentCategory === 'completed').length,
-        });
-        
-        console.log('✅ LAB Studies fetched successfully:', {
-          count: response.data.data.length,
-          totalRecords: response.data.totalRecords,
-          dateFilter: dateFilter,
-          isSinglePage: response.data.pagination?.isSinglePage || true
+          today: valuesResponse.data.total || 0,
+          pending: valuesResponse.data.pending || 0,
+          inprogress: valuesResponse.data.inprogress || 0,
+          completed: valuesResponse.data.completed || 0,
         });
       }
+      
+      console.log(`✅ LAB: ${activeCategory} data fetched successfully`);
+      
     } catch (error) {
-      console.error('❌ LAB Error fetching studies:', error);
+      console.error(`❌ LAB: Error fetching ${activeCategory} data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
@@ -146,13 +160,31 @@ const LabDashboard = React.memo(() => {
         completed: 0,
       });
     } finally {
-      if (showLoadingState) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
-  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
 
-  // 🆕 NEW: Date filter handlers (matching doctor)
+  // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
+  useEffect(() => {
+    console.log(`🔄 LAB: Data dependencies changed - fetching fresh data`);
+    fetchAllData();
+  }, [fetchAllData]);
+
+  // 🔧 SIMPLIFIED: Single auto-refresh interval
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      console.log('🔄 LAB: Auto-refreshing all data...');
+      fetchAllData();
+    }, 5 * 60 * 1000); // 5 minutes
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [fetchAllData]);
+
+  // 🆕 NEW: Date filter handlers (matching admin)
   const handleDateFilterChange = useCallback((newDateFilter) => {
     console.log(`📅 LAB: Changing date filter to ${newDateFilter}`);
     setDateFilter(newDateFilter);
@@ -175,20 +207,24 @@ const LabDashboard = React.memo(() => {
     setNextRefreshIn(300); // Reset countdown
   }, []);
 
-  // 🆕 NEW: Handle search with backend parameters (matching doctor)
+  // 🆕 NEW: Handle search with backend parameters (matching admin)
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 LAB: Handling search with backend params:', searchParams);
-    fetchStudies(true, searchParams);
-  }, [fetchStudies]);
+    fetchAllData(searchParams);
+  }, [fetchAllData]);
 
-  // Handle category change
+  // Handle category change (matching admin pattern)
   const handleCategoryChange = useCallback((category) => {
-    console.log(`🏷️ LAB: Changing category to: ${category}`);
-    setActiveCategory(category);
-    setNextRefreshIn(300); // Reset countdown
-  }, []);
+    console.log(`🏷️ LAB: Changing category from ${activeCategory} to ${category}`);
+    
+    // 🔧 FIXED: Only change if actually different
+    if (activeCategory !== category) {
+      setActiveCategory(category);
+      setNextRefreshIn(300); // Reset countdown
+    }
+  }, [activeCategory]);
 
-  // 🔧 SIMPLIFIED: Handle records per page change (no pagination, matching doctor)
+  // 🔧 SIMPLIFIED: Handle records per page change (no pagination, matching admin)
   const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
     console.log(`📊 LAB: Changing records per page from ${recordsPerPage} to ${newRecordsPerPage}`);
     setRecordsPerPage(newRecordsPerPage);
@@ -198,66 +234,22 @@ const LabDashboard = React.memo(() => {
   // Handle assignment completion (refresh data)
   const handleAssignmentComplete = useCallback(() => {
     console.log('📋 LAB: Assignment completed, refreshing studies...');
-    fetchStudies();
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle manual refresh
   const handleManualRefresh = useCallback(() => {
     console.log('🔄 LAB: Manual refresh triggered');
-    fetchStudies();
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle worklist view
   const handleWorklistView = useCallback((view) => {
     console.log('LAB: Worklist view changed:', view);
     setNextRefreshIn(300); // Reset countdown
   }, []);
-
-  // Initial data fetch (triggered when dependencies change)
-  useEffect(() => {
-    console.log(`🔄 LAB useEffect triggered - Records: ${recordsPerPage}, Category: ${activeCategory}, DateFilter: ${dateFilter}`);
-    fetchStudies();
-  }, [fetchStudies]);
-
-  // 🔧 AUTO-REFRESH EVERY 5 MINUTES
-  useEffect(() => {
-    // Clear any existing intervals
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-    if (countdownRef.current) {
-      clearInterval(countdownRef.current);
-    }
-
-    // Set up auto-refresh every 5 minutes (300 seconds)
-    intervalRef.current = setInterval(() => {
-      console.log('🔄 LAB: Auto-refreshing studies...');
-      fetchStudies(false); // Don't show loading state for auto-refresh
-      setNextRefreshIn(300); // Reset countdown
-    }, 300000); // 5 minutes
-
-    // Set up countdown timer (updates every second)
-    countdownRef.current = setInterval(() => {
-      setNextRefreshIn(prev => {
-        if (prev <= 1) {
-          return 300; // Reset to 5 minutes
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Cleanup function
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-      }
-    };
-  }, [fetchStudies]);
 
   // 🔧 FORMAT NEXT REFRESH TIME
   const formatRefreshTime = useMemo(() => {
@@ -280,7 +272,7 @@ const LabDashboard = React.memo(() => {
       <UniversalNavbar />
 
       <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3 flex-1 flex flex-col">
-        {/* 🔧 CLEAN: Main Content - Now WorklistSearch handles all controls (matching doctor) */}
+        {/* 🔧 CLEAN: Main Content - Now WorklistSearch handles all controls (matching admin) */}
         <div className="bg-white flex-1 min-h-0 rounded border border-gray-200 overflow-hidden flex flex-col">
           <div className="p-1 sm:p-2 lg:p-3 flex-1 min-h-0 flex flex-col">
             <WorklistSearch 
@@ -311,7 +303,7 @@ const LabDashboard = React.memo(() => {
           </div>
         </div>
 
-        {/* 🔧 CLEAN: Mobile Stats - Keep this for mobile view (matching doctor) */}
+        {/* 🔧 CLEAN: Mobile Stats - Keep this for mobile view (matching admin) */}
         <div className="lg:hidden mt-1 sm:mt-2">
           <details className="bg-white rounded border border-gray-200 shadow-sm">
             <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
