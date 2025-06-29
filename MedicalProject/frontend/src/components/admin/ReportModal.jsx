@@ -50,22 +50,34 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
   
     setGenerating(true);
     try {
+      // Extract token from various possible sources
       const token = sessionManager.getToken();
+
+      
       if (!token) {
         toast.error("Authentication token not found. Please log in again.");
         setGenerating(false);
         return;
       }
   
+      console.log('Study ID:', studyData._id);
+      console.log('Token available:', !!token);
+      
+      // Construct the protocol URL
       const protocolUrl = `xcentic://${studyData._id}?token=${encodeURIComponent(token)}`;
+      console.log('Protocol URL:', protocolUrl.replace(token, '[REDACTED]'));
+  
+      // Try to launch the protocol
       const launched = await launchProtocol(protocolUrl);
       
       if (launched) {
         toast.success("Report launcher opened successfully!");
       } else {
+        // Fallback to traditional download if protocol fails
         console.log('Protocol launch failed, falling back to download...');
         await fallbackDownload();
       }
+  
     } catch (error) {
       console.error("Error generating report:", error);
       toast.error("Failed to generate report");
@@ -74,66 +86,264 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
     }
   };
   
+  // Helper function to extract authentication token
+  const getAuthToken = () => {
+    // Method 1: Check if token is stored in a context/state
+    // Assuming you have an auth context or similar
+    if (typeof authToken !== 'undefined' && authToken) {
+      return authToken;
+    }
+  
+    // Method 2: Extract from localStorage
+    const storedToken = localStorage.getItem('authToken') || 
+                       localStorage.getItem('token') || 
+                       localStorage.getItem('accessToken') ||
+                       localStorage.getItem('jwt');
+    
+    if (storedToken) {
+      return storedToken;
+    }
+  
+    // Method 3: Extract from sessionStorage
+    const sessionToken = sessionStorage.getItem('authToken') || 
+                        sessionStorage.getItem('token') || 
+                        sessionStorage.getItem('accessToken');
+    
+    if (sessionToken) {
+      return sessionToken;
+    }
+  
+    // Method 4: Extract from cookies
+    const cookieToken = getCookieValue('authToken') || 
+                       getCookieValue('token') || 
+                       getCookieValue('accessToken');
+    
+    if (cookieToken) {
+      return cookieToken;
+    }
+  
+    // Method 5: Extract from axios default headers (if using axios)
+    if (typeof api !== 'undefined' && api.defaults?.headers?.common?.Authorization) {
+      const authHeader = api.defaults.headers.common.Authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        return authHeader.substring(7);
+      }
+    }
+  
+    // Method 6: Extract from current axios request config
+    if (typeof api !== 'undefined' && api.defaults?.headers?.Authorization) {
+      const authHeader = api.defaults.headers.Authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        return authHeader.substring(7);
+      }
+    }
+  
+    return null;
+  };
+  
+  // Helper function to get cookie value
+  const getCookieValue = (name) => {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) {
+      return parts.pop().split(';').shift();
+    }
+    return null;
+  };
+  
+  // Helper function to launch protocol with fallback detection
   const launchProtocol = (protocolUrl) => {
     return new Promise((resolve) => {
       let launched = false;
       let timeoutId;
+  
+      // Create a hidden iframe to attempt protocol launch
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.src = protocolUrl;
       
+      // Set up timeout to detect if protocol launch failed
       timeoutId = setTimeout(() => {
         if (!launched) {
+          console.log('Protocol launch timeout - assuming failure');
           document.body.removeChild(iframe);
           resolve(false);
         }
-      }, 3000);
+      }, 3000); // 3 second timeout
   
+      // Listen for focus events that might indicate successful launch
       const onFocus = () => {
         if (!launched) {
           launched = true;
           clearTimeout(timeoutId);
+          console.log('Window focus detected - protocol likely launched');
           document.body.removeChild(iframe);
           window.removeEventListener('focus', onFocus);
           resolve(true);
         }
       };
   
+      const onBlur = () => {
+        setTimeout(() => {
+          if (!launched) {
+            launched = true;
+            clearTimeout(timeoutId);
+            console.log('Window blur detected - protocol likely launched');
+            document.body.removeChild(iframe);
+            window.removeEventListener('focus', onFocus);
+            window.removeEventListener('blur', onBlur);
+            resolve(true);
+          }
+        }, 100);
+      };
+  
+      // Add event listeners
       window.addEventListener('focus', onFocus);
-      
+      window.addEventListener('blur', onBlur);
+  
+      // Try direct window.location approach as backup
       try {
         document.body.appendChild(iframe);
+        
+        // Also try direct assignment after a small delay
+        setTimeout(() => {
+          if (!launched) {
+            try {
+              window.location.href = protocolUrl;
+            } catch (e) {
+              console.log('Direct location assignment failed:', e.message);
+            }
+          }
+        }, 500);
+        
       } catch (error) {
         console.error('Error launching protocol:', error);
         clearTimeout(timeoutId);
         window.removeEventListener('focus', onFocus);
-        if (iframe.parentNode) document.body.removeChild(iframe);
+        window.removeEventListener('blur', onBlur);
+        if (iframe.parentNode) {
+          document.body.removeChild(iframe);
+        }
         resolve(false);
       }
     });
   };
   
+  // Fallback function for traditional download
   const fallbackDownload = async () => {
     console.log('Executing fallback download...');
-    const response = await api.get(`/documents/study/${studyData._id}/generate-patient-report`, { responseType: 'blob' });
+    
+    const response = await api.get(`/documents/study/${studyData._id}/generate-patient-report`, {
+      responseType: 'blob'
+    });
+  
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
     link.href = url;
+  
     const contentDisposition = response.headers['content-disposition'];
-    let filename = `Patient_Report_${studyData.patientName || 'Unknown'}.docx`;
+    let filename = `Patient_Report_${studyData.patientName || 'Unknown'}_${Date.now()}.docx`;
+  
     if (contentDisposition) {
       const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-      if (filenameMatch) filename = filenameMatch[1];
+      if (filenameMatch) {
+        filename = filenameMatch[1];
+      }
     }
+  
     link.setAttribute('download', filename);
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.URL.revokeObjectURL(url);
+  
     toast.success("Report downloaded successfully (fallback method)!");
   };
   
-  // --- Upload and other handlers remain the same ---
+  // Alternative simpler version if you know exactly where your token is stored
+  const handleGenerateReportSimple = async () => {
+    if (!studyData?._id) return;
+  
+    setGenerating(true);
+    try {
+      // Replace this with your actual token extraction method
+      const token = localStorage.getItem('authToken') || authContext?.token || yourTokenVariable;
+      
+      if (!token) {
+        toast.error("Authentication token not found");
+        return;
+      }
+  
+      const protocolUrl = `xcentic://${studyData._id}?token=${encodeURIComponent(token)}`;
+      
+      // Simple protocol launch
+      window.location.href = protocolUrl;
+      
+      toast.success("Opening report launcher...");
+  
+    } catch (error) {
+      console.error("Error launching report:", error);
+      toast.error("Failed to launch report");
+    } finally {
+      setGenerating(false);
+    }
+  };
+  
+  // Enhanced version with user feedback
+  const handleGenerateReportWithFeedback = async () => {
+    if (!studyData?._id) return;
+  
+    setGenerating(true);
+    try {
+      const token = getAuthToken();
+      
+      if (!token) {
+        toast.error("Please log in to generate reports");
+        setGenerating(false);
+        return;
+      }
+  
+      // Show loading message
+      toast.info("Preparing report launcher...");
+  
+      const protocolUrl = `xcentic://${studyData._id}?token=${encodeURIComponent(token)}`;
+      
+      // Check if protocol is supported
+      const isProtocolSupported = await checkProtocolSupport();
+      
+      if (isProtocolSupported) {
+        const launched = await launchProtocol(protocolUrl);
+        
+        if (launched) {
+          toast.success("Report launcher opened! Check your desktop application.");
+        } else {
+          toast.warning("Could not detect launcher. Falling back to download...");
+          await fallbackDownload();
+        }
+      } else {
+        toast.info("Desktop launcher not available. Downloading report...");
+        await fallbackDownload();
+      }
+  
+    } catch (error) {
+      console.error("Error generating report:", error);
+      toast.error("Failed to generate report");
+    } finally {
+      setGenerating(false);
+    }
+  };
+  
+  // Helper to check if custom protocol is supported
+  const checkProtocolSupport = () => {
+    return new Promise((resolve) => {
+      // Simple feature detection
+      const isWindows = navigator.platform.indexOf('Win') > -1;
+      const hasCustomProtocolSupport = 'registerProtocolHandler' in navigator || isWindows;
+      
+      resolve(hasCustomProtocolSupport);
+    });
+  };
+
   const handleFileChange = (e) => {
     setSelectedFile(e.target.files[0]);
   };
@@ -143,6 +353,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
       toast.error("Please select a file");
       return;
     }
+    
     setUploading(true);
     try {
       const formData = new FormData();
@@ -153,7 +364,9 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
       formData.append('reportStatus', reportStatus);
       
       await api.post(`/documents/study/${studyData._id}/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       });
       
       toast.success("Report uploaded successfully!");
@@ -161,7 +374,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
       document.getElementById('report-file-input').value = '';
       
       fetchReports();
-      setActiveTab(0); // Switch back to reports tab after upload
+      setActiveTab(0);
     } catch (error) {
       console.error("Error uploading report:", error);
       toast.error("Failed to upload report");

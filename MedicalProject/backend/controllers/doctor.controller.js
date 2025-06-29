@@ -193,6 +193,7 @@ export const getAssignedStudies = async (req, res) => {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
+                    orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
@@ -316,6 +317,7 @@ export const getAssignedStudies = async (req, res) => {
 
             return {
                 _id: study._id,
+                orthancStudyID: study.orthancStudyID,
                 studyInstanceUID: study.studyInstanceUID,
                 accessionNumber: study.accessionNumber,
                 patientId: patientIdDisplay,
