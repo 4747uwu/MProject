@@ -2,8 +2,49 @@ import DicomStudy from '../models/dicomStudyModel.js';
 import Patient from '../models/patientModel.js';
 import Doctor from '../models/doctorModel.js';
 import NodeCache from 'node-cache';
+import mongoose from 'mongoose'
+import { calculateStudyTAT, getLegacyTATFields } from '../utils/TATutility.js';
 
 const cache = new NodeCache({ stdTTL: 300 });
+
+// 🔧 STANDARDIZED: Status categories used across ALL doctor functions
+const DOCTOR_STATUS_CATEGORIES = {
+    pending: ['assigned_to_doctor', 'new_study_received'],
+    inprogress: [
+        'doctor_opened_report', 
+        'report_in_progress', 
+        'report_uploaded', 
+        'report_downloaded_radiologist', 
+        'report_downloaded'
+    ],
+    completed: [
+        'report_finalized', 
+        'report_drafted',
+        'final_report_downloaded'
+    ]
+};
+
+// 🔧 HELPER: Get all statuses for a category
+const getAllStatusesForCategory = (category) => {
+    if (category === 'all') {
+        return [
+            ...DOCTOR_STATUS_CATEGORIES.pending,
+            ...DOCTOR_STATUS_CATEGORIES.inprogress,
+            ...DOCTOR_STATUS_CATEGORIES.completed
+        ];
+    }
+    return DOCTOR_STATUS_CATEGORIES[category] || [];
+};
+
+// 🔧 HELPER: Get category for a status
+const getCategoryForStatus = (status) => {
+    for (const [category, statuses] of Object.entries(DOCTOR_STATUS_CATEGORIES)) {
+        if (statuses.includes(status)) {
+            return category;
+        }
+    }
+    return 'unknown';
+};
 
 
 export const getAssignedStudies = async (req, res) => {
@@ -11,7 +52,7 @@ export const getAssignedStudies = async (req, res) => {
         const startTime = Date.now();
         const limit = Math.min(parseInt(req.query.limit) || 20, 100);
 
-        // 🔧 PERFORMANCE: Find doctor with lean query for better performance
+        // 🔥 STEP 1: Get doctor with lean query for better performance
         const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
         if (!doctor) {
             return res.status(404).json({
@@ -22,1108 +63,340 @@ export const getAssignedStudies = async (req, res) => {
 
         console.log(`🔍 DOCTOR: Searching for studies assigned to doctor: ${doctor._id}`);
 
-        // 🆕 ENHANCED: Extract all filter parameters including date filters
         const { 
-            search, status, category, modality, labId, 
-            startDate, endDate, priority, patientName, 
-            dateRange, dateType = 'createdAt',
-            dateFilter, 
-            customDateFrom,
-            customDateTo,
-            quickDatePreset
+            search, status, category, modality, priority, patientName, 
+            customDateFrom, customDateTo, quickDatePreset
         } = req.query;
 
-        // 🆕 NEW: Special handling for "assignedToday" filter ONLY - ADD THIS BEFORE EVERYTHING ELSE
-        if (quickDatePreset === 'assignedToday' || dateFilter === 'assignedToday') {
-            console.log(`🎯 DOCTOR: Using assignedToday filter - querying doctor's assignedStudies array`);
-            
-            // Get today's date range
-            const now = new Date();
-            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-            
-            // Filter doctor's assignedStudies array for today's assignments
-            const todayAssignedStudies = doctor.assignedStudies.filter(assigned => {
-                const assignedDate = new Date(assigned.assignedDate);
-                return assignedDate >= todayStart && assignedDate <= todayEnd;
-            });
-            
-            console.log(`📋 DOCTOR: Found ${todayAssignedStudies.length} studies assigned today from doctor's assignedStudies array`);
-            console.log(`📋 DOCTOR: Today's date range: ${todayStart} to ${todayEnd}`);
-            console.log(`📋 DOCTOR: Doctor's assignedStudies:`, doctor.assignedStudies);
-            
-            if (todayAssignedStudies.length === 0) {
-                // No studies assigned today - return empty result
-                return res.status(200).json({
-                    success: true,
-                    count: 0,
-                    totalRecords: 0,
-                    recordsPerPage: limit,
-                    data: [],
-                    pagination: {
-                        currentPage: 1,
-                        totalPages: 1,
-                        totalRecords: 0,
-                        limit: limit,
-                        hasNextPage: false,
-                        hasPrevPage: false,
-                        recordRange: { start: 0, end: 0 },
-                        isSinglePage: true
-                    },
-                    summary: {
-                        byStatus: {},
-                        byCategory: { all: 0, pending: 0, inprogress: 0, completed: 0 },
-                        urgentStudies: 0,
-                        todayAssigned: 0,
-                        total: 0
-                    },
-                    debug: process.env.NODE_ENV === 'development' ? {
-                        filterType: 'assignedToday',
-                        doctorId: doctor._id,
-                        todayRange: { start: todayStart, end: todayEnd },
-                        assignedTodayCount: 0,
-                        doctorAssignedStudies: doctor.assignedStudies
-                    } : undefined,
-                    performance: {
-                        queryTime: Date.now() - startTime,
-                        fromCache: false,
-                        recordsReturned: 0
-                    }
-                });
-            }
-            
-            // Extract study IDs from today's assignments
-            const todayStudyIds = todayAssignedStudies.map(assigned => assigned.study);
-            
-            console.log(`🔍 DOCTOR: Today's study IDs from assignedStudies:`, todayStudyIds);
-            
-            // Build query to get full study details for today's assigned studies
-            const queryFilters = {
-                _id: { $in: todayStudyIds }
-            };
-            
-            // Apply other filters if provided
-            if (search) {
-                queryFilters.$and = queryFilters.$and || [];
-                queryFilters.$and.push({
-                    $or: [
-                        { accessionNumber: { $regex: search, $options: 'i' } },
-                        { studyInstanceUID: { $regex: search, $options: 'i' } }
-                    ]
-                });
-            }
-            
-            if (status) {
-                queryFilters.workflowStatus = status;
-            } else if (category && category !== 'all') {
-                switch(category) {
-                    case 'pending':
-                        queryFilters.workflowStatus = 'assigned_to_doctor';
-                        break;
-                    case 'inprogress':
-                        queryFilters.workflowStatus = { 
-                            $in: ['doctor_opened_report', 'report_in_progress'] 
-                        };
-                        break;
-                    case 'completed':
-                        queryFilters.workflowStatus = { 
-                            $in: [
-                                'report_finalized', 'report_uploaded', 
-                                'report_downloaded_radiologist', 'report_downloaded',
-                                'final_report_downloaded'
-                            ] 
-                        };
-                        break;
-                }
-            }
-            
-            if (modality) {
-                queryFilters.$and = queryFilters.$and || [];
-                queryFilters.$and.push({
-                    $or: [
-                        { modality: modality },
-                        { modalitiesInStudy: { $in: [modality] } }
-                    ]
-                });
-            }
-            
-            if (priority) {
-                queryFilters['assignment.priority'] = priority;
-            }
-            
-            console.log(`🔍 DOCTOR: AssignedToday query filters:`, JSON.stringify(queryFilters, null, 2));
-            
-            // Use aggregation pipeline to get study details
-            const pipeline = [
-                { $match: queryFilters },
-                
-                // Add currentCategory calculation
-                {
-                    $addFields: {
-                        currentCategory: {
-                            $switch: {
-                                branches: [
-                                    {
-                                        case: { $eq: ["$workflowStatus", 'assigned_to_doctor'] },
-                                        then: 'pending'
-                                    },
-                                    {
-                                        case: { $in: ["$workflowStatus", [
-                                            'doctor_opened_report',
-                                            'report_in_progress'
-                                        ]] },
-                                        then: 'inprogress'
-                                    },
-                                    {
-                                        case: { $in: ["$workflowStatus", [
-                                            'report_finalized',
-                                            'report_uploaded',
-                                            'report_downloaded_radiologist',
-                                            'report_downloaded',
-                                            'final_report_downloaded'
-                                        ]] },
-                                        then: 'completed'
-                                    }
-                                ],
-                                default: 'unknown'
-                            }
-                        }
-                    }
-                },
-                
-                // Same lookups as original
-                {
-                    $lookup: {
-                        from: 'patients',
-                        localField: 'patient',
-                        foreignField: '_id',
-                        as: 'patient',
-                        pipeline: [
-                            {
-                                $project: {
-                                    patientID: 1,
-                                    mrn: 1,
-                                    firstName: 1,
-                                    lastName: 1,
-                                    patientNameRaw: 1,
-                                    dateOfBirth: 1,
-                                    gender: 1,
-                                    ageString: 1,
-                                    salutation: 1,
-                                    currentWorkflowStatus: 1,
-                                    attachments: 1,
-                                    activeDicomStudyRef: 1,
-                                    'contactInformation.phone': 1,
-                                    'contactInformation.email': 1,
-                                    'medicalHistory.clinicalHistory': 1,
-                                    'medicalHistory.previousInjury': 1,
-                                    'medicalHistory.previousSurgery': 1,
-                                    'computed.fullName': 1
-                                }
-                            }
-                        ]
-                    }
-                },
-                
-                {
-                    $lookup: {
-                        from: 'labs',
-                        localField: 'sourceLab',
-                        foreignField: '_id',
-                        as: 'sourceLab',
-                        pipeline: [
-                            {
-                                $project: {
-                                    name: 1,
-                                    identifier: 1,
-                                    contactPerson: 1,
-                                    contactEmail: 1,
-                                    contactPhone: 1,
-                                    address: 1
-                                }
-                            }
-                        ]
-                    }
-                },
-                
-                // Additional patient name search filter (applied after lookup)
-                ...(patientName ? [{
-                    $match: {
-                        $or: [
-                            { 'patient.patientNameRaw': { $regex: patientName, $options: 'i' } },
-                            { 'patient.firstName': { $regex: patientName, $options: 'i' } },
-                            { 'patient.lastName': { $regex: patientName, $options: 'i' } },
-                            { 'patient.patientID': { $regex: patientName, $options: 'i' } }
-                        ]
-                    }
-                }] : []),
-                
-                // Project essential fields
-                {
-                    $project: {
-                        _id: 1,
-                        studyInstanceUID: 1,
-                        orthancStudyID: 1,
-                        accessionNumber: 1,
-                        workflowStatus: 1,
-                        currentCategory: 1,
-                        modality: 1,
-                        modalitiesInStudy: 1,
-                        studyDescription: 1,
-                        examDescription: 1,
-                        numberOfSeries: 1,
-                        seriesCount: 1,
-                        numberOfImages: 1,
-                        instanceCount: 1,
-                        studyDate: 1,
-                        studyTime: 1,
-                        createdAt: 1,
-                        ReportAvailable: 1,
-                        'assignment.priority': 1,
-                        'assignment.assignedAt': 1,
-                        lastAssignedDoctor: 1,
-                        reportedBy: 1,
-                        reportFinalizedAt: 1,
-                        clinicalHistory: 1,
-                        caseType: 1,
-                        patient: 1,
-                        sourceLab: 1,
-                        lastAssignmentAt: 1
-                    }
-                },
-                
-                // Sort by assignment date (newest first)
-                { 
-                    $sort: { 
-                        'assignment.assignedAt': -1,
-                        lastAssignmentAt: -1,
-                        createdAt: -1 
-                    } 
-                },
-                
-                { $limit: Math.min(limit, 10000) }
-            ];
-            
-            // Execute the pipeline
-            const [studies, totalStudies] = await Promise.all([
-                DicomStudy.aggregate(pipeline).allowDiskUse(true),
-                DicomStudy.countDocuments(queryFilters)
-            ]);
-            
-            console.log(`📊 DOCTOR: AssignedToday results: Found ${studies.length} studies, total matching: ${totalStudies}`);
-            
-            // Same formatting logic as original
-            const formattedStudies = studies.map(study => {
-                const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
-                const sourceLab = Array.isArray(study.sourceLab) ? study.sourceLab[0] : study.sourceLab;
-                
-                let patientDisplay = "N/A";
-                let patientIdForDisplay = "N/A";
-                let patientAgeGenderDisplay = "N/A";
-
-                if (patient) {
-                    patientDisplay = patient.computed?.fullName || 
-                                    patient.patientNameRaw || 
-                                    `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-                    patientIdForDisplay = patient.patientID || 'N/A';
-
-                    let agePart = patient.ageString || "";
-                    let genderPart = patient.gender || "";
-                    if (agePart && genderPart) {
-                        patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-                    } else if (agePart) {
-                        patientAgeGenderDisplay = agePart;
-                    } else if (genderPart) {
-                        patientAgeGenderDisplay = `/ ${genderPart}`;
-                    }
-                }
-
-                return {
-                    _id: study._id,
-                    orthancStudyID: study.orthancStudyID,
-                    studyInstanceUID: study.studyInstanceUID,
-                    instanceID: study.studyInstanceUID,
-                    accessionNumber: study.accessionNumber,
-                    patientId: patientIdForDisplay,
-                    patientName: patientDisplay,
-                    ageGender: patientAgeGenderDisplay,
-                    description: study.studyDescription || study.examDescription || 'N/A',
-                    modality: study.modalitiesInStudy && study.modalitiesInStudy.length > 0 ? 
-                             study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
-                    seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                    location: sourceLab?.name || 'N/A',
-                    studyDateTime: study.studyDate && study.studyTime ? 
-                                  `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                                  (study.studyDate || 'N/A'),
-                    studyDate: study.studyDate || null,
-                    uploadDateTime: study.createdAt,
-                    workflowStatus: study.workflowStatus,
-                    currentCategory: study.currentCategory,
-                    createdAt: study.createdAt,
-                    reportedBy: study.reportedBy || 'N/A',
-                    assignedDoctorName: 'Assigned to Me',
-                    priority: study.assignment?.priority || 'NORMAL',
-                    caseType: study.caseType || 'routine',
-                    assignedDate: study.lastAssignmentAt || study.assignment?.assignedAt,
-                    ReportAvailable: study.ReportAvailable || false,
-                    reportFinalizedAt: study.reportFinalizedAt,
-                    clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
-                };
-            });
-            
-            // Calculate category stats for assignedToday filter
-            const categoryCounts = {
-                all: totalStudies,
-                pending: 0,
-                inprogress: 0,
-                completed: 0
-            };
-            
-            formattedStudies.forEach(study => {
-                if (study.currentCategory && categoryCounts.hasOwnProperty(study.currentCategory)) {
-                    categoryCounts[study.currentCategory]++;
-                }
-            });
-            
-            const processingTime = Date.now() - startTime;
-            
-            console.log(`✅ DOCTOR: AssignedToday filter completed - returning ${formattedStudies.length} studies`);
-            
-            return res.status(200).json({
-                success: true,
-                count: formattedStudies.length,
-                totalRecords: totalStudies,
-                recordsPerPage: limit,
-                data: formattedStudies,
-                pagination: {
-                    currentPage: 1,
-                    totalPages: 1,
-                    totalRecords: totalStudies,
-                    limit: limit,
-                    hasNextPage: false,
-                    hasPrevPage: false,
-                    recordRange: {
-                        start: 1,
-                        end: formattedStudies.length
-                    },
-                    isSinglePage: true
-                },
-                summary: {
-                    byStatus: {},
-                    byCategory: categoryCounts,
-                    urgentStudies: formattedStudies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
-                    todayAssigned: formattedStudies.length, // All results are assigned today
-                    total: totalStudies
-                },
-                debug: process.env.NODE_ENV === 'development' ? {
-                    filterType: 'assignedToday',
-                    doctorId: doctor._id,
-                    todayRange: { start: todayStart, end: todayEnd },
-                    assignedTodayFromDoctor: todayAssignedStudies.length,
-                    actualResults: formattedStudies.length,
-                    usedDoctorAssignedStudies: true,
-                    todayStudyIds: todayStudyIds,
-                    doctorAssignedStudies: doctor.assignedStudies
-                } : undefined,
-                performance: {
-                    queryTime: processingTime,
-                    fromCache: false,
-                    recordsReturned: formattedStudies.length,
-                    requestedLimit: limit,
-                    actualReturned: formattedStudies.length
-                }
-            });
-        }
-
-        // 🔧 ORIGINAL CODE: For ALL other filters, continue with existing logic
-        const queryFilters = {
-            // Base filter for doctor's assigned studies
-            $or: [
-                { lastAssignedDoctor: doctor._id },           // Legacy field
-                { 'assignment.assignedTo': doctor._id }       // Modern assignment structure
-            ]
-        };
-
-        // 🔧 FIXED: Smart date filtering logic with proper date handling
-        let shouldApplyDateFilter = true;
+        // 🔥 STEP 2: Optimized date filtering with pre-calculated timestamps
         let filterStartDate = null;
         let filterEndDate = null;
         
-        // Handle quick date presets first
-        if (quickDatePreset || dateFilter) {
-            const preset = quickDatePreset || dateFilter;
-            const now = new Date();
+        if (quickDatePreset) {
+            const now = Date.now(); // Use timestamp for better performance
             
-            console.log(`📅 DOCTOR: Processing date preset: ${preset}`);
-            
-            switch (preset) {
+            switch (quickDatePreset) {
+                case '24h':
                 case 'last24h':
-                    // Last 24 hours from now
-                    filterStartDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-                    filterEndDate = now;
-                    console.log(`📅 DOCTOR: Applying LAST 24H filter: ${filterStartDate} to ${filterEndDate}`);
+                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
+                    filterEndDate = new Date(now);
                     break;
-                    
                 case 'today':
-                    // Today from midnight to now
-                    filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-                    filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-                    console.log(`📅 DOCTOR: Applying TODAY filter: ${filterStartDate} to ${filterEndDate}`);
+                case 'assignedToday':
+                    const dayStart = new Date();
+                    dayStart.setHours(0, 0, 0, 0);
+                    filterStartDate = dayStart;
+                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
                     break;
-                    
                 case 'yesterday':
-                    // Yesterday full day
-                    const yesterday = new Date(now);
-                    yesterday.setDate(yesterday.getDate() - 1);
-                    filterStartDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0);
-                    filterEndDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
-                    console.log(`📅 DOCTOR: Applying YESTERDAY filter: ${filterStartDate} to ${filterEndDate}`);
+                    const yesterdayStart = now - 86400000;
+                    const dayStartYesterday = new Date(yesterdayStart);
+                    dayStartYesterday.setHours(0, 0, 0, 0);
+                    filterStartDate = dayStartYesterday;
+                    filterEndDate = new Date(dayStartYesterday.getTime() + 86399999);
                     break;
-                    
+                case 'week':
                 case 'thisWeek':
-                    // This week from Sunday to now
-                    const weekStart = new Date(now);
-                    const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-                    weekStart.setDate(now.getDate() - dayOfWeek);
-                    weekStart.setHours(0, 0, 0, 0);
-                    filterStartDate = weekStart;
-                    filterEndDate = now;
-                    console.log(`📅 DOCTOR: Applying THIS WEEK filter: ${filterStartDate} to ${filterEndDate}`);
+                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
+                    filterEndDate = new Date(now);
                     break;
-                    
+                case 'month':
                 case 'thisMonth':
-                    // This month from 1st to now
-                    filterStartDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-                    filterEndDate = now;
-                    console.log(`📅 DOCTOR: Applying THIS MONTH filter: ${filterStartDate} to ${filterEndDate}`);
+                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
+                    filterEndDate = new Date(now);
                     break;
-                    
-                case 'thisYear':
-                    // This year from January 1st to now
-                    filterStartDate = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-                    filterEndDate = now;
-                    console.log(`📅 DOCTOR: Applying THIS YEAR filter: ${filterStartDate} to ${filterEndDate}`);
-                    break;
-                    
                 case 'custom':
-                    if (customDateFrom || customDateTo) {
-                        filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59') : null;
-                        console.log(`📅 DOCTOR: Applying CUSTOM filter: ${filterStartDate} to ${filterEndDate}`);
-                    } else {
-                        shouldApplyDateFilter = false;
-                        console.log(`📅 DOCTOR: Custom date preset selected but no dates provided`);
-                    }
+                    filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+                    filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
                     break;
-                    
-                default:
-                    shouldApplyDateFilter = false;
-                    console.log(`📅 DOCTOR: Unknown preset: ${preset}, no date filter applied`);
             }
-        }
-        // Handle legacy startDate/endDate parameters
-        else if (startDate || endDate) {
-            filterStartDate = startDate ? new Date(startDate + 'T00:00:00') : null;
-            filterEndDate = endDate ? new Date(endDate + 'T23:59:59') : null;
-            console.log(`📅 DOCTOR: Applied legacy date filter: ${filterStartDate} to ${filterEndDate}`);
-        }
-        // 🔧 FIXED: Default 24-hour filter logic for doctor assigned studies
-        else {
-            const hoursBack = parseInt(process.env.DEFAULT_DATE_RANGE_HOURS) || 24;
-            filterStartDate = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
-            filterEndDate = now;
-            console.log(`📅 DOCTOR: Applying default ${hoursBack}-hour filter: ${filterStartDate} to ${filterEndDate}`);
         }
 
-        // 🔧 FIXED: Apply the date filter with proper field mapping
-        if (shouldApplyDateFilter && (filterStartDate || filterEndDate)) {
-            // Map dateType to the correct database field
-            let dateField;
-            switch (dateType) {
-                case 'StudyDate':
-                    dateField = 'studyDate';
-                    break;
-                case 'UploadDate':
-                    dateField = 'createdAt';
-                    break;
-                case 'AssignedDate':
-                    dateField = 'lastAssignmentAt';
-                    break;
-                default:
-                    dateField = 'createdAt';
-            }
-            
-            queryFilters[dateField] = {};
-            if (filterStartDate) {
-                queryFilters[dateField].$gte = filterStartDate;
-            }
-            if (filterEndDate) {
-                queryFilters[dateField].$lte = filterEndDate;
-            }
-            
-            console.log(`📅 DOCTOR: Applied date filter on field '${dateField}':`, {
-                gte: filterStartDate?.toISOString(),
-                lte: filterEndDate?.toISOString()
-            });
+        // 🔥 STEP 3: Build optimized core query with better structure
+        let baseQuery;
+        if (filterStartDate && filterEndDate) {
+            console.log(`📅 DOCTOR: Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            // Use $elemMatch to find a study where a SINGLE assignment element matches BOTH the doctor AND the date range.
+            baseQuery = {
+                $or: [
+                    { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+                    { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+                ]
+            };
         } else {
-            console.log(`📅 DOCTOR: No date filter applied`);
-        }
-
-        // Search filter for patient name, accession number, or patient ID
-        if (search) {
-            queryFilters.$and = queryFilters.$and || [];
-            queryFilters.$and.push({
+            // If NO date filter, use the simpler (but still correct) query.
+            baseQuery = {
                 $or: [
-                    { accessionNumber: { $regex: search, $options: 'i' } },
-                    { studyInstanceUID: { $regex: search, $options: 'i' } }
+                    { 'lastAssignedDoctor.doctorId': doctor._id },
+                    { 'assignment.assignedTo': doctor._id }
                 ]
-            });
-            console.log(`🔍 DOCTOR: Applied search filter: ${search}`);
+            };
         }
 
-        // Status-based filtering with optimizations
-        if (status) {
+        // 🔥 STEP 4: Optimized category filtering with pre-defined status arrays
+        let queryFilters = { ...baseQuery };
+
+        if (category && category !== 'all') {
+            const statusesForCategory = getAllStatusesForCategory(category);
+            queryFilters.workflowStatus = statusesForCategory.length === 1 ? 
+                statusesForCategory[0] : { $in: statusesForCategory };
+        } else if (status) {
             queryFilters.workflowStatus = status;
-            console.log(`📋 DOCTOR: Applied status filter: ${status}`);
-        } 
-        // Allow filtering by category (pending, inprogress, completed)
-        else if (category && category !== 'all') {
-            switch(category) {
-                case 'pending':
-                    queryFilters.workflowStatus = 'assigned_to_doctor';
-                    break;
-                case 'inprogress':
-                    queryFilters.workflowStatus = { 
-                        $in: ['doctor_opened_report', 'report_in_progress'] 
-                    };
-                    break;
-                case 'completed':
-                    queryFilters.workflowStatus = { 
-                        $in: [
-                            'report_finalized', 'report_uploaded', 
-                            'report_downloaded_radiologist', 'report_downloaded',
-                            'final_report_downloaded'
-                        ] 
-                    };
-                    break;
-            }
-            console.log(`🏷️ DOCTOR: Applied category filter: ${category}`);
+        } else {
+            const allStatuses = getAllStatusesForCategory('all');
+            queryFilters.workflowStatus = { $in: allStatuses };
         }
-        
-        // Rest of filtering code (modality, lab, priority, dates)
+
+        // 🔥 STEP 5: Apply other filters with optimizations
+        if (search) {
+            // Use the high-performance text index
+            queryFilters.$text = { $search: search };
+        }
         if (modality) {
-            queryFilters.$and = queryFilters.$and || [];
-            queryFilters.$and.push({
-                $or: [
-                    { modality: modality },
-                    { modalitiesInStudy: { $in: [modality] } }
-                ]
-            });
-            console.log(`🏥 DOCTOR: Applied modality filter: ${modality}`);
+            queryFilters.modality = modality;
         }
-
-        if (labId) {
-            queryFilters.sourceLab = new mongoose.Types.ObjectId(labId);
-            console.log(`🏢 DOCTOR: Applied lab filter: ${labId}`);
-        }
-
         if (priority) {
             queryFilters['assignment.priority'] = priority;
-            console.log(`⚡ DOCTOR: Applied priority filter: ${priority}`);
         }
 
-        // 🔧 DEBUG: Log final query filters
         console.log(`🔍 DOCTOR: Final query filters:`, JSON.stringify(queryFilters, null, 2));
 
-        // Add currentCategory field update logic in aggregation pipeline
-        const updateCategoryStage = {
-            $addFields: {
-                currentCategory: {
-                    $switch: {
-                        branches: [
-                            {
-                                case: { $eq: ["$workflowStatus", 'assigned_to_doctor'] },
-                                then: 'pending'
-                            },
-                            {
-                                case: { $in: ["$workflowStatus", [
-                                    'doctor_opened_report',
-                                    'report_in_progress'
-                                ]] },
-                                then: 'inprogress'
-                            },
-                            {
-                                case: { $in: ["$workflowStatus", [
-                                    'report_finalized',
-                                    'report_uploaded',
-                                    'report_downloaded_radiologist',
-                                    'report_downloaded',
-                                    'final_report_downloaded'
-                                ]] },
-                                then: 'completed'
-                            }
-                        ],
-                        default: 'unknown'
-                    }
-                }
-            }
-        };
-
-        // 🔧 PERFORMANCE: Use aggregation pipeline for complex queries with better performance
+        // 🔥 STEP 6: Ultra-optimized aggregation pipeline
         const pipeline = [
+            // Start with most selective match first
             { $match: queryFilters },
             
-            // Add the currentCategory field calculation
-            updateCategoryStage,
-            
-            // Continue with existing lookups...
+            // Add category computation early for better filtering
             {
-                $lookup: {
-                    from: 'patients',
-                    localField: 'patient',
-                    foreignField: '_id',
-                    as: 'patient',
-                    pipeline: [
-                        {
-                            $project: {
-                                patientID: 1,
-                                mrn: 1,
-                                firstName: 1,
-                                lastName: 1,
-                                patientNameRaw: 1,
-                                dateOfBirth: 1,
-                                gender: 1,
-                                ageString: 1,
-                                salutation: 1,
-                                currentWorkflowStatus: 1,
-                                attachments: 1,
-                                activeDicomStudyRef: 1,
-                                'contactInformation.phone': 1,
-                                'contactInformation.email': 1,
-                                'medicalHistory.clinicalHistory': 1,
-                                'medicalHistory.previousInjury': 1,
-                                'medicalHistory.previousSurgery': 1,
-                                'computed.fullName': 1
-                            }
+                $addFields: {
+                    currentCategory: {
+                        $switch: {
+                            branches: [
+                                { case: { $in: ["$workflowStatus", DOCTOR_STATUS_CATEGORIES.pending] }, then: 'pending' },
+                                { case: { $in: ["$workflowStatus", DOCTOR_STATUS_CATEGORIES.inprogress] }, then: 'inprogress' },
+                                { case: { $in: ["$workflowStatus", DOCTOR_STATUS_CATEGORIES.completed] }, then: 'completed' }
+                            ],
+                            default: 'unknown'
                         }
-                    ]
+                    }
                 }
             },
             
-            {
-                $lookup: {
-                    from: 'labs',
-                    localField: 'sourceLab',
-                    foreignField: '_id',
-                    as: 'sourceLab',
-                    pipeline: [
-                        {
-                            $project: {
-                                name: 1,
-                                identifier: 1,
-                                contactPerson: 1,
-                                contactEmail: 1,
-                                contactPhone: 1,
-                                address: 1
-                            }
-                        }
-                    ]
-                }
-            },
+            // Sort early for index efficiency
+            { $sort: { 'assignment.assignedAt': -1, createdAt: -1 } },
             
-            {
-                $lookup: {
-                    from: 'doctors',
-                    localField: 'lastAssignedDoctor',
-                    foreignField: '_id',
-                    as: 'lastAssignedDoctor',
-                    pipeline: [
-                        {
-                            $lookup: {
-                                from: 'users',
-                                localField: 'userAccount',
-                                foreignField: '_id',
-                                as: 'userAccount',
-                                pipeline: [
-                                    {
-                                        $project: {
-                                            fullName: 1,
-                                            email: 1,
-                                            username: 1,
-                                            isActive: 1,
-                                            isLoggedIn: 1
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        {
-                            $project: {
-                                specialization: 1,
-                                licenseNumber: 1,
-                                department: 1,
-                                qualifications: 1,
-                                yearsOfExperience: 1,
-                                contactPhoneOffice: 1,
-                                isActiveProfile: 1,
-                                userAccount: { $arrayElemAt: ['$userAccount', 0] }
-                            }
-                        }
-                    ]
-                }
-            },
+            // Limit early to reduce pipeline processing
+            { $limit: limit },
             
-            // Alternative assignment lookup (if using assignment.assignedTo structure)
-            {
-                $lookup: {
-                    from: 'doctors',
-                    localField: 'assignment.assignedTo',
-                    foreignField: '_id',
-                    as: 'assignedDoctor',
-                    pipeline: [
-                        {
-                            $lookup: {
-                                from: 'users',
-                                localField: 'userAccount',
-                                foreignField: '_id',
-                                as: 'userAccount',
-                                pipeline: [
-                                    {
-                                        $project: {
-                                            fullName: 1,
-                                            email: 1,
-                                            username: 1,
-                                            isActive: 1,
-                                            isLoggedIn: 1
-                                        }
-                                    }
-                                ]
-                            }
-                        },
-                        {
-                            $project: {
-                                specialization: 1,
-                                licenseNumber: 1,
-                                department: 1,
-                                qualifications: 1,
-                                yearsOfExperience: 1,
-                                contactPhoneOffice: 1,
-                                isActiveProfile: 1,
-                                userAccount: { $arrayElemAt: ['$userAccount', 0] }
-                            }
-                        }
-                    ]
-                }
-            },
-            
-            // Additional patient name search filter (applied after lookup)
-            ...(patientName ? [{
-                $match: {
-                    $or: [
-                        { 'patient.patientNameRaw': { $regex: patientName, $options: 'i' } },
-                        { 'patient.firstName': { $regex: patientName, $options: 'i' } },
-                        { 'patient.lastName': { $regex: patientName, $options: 'i' } },
-                        { 'patient.patientID': { $regex: patientName, $options: 'i' } }
-                    ]
-                }
-            }] : []),
-            
-            // Project essential fields
+            // Project only necessary fields after limiting
             {
                 $project: {
                     _id: 1,
                     studyInstanceUID: 1,
-                    orthancStudyID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
                     modality: 1,
-                    modalitiesInStudy: 1,
-                    studyDescription: 1,
                     examDescription: 1,
-                    numberOfSeries: 1,
+                    studyDescription: 1,
+                    seriesImages: 1,
                     seriesCount: 1,
-                    numberOfImages: 1,
                     instanceCount: 1,
                     studyDate: 1,
-                    studyTime: 1,
                     createdAt: 1,
                     ReportAvailable: 1,
-                    'assignment.priority': 1,
-                    'assignment.assignedAt': 1,
-                    lastAssignedDoctor: 1,
-                    reportedBy: 1,
-                    reportFinalizedAt: 1,
                     clinicalHistory: 1,
                     caseType: 1,
+                    assignment: 1,
+                    lastAssignedDoctor: 1,
                     patient: 1,
-                    sourceLab: 1,
-                    lastAssignmentAt: 1
+                    sourceLab: 1
                 }
             },
             
-            // 🔧 PERFORMANCE: Sort by assignment date (newest first) for doctor relevance
+            // Lookup patient data with optimized projection
             { 
-                $sort: { 
-                    'assignment.assignedAt': -1,
-                    lastAssignmentAt: -1,
-                    createdAt: -1 
+                $lookup: { 
+                    from: 'patients', 
+                    localField: 'patient', 
+                    foreignField: '_id', 
+                    as: 'patientData',
+                    pipeline: [{ 
+                        $project: { 
+                            patientID: 1, 
+                            firstName: 1, 
+                            lastName: 1, 
+                            patientNameRaw: 1, 
+                            ageString: 1, 
+                            gender: 1, 
+                            'computed.fullName': 1, 
+                            'medicalHistory.clinicalHistory': 1 
+                        } 
+                    }] 
                 } 
             },
             
-            { $limit: Math.min(limit, 10000) }
+            // Apply patientName filter after lookup if needed
+            ...(patientName ? [{
+                $match: { 
+                    $or: [ 
+                        { 'patientData.patientNameRaw': { $regex: patientName, $options: 'i' } }, 
+                        { 'patientData.patientID': { $regex: patientName, $options: 'i' } } 
+                    ] 
+                }
+            }] : [])
         ];
 
-        // 🔧 PERFORMANCE: Execute queries in parallel
-        const [studies, totalStudies] = await Promise.all([
-            DicomStudy.aggregate(pipeline).allowDiskUse(true),
-            DicomStudy.countDocuments(queryFilters)
+        // 🔥 STEP 7: Execute optimized parallel queries with better error handling
+        console.log(`🚀 Executing optimized doctor studies query...`);
+        const queryStart = Date.now();
+
+        // Build count pipeline efficiently
+        const countPipeline = patientName ? 
+            [...pipeline.slice(0, -1), { $count: "total" }] : // Include patient filter for count
+            [{ $match: queryFilters }, { $count: "total" }]; // Simple count without lookups
+
+        const [studiesResult, totalResult] = await Promise.allSettled([
+            DicomStudy.aggregate(pipeline).allowDiskUse(false), // Disable disk use for better performance
+            patientName ? 
+                DicomStudy.aggregate(countPipeline).allowDiskUse(false) : 
+                DicomStudy.countDocuments(queryFilters)
         ]);
 
-        console.log(`📊 DOCTOR: Query results: Found ${studies.length} studies, total matching: ${totalStudies}`);
+        // Handle potential errors
+        if (studiesResult.status === 'rejected') {
+            throw new Error(`Studies query failed: ${studiesResult.reason.message}`);
+        }
+        if (totalResult.status === 'rejected') {
+            console.warn('Count query failed, using studies length:', totalResult.reason.message);
+        }
 
-        // 🔧 OPTIMIZED: Format studies according to admin specification (same format)
+        const studies = studiesResult.value;
+        const totalStudies = totalResult.status === 'fulfilled' ? 
+            (patientName ? (totalResult.value[0]?.total || 0) : totalResult.value) : 
+            studies.length;
+
+        const queryTime = Date.now() - queryStart;
+        console.log(`📊 DOCTOR: Query results: Found ${studies.length} studies, total matching: ${totalStudies} (${queryTime}ms)`);
+
+        // 🔥 STEP 8: Optimized formatting with minimal processing
+        const formatStart = Date.now();
+        
         const formattedStudies = studies.map(study => {
-            // Get patient data (handle array from lookup)
-            const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
-            const sourceLab = Array.isArray(study.sourceLab) ? study.sourceLab[0] : study.sourceLab;
-            const lastAssignedDoctor = Array.isArray(study.lastAssignedDoctor) ? study.lastAssignedDoctor[0] : study.lastAssignedDoctor;
-            const assignedDoctor = Array.isArray(study.assignedDoctor) ? study.assignedDoctor[0] : study.assignedDoctor;
+            const patient = Array.isArray(study.patientData) && study.patientData.length > 0 ? 
+                study.patientData[0] : null;
             
-            // Use either lastAssignedDoctor or assignedDoctor (fallback)
-            const doctorData = lastAssignedDoctor || assignedDoctor;
+            // Get the most recent assignment for display purposes - optimized
+            let assignmentData = null;
+            if (study.assignment && study.assignment.length > 0) {
+                assignmentData = study.assignment[study.assignment.length - 1];
+            } else if (study.lastAssignedDoctor && study.lastAssignedDoctor.length > 0) {
+                assignmentData = study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1];
+            }
 
-            // 🔧 PERFORMANCE: Build patient display efficiently
-            let patientDisplay = "N/A";
-            let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            // Optimized patient display building
+            let patientDisplay = 'N/A';
+            let patientIdDisplay = 'N/A';
+            let ageGenderDisplay = 'N/A';
 
             if (patient) {
-                patientDisplay = patient.computed?.fullName || 
-                                patient.patientNameRaw || 
-                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
-                patientIdForDisplay = patient.patientID || 'N/A';
-
-                let agePart = patient.ageString || "";
-                let genderPart = patient.gender || "";
-                if (agePart && genderPart) {
-                    patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
-                } else if (agePart) {
-                    patientAgeGenderDisplay = agePart;
-                } else if (genderPart) {
-                    patientAgeGenderDisplay = `/ ${genderPart}`;
+                patientDisplay = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
+                patientIdDisplay = patient.patientID || 'N/A';
+                
+                if (patient.ageString && patient.gender) {
+                    ageGenderDisplay = `${patient.ageString} / ${patient.gender}`;
+                } else if (patient.ageString) {
+                    ageGenderDisplay = patient.ageString;
+                } else if (patient.gender) {
+                    ageGenderDisplay = patient.gender;
                 }
             }
 
-            // 🔧 PERFORMANCE: Build reported by display
-            let reportedByDisplay = 'N/A';
-            if (doctorData && doctorData.userAccount && study.workflowStatus === 'report_finalized') {
-                reportedByDisplay = doctorData.userAccount.fullName || 'N/A';
-            }
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
 
             return {
                 _id: study._id,
-                orthancStudyID: study.orthancStudyID,
                 studyInstanceUID: study.studyInstanceUID,
-                instanceID: study.studyInstanceUID,
                 accessionNumber: study.accessionNumber,
-                patientId: patientIdForDisplay,
+                patientId: patientIdDisplay,
                 patientName: patientDisplay,
-                ageGender: patientAgeGenderDisplay,
-                description: study.studyDescription || study.examDescription || 'N/A',
-                modality: study.modalitiesInStudy && study.modalitiesInStudy.length > 0 ? 
-                         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
+                ageGender: ageGenderDisplay,
+                description: study.examDescription || study.studyDescription || 'N/A',
+                modality: study.modality || 'N/A',
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate && study.studyTime ? 
-                              `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                              (study.studyDate || 'N/A'),
-                studyDate: study.studyDate || null,
-                uploadDateTime: study.createdAt,
+                location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
+                // studyDate: study.studyDate,
+                studyDate: study.studyDate,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 workflowStatus: study.workflowStatus,
-                currentCategory: study.currentCategory,
-                createdAt: study.createdAt,
-                reportedBy: study.reportedBy || reportedByDisplay,
-                assignedDoctorName: doctorData?.userAccount?.fullName || 'Not Assigned',
-                priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
-                assignedDate: study.lastAssignmentAt || study.assignment?.assignedAt,
-                // Add all other necessary fields for table display
+                currentCategory: study.currentCategory,
+                tat: tat,
+                totalTATDays: tat.totalTATDays,
+                isOverdue: tat.isOverdue,
+                tatPhase: tat.phase,
+                priority: assignmentData?.priority || study.caseType?.toUpperCase() || 'NORMAL',
+                assignedDate: assignmentData?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
-                reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 
-        // Calculate summary statistics with optimized aggregation that includes category
-        const summaryStats = await DicomStudy.aggregate([
-            { $match: queryFilters },
-            {
-                $facet: {
-                    byStatus: [
-                        {
-                            $group: {
-                                _id: '$workflowStatus',
-                                count: { $sum: 1 }
-                            }
-                        }
-                    ],
-                    byCategory: [
-                        {
-                            $addFields: {
-                                category: {
-                                    $switch: {
-                                        branches: [
-                                            {
-                                                case: { $eq: ["$workflowStatus", 'assigned_to_doctor'] },
-                                                then: "pending"
-                                            },
-                                            {
-                                                case: { $in: ["$workflowStatus", [
-                                                    'doctor_opened_report',
-                                                    'report_in_progress'
-                                                ]] },
-                                                then: "inprogress"
-                                            },
-                                            {
-                                                case: { $in: ["$workflowStatus", [
-                                                    'report_finalized',
-                                                    'report_uploaded',
-                                                    'report_downloaded_radiologist',
-                                                    'report_downloaded',
-                                                    'final_report_downloaded'
-                                                ]] },
-                                                then: "completed"
-                                            }
-                                        ],
-                                        default: "unknown"
-                                    }
-                                }
-                            }
-                        },
-                        {
-                            $group: {
-                                _id: '$category',
-                                count: { $sum: 1 }
-                            }
-                        }
-                    ],
-                    urgentStudies: [
-                        {
-                            $match: {
-                                $or: [
-                                    { 'assignment.priority': { $in: ['EMERGENCY', 'STAT', 'URGENT'] } },
-                                    { caseType: { $in: ['emergency', 'urgent', 'stat'] } }
-                                ]
-                            }
-                        },
-                        {
-                            $group: {
-                                _id: null,
-                                count: { $sum: 1 }
-                            }
-                        }
-                    ],
-                    todayAssigned: [
-                        {
-                            $match: {
-                                $expr: {
-                                    $eq: [
-                                        { $dateToString: { format: "%Y-%m-%d", date: { $ifNull: ["$assignment.assignedAt", "$lastAssignmentAt"] } } },
-                                        { $dateToString: { format: "%Y-%m-%d", date: new Date() } }
-                                    ]
-                                }
-                            }
-                        },
-                        {
-                            $group: {
-                                _id: null,
-                                count: { $sum: 1 }
-                            }
-                        }
-                    ]
-                }
+        // 🔥 STEP 9: Optimized category counting (using returned data for performance)
+        const categoryCounts = { all: totalStudies, pending: 0, inprogress: 0, completed: 0 };
+        formattedStudies.forEach(study => {
+            if (study.currentCategory && categoryCounts.hasOwnProperty(study.currentCategory)) {
+                categoryCounts[study.currentCategory]++;
             }
-        ]);
+        });
 
-        // Convert to usable format and populate categoryCounts
-        const categoryCounts = {
-            all: totalStudies,
-            pending: 0,
-            inprogress: 0,
-            completed: 0
-        };
+        const formatTime = Date.now() - formatStart;
+        const totalProcessingTime = Date.now() - startTime;
 
-        if (summaryStats[0]?.byCategory) {
-            summaryStats[0].byCategory.forEach(cat => {
-                if (categoryCounts.hasOwnProperty(cat._id)) {
-                    categoryCounts[cat._id] = cat.count;
-                }
-            });
-        }
-
-        // Add doctor-specific stats
-        const urgentStudies = summaryStats[0]?.urgentStudies?.[0]?.count || 0;
-        const todayAssigned = summaryStats[0]?.todayAssigned?.[0]?.count || 0;
-
-        const processingTime = Date.now() - startTime;
-
-        console.log(`✅ DOCTOR: Returning ${formattedStudies.length} formatted studies for doctor`);
-
-        const responseData = {
+        console.log(`✅ DOCTOR: Formatting completed in ${formatTime}ms`);
+        console.log(`🎯 DOCTOR: Total processing time: ${totalProcessingTime}ms for ${formattedStudies.length} studies`);
+        
+        res.status(200).json({
             success: true,
             count: formattedStudies.length,
             totalRecords: totalStudies,
-            recordsPerPage: limit,
             data: formattedStudies,
             pagination: {
                 currentPage: 1,
-                totalPages: 1,
+                totalPages: Math.ceil(totalStudies / limit),
                 totalRecords: totalStudies,
                 limit: limit,
-                hasNextPage: false,
+                hasNextPage: totalStudies > limit,
                 hasPrevPage: false,
                 recordRange: {
                     start: 1,
                     end: formattedStudies.length
-                },
-                isSinglePage: true
+                }
             },
             summary: {
-                byStatus: summaryStats[0]?.byStatus.reduce((acc, item) => {
-                    acc[item._id] = item.count;
-                    return acc;
-                }, {}),
                 byCategory: categoryCounts,
-                urgentStudies,
-                todayAssigned,
+                urgentStudies: formattedStudies.filter(s => ['URGENT', 'EMERGENCY', 'STAT'].includes(s.priority)).length,
                 total: totalStudies
             },
-            // 🔧 ADD: Debug information
-            debug: process.env.NODE_ENV === 'development' ? {
-                appliedFilters: queryFilters,
-                dateFilter: {
-                    preset: quickDatePreset || dateFilter,
-                    dateType: dateType,
-                    startDate: filterStartDate?.toISOString(),
-                    endDate: filterEndDate?.toISOString(),
-                    shouldApplyDateFilter
-                },
-                totalMatching: totalStudies,
-                doctorId: doctor._id
-            } : undefined,
             performance: {
-                queryTime: processingTime,
-                fromCache: false,
+                queryTime: totalProcessingTime,
                 recordsReturned: formattedStudies.length,
-                requestedLimit: limit,
-                actualReturned: formattedStudies.length
+                breakdown: {
+                    coreQuery: queryTime,
+                    formatting: formatTime,
+                    totalProcessing: totalProcessingTime
+                }
             }
-        };
-
-        console.log(`✅ DOCTOR: Single page query completed in ${processingTime}ms, returned ${formattedStudies.length} studies`);
-
-        res.status(200).json(responseData);
+        });
 
     } catch (error) {
         console.error('❌ DOCTOR: Error fetching assigned studies:', error);
@@ -1208,6 +481,164 @@ export const getPatientDetailedViewForDoctor = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch patient details'
+        });
+    }
+};
+
+export const getValues = async (req, res) => {
+    console.log(`🔍 DOCTOR VALUES: Fetching dashboard values with filters: ${JSON.stringify(req.query)}`);
+    try {
+        const startTime = Date.now();
+        
+        const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor profile not found' });
+        }
+
+        console.log(`🔍 DOCTOR VALUES: Doctor ID: ${doctor._id}`);
+
+        // --- UNIFIED FILTERING LOGIC ---
+
+        const { 
+            search, category, modality, priority, 
+            customDateFrom, customDateTo, quickDatePreset
+        } = req.query;
+
+        // 🔥 STEP 1: Determine the date range for filtering based on assignment date.
+        let filterStartDate = null;
+        let filterEndDate = null;
+        if (quickDatePreset) {
+            const now = new Date();
+            switch (quickDatePreset) {
+                case '24h':
+                case 'last24h':
+                    filterStartDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                    filterEndDate = now;
+                    break;
+                case 'today':
+                case 'assignedToday':
+                    filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+                    filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date();
+                    yesterday.setDate(now.getDate() - 1);
+                    filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+                    filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+                    break;
+                case 'week':
+                case 'thisWeek':
+                    filterStartDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    filterEndDate = now;
+                    break;
+                case 'month':
+                case 'thisMonth':
+                    filterStartDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                    filterEndDate = now;
+                    break;
+                case 'custom':
+                    filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+                    filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+                    break;
+            }
+        }
+
+        // 🔥 STEP 2: Build the core query. The structure changes based on whether a date filter is active.
+        let baseQuery;
+        if (filterStartDate && filterEndDate) {
+            console.log(`📅 DOCTOR VALUES: Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            baseQuery = {
+                $or: [
+                    { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+                    { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+                ]
+            };
+        } else {
+            baseQuery = {
+                $or: [
+                    { 'lastAssignedDoctor.doctorId': doctor._id },
+                    { 'assignment.assignedTo': doctor._id }
+                ]
+            };
+        }
+
+        // 🔧 STEP 3: Combine the base query with all other query parameters.
+        let queryFilters = { ...baseQuery };
+
+        if (category && category !== 'all') {
+            queryFilters.workflowStatus = { $in: getAllStatusesForCategory(category) };
+        }
+        if (search) {
+            queryFilters.$text = { $search: search };
+        }
+        if (modality) {
+            queryFilters.modality = modality;
+        }
+        if (priority) {
+            queryFilters['assignment.priority'] = priority;
+        }
+
+        console.log(`🔍 DOCTOR VALUES: Final query filters:`, JSON.stringify(queryFilters, null, 2));
+
+        // 🔥 STEP 4: This single aggregation pipeline gets ALL the data we need efficiently.
+        const pipeline = [
+            { $match: queryFilters },
+            {
+                $group: {
+                    _id: {
+                        $switch: {
+                            branches: [
+                                { case: { $in: ['$workflowStatus', DOCTOR_STATUS_CATEGORIES.pending] }, then: 'pending' },
+                                { case: { $in: ['$workflowStatus', DOCTOR_STATUS_CATEGORIES.inprogress] }, then: 'inprogress' },
+                                { case: { $in: ['$workflowStatus', DOCTOR_STATUS_CATEGORIES.completed] }, then: 'completed' },
+                            ],
+                            default: 'unknown'
+                        }
+                    },
+                    count: { $sum: 1 }
+                }
+            }
+        ];
+
+        const categoryCountsResult = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
+
+        const counts = { pending: 0, inprogress: 0, completed: 0, total: 0 };
+
+        categoryCountsResult.forEach(group => {
+            if (counts.hasOwnProperty(group._id)) {
+                counts[group._id] = group.count;
+            }
+        });
+
+        counts.total = counts.pending + counts.inprogress + counts.completed;
+        const allStudiesCount = await DicomStudy.countDocuments({ // Get total for the 'All' tab
+             $or: [
+                { 'lastAssignedDoctor.doctorId': doctor._id },
+                { 'assignment.assignedTo': doctor._id }
+            ]
+        });
+
+        const processingTime = Date.now() - startTime;
+        console.log(`🎯 DOCTOR VALUES: Dashboard values calculated - Total: ${counts.total}, Pending: ${counts.pending}, InProgress: ${counts.inprogress}, Completed: ${counts.completed}`);
+
+        const response = {
+            success: true,
+            all: allStudiesCount, // This is the unfiltered total for the "All" button
+            total: counts.total,  // This is the total for the currently active filter set
+            pending: counts.pending,
+            inprogress: counts.inprogress,
+            completed: counts.completed,
+            performance: { queryTime: processingTime }
+        };
+
+        res.status(200).json(response);
+
+    } catch (error) {
+        console.error('❌ DOCTOR VALUES: Error fetching dashboard values:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Server error fetching dashboard statistics.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
@@ -1398,8 +829,1170 @@ export const getDoctorStats = async (req, res) => {
     }
 };
 
+// 🆕 NEW: Get pending studies for doctor (studies assigned but not started)
+export const getPendingStudies = async (req, res) => {
+    try {
+        const startTime = Date.now();
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
 
-// 🔧 OPTIMIZED: getPatientDetailedViewForDoctor (same name, enhanced performance)
+        const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor profile not found' });
+        }
+
+        console.log(`🔍 DOCTOR PENDING: Fetching pending studies for doctor: ${doctor._id}`);
+
+        const { 
+            search, modality, labId, priority, patientName, 
+            quickDatePreset, customDateFrom, customDateTo
+        } = req.query;
+
+        // 🔥 STEP 1: Optimized date range determination with pre-calculated timestamps
+        let filterStartDate = null;
+        let filterEndDate = null;
+        const now = new Date();
+        if (quickDatePreset) {
+            switch (quickDatePreset) {
+               case '24h':
+               case 'last24h':
+                   // Rolling 24-hour window from the current moment.
+                   filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+                   filterEndDate = now;
+                   break;
+               
+               case 'today':
+               case 'assignedToday':
+                   // Precisely the start and end of the current calendar day.
+                   const today = new Date();
+                   filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+                   filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+                   break;
+
+               case 'yesterday':
+                   // Precisely the start and end of yesterday's calendar day.
+                   const yesterday = new Date();
+                   yesterday.setDate(yesterday.getDate() - 1); // Go back one day
+                   filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+                   filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+                   break;
+
+               case 'week':
+               case 'thisWeek':
+                   // Rolling 7-day window from the current moment.
+                   filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+                   filterEndDate = now;
+                   break;
+               
+               case 'month':
+               case 'thisMonth':
+                   // Rolling 30-day window from the current moment.
+                   filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+                   filterEndDate = now;
+                   break;
+
+               case 'custom':
+                   // Custom range, interpreted as UTC to avoid timezone issues.
+                   filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+                   filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+                   break;
+           }
+       }
+
+
+        // 🔥 STEP 2: Build optimized core query with better structure
+        let baseQuery;
+        if (filterStartDate && filterEndDate) {
+            console.log(`📅 DOCTOR PENDING: Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            baseQuery = {
+                $or: [
+                    { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+                    { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+                ]
+            };
+        } else {
+            baseQuery = {
+                $or: [
+                    { 'lastAssignedDoctor.doctorId': doctor._id },
+                    { 'assignment.assignedTo': doctor._id }
+                ]
+            };
+        }
+
+        // 🔧 STEP 3: Optimized query filters with better type handling
+        let queryFilters = { 
+            ...baseQuery,
+            workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.pending }
+        };
+
+        if (search) {
+            queryFilters.$text = { $search: search };
+        }
+        if (modality) {
+            queryFilters.modality = modality;
+        }
+        if (labId) {
+            queryFilters.sourceLab = new mongoose.Types.ObjectId(labId);
+        }
+        if (priority) {
+            // Handle priority in date-filtered queries
+            if (filterStartDate && filterEndDate) {
+                baseQuery.$or.forEach(condition => {
+                    const key = Object.keys(condition)[0];
+                    condition[key].$elemMatch.priority = priority;
+                });
+                queryFilters = { ...baseQuery, workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.pending } };
+            } else {
+                queryFilters['assignment.priority'] = priority;
+            }
+        }
+
+        console.log(`🔍 DOCTOR PENDING: Query filters:`, JSON.stringify(queryFilters, null, 2));
+
+        // 🔥 STEP 4: Ultra-optimized aggregation pipeline
+        const pipeline = [
+            // 🔥 CRITICAL: Start with most selective match first
+            { $match: queryFilters },
+            
+            // 🔥 PERFORMANCE: Sort before project to use index efficiently
+            { $sort: { 'assignment.assignedAt': -1, createdAt: -1 } },
+            
+            // 🔥 CRITICAL: Limit early to reduce pipeline processing
+            { $limit: limit },
+            
+            // 🔥 PERFORMANCE: Project only essential fields after limiting
+            {
+                $project: {
+                    _id: 1,
+                    orthancStudyID: 1,
+                    studyInstanceUID: 1,
+                    accessionNumber: 1,
+                    workflowStatus: 1,
+                    modality: 1,
+                    examDescription: 1,
+                    studyDescription: 1,
+                    seriesCount: 1,
+                    instanceCount: 1,
+                    seriesImages: 1,
+                    studyDate: 1,
+                    studyTime: 1,
+                    createdAt: 1,
+                    caseType: 1,
+                    assignment: 1,
+                    lastAssignedDoctor: 1,
+                    patient: 1,
+                    sourceLab: 1,
+                    patientInfo: 1 // Keep denormalized patient data
+                }
+            },
+            
+            // Add currentCategory field
+            { $addFields: { currentCategory: 'pending' } }
+        ];
+
+        // 🔥 STEP 5: Execute optimized parallel queries
+        console.log(`🚀 Executing optimized query...`);
+        const queryStart = Date.now();
+        
+        // Use Promise.allSettled for better error handling
+        const [studiesResult, totalCountResult] = await Promise.allSettled([
+            DicomStudy.aggregate(pipeline).allowDiskUse(false),
+            patientName ? 
+                DicomStudy.aggregate([
+                    { $match: queryFilters },
+                    { $match: { $or: [
+                        { 'patientInfo.patientName': { $regex: patientName, $options: 'i' } },
+                        { 'patientInfo.patientID': { $regex: patientName, $options: 'i' } }
+                    ]}},
+                    { $count: "total" }
+                ]).allowDiskUse(false) :
+                DicomStudy.countDocuments(queryFilters)
+        ]);
+
+        // Handle potential errors
+        if (studiesResult.status === 'rejected') {
+            throw new Error(`Studies query failed: ${studiesResult.reason.message}`);
+        }
+        if (totalCountResult.status === 'rejected') {
+            console.warn('Count query failed, using studies length:', totalCountResult.reason.message);
+        }
+
+        let studies = studiesResult.value;
+        let totalStudies = totalCountResult.status === 'fulfilled' ? 
+            (patientName ? (totalCountResult.value[0]?.total || 0) : totalCountResult.value) : 
+            studies.length;
+
+        const queryTime = Date.now() - queryStart;
+        console.log(`⚡ Core query completed in ${queryTime}ms - found ${studies.length} studies`);
+
+        // 🔥 STEP 6: Apply patientName filter after aggregation if needed
+        if (patientName && studies.length > 0) {
+            const filterStart = Date.now();
+            studies = studies.filter(study => {
+                const patientInfo = study.patientInfo;
+                if (!patientInfo) return false;
+                
+                const nameMatch = patientInfo.patientName && 
+                    patientInfo.patientName.toLowerCase().includes(patientName.toLowerCase());
+                const idMatch = patientInfo.patientID && 
+                    patientInfo.patientID.toLowerCase().includes(patientName.toLowerCase());
+                
+                return nameMatch || idMatch;
+            });
+            console.log(`🔍 Patient name filter completed in ${Date.now() - filterStart}ms`);
+        }
+
+        // 🔥 STEP 7: Optimized batch lookups with connection pooling awareness
+        const lookupMaps = {
+            patients: new Map(),
+            labs: new Map()
+        };
+
+        if (studies.length > 0) {
+            const lookupStart = Date.now();
+            
+            // Extract unique IDs with Set for deduplication
+            const uniqueIds = {
+                patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
+                labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))]
+            };
+
+            // 🔥 PARALLEL: Optimized batch lookups with lean queries
+            const lookupPromises = [];
+
+            if (uniqueIds.patients.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Patient')
+                        .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .lean()
+                        .then(results => ({ type: 'patients', data: results }))
+                );
+            }
+
+            if (uniqueIds.labs.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Lab')
+                        .find({ _id: { $in: uniqueIds.labs.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('name')
+                        .lean()
+                        .then(results => ({ type: 'labs', data: results }))
+                );
+            }
+
+            // Execute all lookups in parallel
+            const lookupResults = await Promise.allSettled(lookupPromises);
+            
+            // Process results and build maps
+            lookupResults.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    const { type, data } = result.value;
+                    data.forEach(item => {
+                        lookupMaps[type].set(item._id.toString(), item);
+                    });
+                } else {
+                    console.warn(`Lookup failed for ${result.reason}`);
+                }
+            });
+            
+            const lookupTime = Date.now() - lookupStart;
+            console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
+        }
+
+        // 🔥 STEP 8: Optimized formatting with pre-compiled data access
+        const formatStart = Date.now();
+        
+        const formattedStudies = studies.map(study => {
+            // Get related data from maps (faster than repeated lookups)
+            const patientData = lookupMaps.patients.get(study.patient?.toString());
+            const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            
+            // Use denormalized patient data first, fallback to lookup
+            const patient = patientData || study.patientInfo;
+            
+            // Optimized assignment data extraction
+            const assignmentData = (study.assignment && study.assignment.length > 0) ? 
+                study.assignment[study.assignment.length - 1] : 
+                (study.lastAssignedDoctor && study.lastAssignedDoctor.length > 0) ? 
+                study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1] : null;
+
+            // Optimized patient display building
+            let patientName = 'N/A';
+            let patientId = 'N/A';
+            let ageGender = 'N/A';
+
+            if (patient) {
+                patientName = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
+                patientId = patient.patientID || 'N/A';
+                
+                if (patient.ageString && patient.gender) {
+                    ageGender = `${patient.ageString} / ${patient.gender}`;
+                } else if (patient.ageString || patient.gender) {
+                    ageGender = patient.ageString || patient.gender;
+                }
+            }
+
+            // Optimized date formatting
+            let studyDateTime = 'N/A';
+            if (study.studyDate && study.studyTime) {
+                studyDateTime = `${new Date(study.studyDate).toLocaleDateString()} ${study.studyTime.substring(0, 6)}`;
+            } else if (study.studyDate) {
+                studyDateTime = new Date(study.studyDate).toLocaleDateString();
+            }
+
+            return {
+                _id: study._id,
+                orthancStudyID: study.orthancStudyID,
+                studyInstanceUID: study.studyInstanceUID,
+                instanceID: study.studyInstanceUID,
+                accessionNumber: study.accessionNumber,
+                patientId: patientId,
+                patientName: patientName,
+                ageGender: ageGender,
+                description: study.examDescription || study.studyDescription || 'N/A',
+                modality: study.modality || 'N/A',
+                seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                location: sourceLab?.name || 'N/A',
+                studyDate: study.studyDate,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
+                workflowStatus: study.workflowStatus,
+                currentCategory: study.currentCategory,
+                createdAt: study.createdAt,
+                priority: assignmentData?.priority || 'NORMAL',
+                caseType: study.caseType || 'routine',
+                assignedDate: assignmentData?.assignedAt,
+                ReportAvailable: false
+            };
+        });
+
+        const formatTime = Date.now() - formatStart;
+        const processingTime = Date.now() - startTime;
+
+        console.log(`✅ Formatting completed in ${formatTime}ms`);
+        console.log(`🎯 Total processing time: ${processingTime}ms for ${formattedStudies.length} studies`);
+
+        // Enhanced response with performance metrics
+        res.status(200).json({
+            success: true,
+            count: formattedStudies.length,
+            totalRecords: totalStudies,
+            recordsPerPage: limit,
+            data: formattedStudies,
+            pagination: {
+                currentPage: 1,
+                totalPages: Math.ceil(totalStudies / limit),
+                totalRecords: totalStudies,
+                limit: limit,
+                hasNextPage: (1 * limit) < totalStudies,
+                hasPrevPage: false,
+                recordRange: { start: 1, end: Math.min(formattedStudies.length, totalStudies) },
+                isSinglePage: totalStudies <= limit
+            },
+            summary: {
+                byCategory: { all: totalStudies, pending: totalStudies, inprogress: 0, completed: 0 },
+                urgentStudies: formattedStudies.filter(s => ['URGENT', 'EMERGENCY', 'STAT'].includes(s.priority)).length,
+                total: totalStudies
+            },
+            performance: {
+                queryTime: processingTime,
+                fromCache: false,
+                recordsReturned: formattedStudies.length,
+                breakdown: {
+                    coreQuery: queryTime,
+                    lookups: studies.length > 0 ? `${Date.now() - formatStart}ms` : 0,
+                    formatting: formatTime
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ DOCTOR PENDING: Error fetching pending studies:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching pending studies.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 NEW: Get in-progress studies for doctor (studies being worked on)
+export const getInProgressStudies = async (req, res) => {
+    try {
+        const startTime = Date.now();
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+
+        const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
+        if (!doctor) {
+            return res.status(404).json({ success: false, message: 'Doctor profile not found' });
+        }
+
+        console.log(`🔍 DOCTOR IN-PROGRESS: Fetching in-progress studies for doctor: ${doctor._id}`);
+
+        const { 
+            search, modality, labId, priority, patientName, 
+            quickDatePreset, customDateFrom, customDateTo
+        } = req.query;
+
+        // 🔧 STEP 1: Build optimized query filters with pre-calculated timestamps
+        let queryFilters = {
+            $or: [
+                { 'lastAssignedDoctor.doctorId': doctor._id },
+                { 'assignment.assignedTo': doctor._id }
+            ],
+            workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.inprogress }
+        };
+
+        // 🔥 STEP 2: Optimized date filtering with pre-calculated timestamps
+        let filterStartDate = null;
+        let filterEndDate = null;
+        const now = new Date();
+        if (quickDatePreset) {
+        switch (quickDatePreset) {
+        case '24h':
+        case 'last24h':
+        // Rolling 24-hour window from the current moment.
+        filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+        filterEndDate = now;
+        break;
+        
+        case 'today':
+        case 'assignedToday':
+        // Precisely the start and end of the current calendar day.
+        const today = new Date();
+        filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+        filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+        break;
+        
+        case 'yesterday':
+        // Precisely the start and end of yesterday's calendar day.
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1); // Go back one day
+        filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+        filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+        break;
+        
+        case 'week':
+        case 'thisWeek':
+        // Rolling 7-day window from the current moment.
+        filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        filterEndDate = now;
+        break;
+        
+        case 'month':
+        case 'thisMonth':
+        // Rolling 30-day window from the current moment.
+        filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+        filterEndDate = now;
+        break;
+        
+        case 'custom':
+        // Custom range, interpreted as UTC to avoid timezone issues.
+        filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+        filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+        break;
+        }
+        }
+        
+
+        // 🔧 STEP 3: Optimized filter application
+        if (search) {
+            queryFilters.$text = { $search: search };
+        }
+        if (modality) {
+            queryFilters.modality = modality;
+        }
+        if (labId) {
+            queryFilters.sourceLab = new mongoose.Types.ObjectId(labId);
+        }
+        if (priority) {
+            queryFilters['assignment.priority'] = priority;
+        }
+
+        console.log(`🔍 DOCTOR IN-PROGRESS: Query filters:`, JSON.stringify(queryFilters, null, 2));
+
+        // 🔥 STEP 4: Ultra-optimized aggregation pipeline
+        const pipeline = [
+            // 🔥 CRITICAL: Start with most selective match first
+            { $match: queryFilters },
+            
+            // 🔥 PERFORMANCE: Sort before project to use index efficiently
+            { $sort: { 'reportInfo.startedAt': -1, createdAt: -1 } },
+            
+            // 🔥 CRITICAL: Limit early to reduce pipeline processing
+            { $limit: limit },
+            
+            // 🔥 PERFORMANCE: Project only essential fields early
+            {
+                $project: {
+                    _id: 1,
+                    orthancStudyID: 1,
+                    studyInstanceUID: 1,
+                    accessionNumber: 1,
+                    workflowStatus: 1,
+                    modality: 1,
+                    examDescription: 1,
+                    studyDescription: 1,
+                    seriesCount: 1,
+                    instanceCount: 1,
+                    seriesImages: 1,
+                    studyDate: 1,
+                    studyTime: 1,
+                    createdAt: 1,
+                    caseType: 1,
+                    'assignment.priority': 1,
+                    'assignment.assignedAt': 1,
+                    lastAssignedDoctor: 1,
+                    'reportInfo.startedAt': 1,
+                    patient: 1,
+                    sourceLab: 1,
+                    patientInfo: 1 // Keep for fallback
+                }
+            },
+            
+            // 🔥 PERFORMANCE: Add category field after projection
+            { $addFields: { currentCategory: 'inprogress' } }
+        ];
+
+        // 🔥 STEP 5: Execute optimized parallel queries
+        console.log(`🚀 Executing optimized query...`);
+        const queryStart = Date.now();
+        
+        // Build count pipeline without patient name filter for accurate count
+        const countPipeline = [
+            { $match: queryFilters },
+            { $count: "total" }
+        ];
+
+        // Use Promise.allSettled for better error handling
+        const [studiesResult, totalCountResult] = await Promise.allSettled([
+            DicomStudy.aggregate(pipeline).allowDiskUse(false),
+            patientName ? 
+                DicomStudy.aggregate(countPipeline).allowDiskUse(false) : 
+                DicomStudy.countDocuments(queryFilters)
+        ]);
+
+        // Handle potential errors
+        if (studiesResult.status === 'rejected') {
+            throw new Error(`Studies query failed: ${studiesResult.reason.message}`);
+        }
+        if (totalCountResult.status === 'rejected') {
+            console.warn('Count query failed, using studies length:', totalCountResult.reason.message);
+        }
+
+        let studies = studiesResult.value;
+        const totalStudies = totalCountResult.status === 'fulfilled' ? 
+            (patientName ? (totalCountResult.value[0]?.total || 0) : totalCountResult.value) : 
+            studies.length;
+
+        const queryTime = Date.now() - queryStart;
+        console.log(`⚡ Core query completed in ${queryTime}ms - found ${studies.length} studies`);
+
+        // 🔥 STEP 6: Apply patient name filter after main query if needed (more efficient for small result sets)
+        if (patientName && studies.length > 0) {
+            const patientFilterStart = Date.now();
+            studies = studies.filter(study => {
+                const patientInfo = study.patientInfo;
+                if (!patientInfo) return false;
+                
+                const nameMatch = patientInfo.patientName && 
+                    patientInfo.patientName.toLowerCase().includes(patientName.toLowerCase());
+                const idMatch = patientInfo.patientID && 
+                    patientInfo.patientID.toLowerCase().includes(patientName.toLowerCase());
+                
+                return nameMatch || idMatch;
+            });
+            console.log(`🔍 Patient name filter applied in ${Date.now() - patientFilterStart}ms`);
+        }
+
+        // 🔥 STEP 7: Optimized batch lookups
+        const lookupMaps = {
+            patients: new Map(),
+            labs: new Map()
+        };
+
+        if (studies.length > 0) {
+            const lookupStart = Date.now();
+            
+            // Extract unique IDs with Set for deduplication
+            const uniqueIds = {
+                patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
+                labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))]
+            };
+
+            // 🔥 PARALLEL: Optimized batch lookups with lean queries
+            const lookupPromises = [];
+
+            if (uniqueIds.patients.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Patient')
+                        .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .lean()
+                        .then(results => ({ type: 'patients', data: results }))
+                );
+            }
+
+            if (uniqueIds.labs.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Lab')
+                        .find({ _id: { $in: uniqueIds.labs.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('name')
+                        .lean()
+                        .then(results => ({ type: 'labs', data: results }))
+                );
+            }
+
+            // Execute all lookups in parallel
+            const lookupResults = await Promise.allSettled(lookupPromises);
+            
+            // Process results and build maps
+            lookupResults.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    const { type, data } = result.value;
+                    data.forEach(item => {
+                        lookupMaps[type].set(item._id.toString(), item);
+                    });
+                } else {
+                    console.warn(`Lookup failed for ${result.reason}`);
+                }
+            });
+            
+            const lookupTime = Date.now() - lookupStart;
+            console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
+        }
+
+        // 🔥 STEP 8: Optimized formatting with pre-compiled maps
+        const formatStart = Date.now();
+        
+        const formattedStudies = studies.map(study => {
+            // Get related data from maps (faster than repeated lookups)
+            const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
+            const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            
+            // Handle assignment data (both legacy and new formats)
+            const assignmentData = (study.assignment && study.assignment.length > 0) ? 
+                study.assignment[study.assignment.length - 1] : 
+                (study.lastAssignedDoctor && study.lastAssignedDoctor.length > 0) ? 
+                study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1] : null;
+
+            // Optimized patient display building
+            let patientDisplay = "N/A";
+            let patientIdForDisplay = "N/A";
+            let patientAgeGenderDisplay = "N/A";
+
+            if (patient) {
+                patientDisplay = patient.computed?.fullName || 
+                                patient.patientNameRaw || 
+                                "N/A";
+                patientIdForDisplay = patient.patientID || "N/A";
+
+                // Optimized age/gender display
+                const agePart = patient.ageString || "";
+                const genderPart = patient.gender || "";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : "N/A";
+            }
+
+            // Optimized date formatting
+            let studyDateTimeDisplay = "N/A";
+            if (study.studyDate && study.studyTime) {
+                studyDateTimeDisplay = `${new Date(study.studyDate).toLocaleDateString()} ${study.studyTime.substring(0, 6)}`;
+            } else if (study.studyDate) {
+                studyDateTimeDisplay = new Date(study.studyDate).toLocaleDateString();
+            }
+
+            return {
+                _id: study._id,
+                orthancStudyID: study.orthancStudyID,
+                studyInstanceUID: study.studyInstanceUID,
+                instanceID: study.studyInstanceUID,
+                accessionNumber: study.accessionNumber,
+                patientId: patientIdForDisplay,
+                patientName: patientDisplay,
+                ageGender: patientAgeGenderDisplay,
+                description: study.examDescription || study.studyDescription || 'N/A',
+                modality: study.modality || 'N/A',
+                seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                location: sourceLab?.name || 'N/A',
+                studyDate: study.studyDate,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
+                workflowStatus: study.workflowStatus,
+                currentCategory: study.currentCategory,
+                createdAt: study.createdAt,
+                priority: assignmentData?.priority || 'NORMAL',
+                caseType: study.caseType || 'routine',
+                assignedDate: assignmentData?.assignedAt,
+                reportStartedAt: study.reportInfo?.startedAt,
+                ReportAvailable: false // A report in progress is not yet available
+            };
+        });
+
+        const formatTime = Date.now() - formatStart;
+        const processingTime = Date.now() - startTime;
+
+        console.log(`✅ Formatting completed in ${formatTime}ms`);
+        console.log(`🎯 Total processing time: ${processingTime}ms for ${formattedStudies.length} studies`);
+
+        res.status(200).json({
+            success: true,
+            count: formattedStudies.length,
+            totalRecords: totalStudies,
+            recordsPerPage: limit,
+            data: formattedStudies,
+            pagination: {
+                currentPage: 1,
+                totalPages: Math.ceil(totalStudies / limit),
+                totalRecords: totalStudies,
+                limit: limit,
+                hasNextPage: (1 * limit) < totalStudies,
+                hasPrevPage: false,
+                recordRange: { start: 1, end: Math.min(formattedStudies.length, totalStudies) },
+                isSinglePage: totalStudies <= limit
+            },
+            summary: {
+                byCategory: { all: totalStudies, pending: 0, inprogress: totalStudies, completed: 0 },
+                urgentStudies: formattedStudies.filter(s => ['URGENT', 'EMERGENCY', 'STAT'].includes(s.priority)).length,
+                total: totalStudies
+            },
+            performance: {
+                queryTime: processingTime,
+                fromCache: false,
+                recordsReturned: formattedStudies.length,
+                requestedLimit: limit,
+                actualReturned: formattedStudies.length,
+                breakdown: {
+                    coreQuery: queryTime,
+                    lookups: studies.length > 0 ? `${Date.now() - formatStart}ms` : 0,
+                    formatting: formatTime
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ DOCTOR IN-PROGRESS: Error fetching in-progress studies:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching in-progress studies.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+// 🆕 NEW: Get completed studies for doctor (reports finalized)
+export const getCompletedStudies = async (req, res) => {
+    try {
+        const startTime = Date.now();
+        const limit = Math.min(parseInt(req.query.limit) || 100, 1000);
+
+        const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
+        if (!doctor) {
+            return res.status(404).json({
+                success: false,
+                message: 'Doctor profile not found'
+            });
+        }
+
+        console.log(`🔍 DOCTOR COMPLETED: Fetching completed studies for doctor: ${doctor._id}`);
+
+        const { 
+            search, modality, labId, priority, patientName, 
+            quickDatePreset, customDateFrom, customDateTo
+        } = req.query;
+
+        // --- OPTIMIZED FILTERING LOGIC ---
+
+        // 🔥 STEP 1: Build the base query for the doctor's completed studies with optimized date handling
+        let queryFilters = {
+            $or: [
+                { 'lastAssignedDoctor.doctorId': doctor._id },
+                { 'assignment.assignedTo': doctor._id }
+            ],
+            workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.completed }
+        };
+
+        // 🔥 STEP 2: Optimized date filtering with pre-calculated timestamps
+        let filterStartDate = null;
+        let filterEndDate = null;
+        const now = new Date();
+if (quickDatePreset) {
+switch (quickDatePreset) {
+case '24h':
+case 'last24h':
+// Rolling 24-hour window from the current moment.
+filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+filterEndDate = now;
+break;
+
+case 'today':
+case 'assignedToday':
+// Precisely the start and end of the current calendar day.
+const today = new Date();
+filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+break;
+
+case 'yesterday':
+// Precisely the start and end of yesterday's calendar day.
+const yesterday = new Date();
+yesterday.setDate(yesterday.getDate() - 1); // Go back one day
+filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+break;
+
+case 'week':
+case 'thisWeek':
+// Rolling 7-day window from the current moment.
+filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+filterEndDate = now;
+break;
+
+case 'month':
+case 'thisMonth':
+// Rolling 30-day window from the current moment.
+filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+filterEndDate = now;
+break;
+
+case 'custom':
+// Custom range, interpreted as UTC to avoid timezone issues.
+filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+break;
+}
+}
+
+
+        // 🔧 STEP 3: Optimized other filters with better type handling
+        if (search) {
+            // Use optimized search with multiple fields
+            queryFilters.$and = queryFilters.$and || [];
+            queryFilters.$and.push({
+                $or: [
+                    { $text: { $search: search } },
+                    { accessionNumber: { $regex: search, $options: 'i' } },
+                    { studyInstanceUID: { $regex: search, $options: 'i' } }
+                ]
+            });
+        }
+        
+        if (modality) {
+            queryFilters.modality = modality;
+        }
+        
+        if (labId) {
+            queryFilters.sourceLab = new mongoose.Types.ObjectId(labId);
+        }
+        
+        if (priority) {
+            queryFilters['assignment.priority'] = priority;
+        }
+
+        console.log(`🔍 DOCTOR COMPLETED: Query filters:`, JSON.stringify(queryFilters, null, 2));
+
+        // 🔥 STEP 4: Ultra-optimized aggregation pipeline
+        const queryStart = Date.now();
+        
+        const pipeline = [
+            // 🔥 CRITICAL: Start with most selective match first
+            { $match: queryFilters },
+            
+            // 🔥 PERFORMANCE: Sort before project to use index efficiently
+            { $sort: { 'reportInfo.finalizedAt': -1, createdAt: -1 } },
+            
+            // 🔥 CRITICAL: Limit early to reduce pipeline processing
+            { $limit: Math.min(limit, 1000) },
+            
+            // 🔥 PERFORMANCE: Project only essential fields after limiting
+            {
+                $project: {
+                    _id: 1,
+                    orthancStudyID: 1,
+                    studyInstanceUID: 1,
+                    accessionNumber: 1,
+                    examDescription: 1,
+                    studyDescription: 1,
+                    modality: 1,
+                    seriesImages: 1,
+                    seriesCount: 1,
+                    instanceCount: 1,
+                    studyDate: 1,
+                    studyTime: 1,
+                    workflowStatus: 1,
+                    createdAt: 1,
+                    caseType: 1,
+                    ReportAvailable: 1,
+                    'assignment.priority': 1,
+                    'assignment.assignedAt': 1,
+                    lastAssignedDoctor: 1,
+                    'reportInfo.startedAt': 1,
+                    'reportInfo.finalizedAt': 1,
+                    'reportInfo.reporterName': 1,
+                    patient: 1,
+                    sourceLab: 1,
+                    patientInfo: 1 // Keep for fallback
+                }
+            },
+            
+            // 🔥 OPTIMIZATION: Add currentCategory field efficiently
+            { $addFields: { currentCategory: 'completed' } }
+        ];
+
+        // 🔥 STEP 5: Execute optimized parallel queries with better error handling
+        console.log(`🚀 Executing optimized query...`);
+        
+        // Build count pipeline efficiently
+        const countPipeline = [
+            { $match: queryFilters },
+            { $count: "total" }
+        ];
+
+        // Use Promise.allSettled for better error handling
+        const [studiesResult, totalCountResult] = await Promise.allSettled([
+            DicomStudy.aggregate(pipeline).allowDiskUse(false), // Disable disk use for better performance
+            patientName ? 
+                DicomStudy.aggregate([
+                    ...countPipeline.slice(0, -1),
+                    // Add patient name filtering to count pipeline if needed
+                    { $lookup: { from: 'patients', localField: 'patient', foreignField: '_id', as: 'patientData' } },
+                    { $match: { 
+                        $or: [ 
+                            { 'patientInfo.patientName': { $regex: patientName, $options: 'i' } }, 
+                            { 'patientInfo.patientID': { $regex: patientName, $options: 'i' } },
+                            { 'patientData.patientNameRaw': { $regex: patientName, $options: 'i' } },
+                            { 'patientData.patientID': { $regex: patientName, $options: 'i' } }
+                        ] 
+                    }},
+                    { $count: "total" }
+                ]).allowDiskUse(false) :
+                DicomStudy.countDocuments(queryFilters)
+        ]);
+
+        // Handle potential errors
+        if (studiesResult.status === 'rejected') {
+            throw new Error(`Studies query failed: ${studiesResult.reason.message}`);
+        }
+        if (totalCountResult.status === 'rejected') {
+            console.warn('Count query failed, using studies length:', totalCountResult.reason.message);
+        }
+
+        const studies = studiesResult.value;
+        const totalCountValue = totalCountResult.status === 'fulfilled' ? totalCountResult.value : studies.length;
+        const totalStudies = patientName ? (Array.isArray(totalCountValue) && totalCountValue[0]?.total || 0) : totalCountValue;
+
+        const queryTime = Date.now() - queryStart;
+        console.log(`⚡ Core query completed in ${queryTime}ms - found ${studies.length} studies`);
+
+        // 🔥 STEP 6: Optimized batch lookups with connection pooling awareness
+        const lookupMaps = {
+            patients: new Map(),
+            labs: new Map()
+        };
+
+        if (studies.length > 0) {
+            const lookupStart = Date.now();
+            
+            // Extract unique IDs with Set for deduplication
+            const uniqueIds = {
+                patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
+                labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))]
+            };
+
+            // 🔥 PARALLEL: Optimized batch lookups with lean queries
+            const lookupPromises = [];
+
+            if (uniqueIds.patients.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Patient')
+                        .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .lean()
+                        .then(results => ({ type: 'patients', data: results }))
+                );
+            }
+
+            if (uniqueIds.labs.length > 0) {
+                lookupPromises.push(
+                    mongoose.model('Lab')
+                        .find({ _id: { $in: uniqueIds.labs.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('name')
+                        .lean()
+                        .then(results => ({ type: 'labs', data: results }))
+                );
+            }
+
+            // Execute all lookups in parallel
+            const lookupResults = await Promise.allSettled(lookupPromises);
+            
+            // Process results and build maps
+            lookupResults.forEach(result => {
+                if (result.status === 'fulfilled') {
+                    const { type, data } = result.value;
+                    data.forEach(item => {
+                        lookupMaps[type].set(item._id.toString(), item);
+                    });
+                } else {
+                    console.warn(`Lookup failed for ${result.reason}`);
+                }
+            });
+            
+            const lookupTime = Date.now() - lookupStart;
+            console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
+        }
+
+        // 🔥 STEP 7: Apply patient name filtering after lookups (if specified)
+        let filteredStudies = studies;
+        if (patientName) {
+            filteredStudies = studies.filter(study => {
+                const patient = lookupMaps.patients.get(study.patient?.toString());
+                const patientInfo = study.patientInfo;
+                
+                const searchRegex = new RegExp(patientName, 'i');
+                
+                return (
+                    // Check populated patient data
+                    (patient && (
+                        searchRegex.test(patient.computed?.fullName || '') ||
+                        searchRegex.test(patient.patientNameRaw || '') ||
+                        searchRegex.test(patient.patientID || '')
+                    )) ||
+                    // Check embedded patient info as fallback
+                    (patientInfo && (
+                        searchRegex.test(patientInfo.patientName || '') ||
+                        searchRegex.test(patientInfo.patientID || '')
+                    ))
+                );
+            });
+        }
+
+        // 🔥 STEP 8: Optimized formatting with pre-compiled maps
+        const formatStart = Date.now();
+        
+        const formattedStudies = filteredStudies.map(study => {
+            // Get related data from maps (faster than repeated lookups)
+            const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
+            const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            
+            // Handle assignment data efficiently
+            const assignmentData = (study.assignment && study.assignment.length > 0) ? 
+                                   study.assignment[study.assignment.length - 1] : 
+                                   (study.lastAssignedDoctor && study.lastAssignedDoctor.length > 0) ? 
+                                   study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1] : null;
+
+            // Optimized patient display building
+            const patientName = patient?.computed?.fullName || patient?.patientNameRaw || 'N/A';
+            const patientId = patient?.patientID || 'N/A';
+            const ageGender = (patient?.ageString && patient?.gender) ? 
+                             `${patient.ageString} / ${patient.gender}` : 'N/A';
+
+            // Optimized date formatting
+            const studyDateTime = study.studyDate && study.studyTime ? 
+                                 `${new Date(study.studyDate).toLocaleDateString()} ${study.studyTime.substring(0, 6)}` : 
+                                 (study.studyDate ? new Date(study.studyDate).toLocaleDateString() : 'N/A');
+
+            return {
+                _id: study._id,
+                orthancStudyID: study.orthancStudyID,
+                studyInstanceUID: study.studyInstanceUID,
+                instanceID: study.studyInstanceUID,
+                accessionNumber: study.accessionNumber,
+                patientId: patientId,
+                patientName: patientName,
+                ageGender: ageGender,
+                description: study.examDescription || study.studyDescription || 'N/A',
+                modality: study.modality || 'N/A',
+                seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
+                location: sourceLab?.name || 'N/A',
+                studyDate: study.studyDate,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
+                workflowStatus: study.workflowStatus,
+                currentCategory: study.currentCategory,
+                createdAt: study.createdAt,
+                priority: assignmentData?.priority || 'NORMAL',
+                caseType: study.caseType || 'routine',
+                assignedDate: assignmentData?.assignedAt,
+                reportStartedAt: study.reportInfo?.startedAt,
+                reportFinalizedAt: study.reportInfo?.finalizedAt,
+                reportedBy: study.reportInfo?.reporterName || 'N/A',
+                ReportAvailable: study.ReportAvailable || true // A completed report is available
+            };
+        });
+
+        const formatTime = Date.now() - formatStart;
+        const processingTime = Date.now() - startTime;
+
+        console.log(`✅ DOCTOR COMPLETED: Formatting completed in ${formatTime}ms`);
+        console.log(`🎯 DOCTOR COMPLETED: Total processing time: ${processingTime}ms for ${formattedStudies.length} studies`);
+
+        // Enhanced response with performance metrics
+        res.status(200).json({
+            success: true,
+            count: formattedStudies.length,
+            totalRecords: totalStudies,
+            recordsPerPage: limit,
+            data: formattedStudies,
+            pagination: {
+                currentPage: 1,
+                totalPages: Math.ceil(totalStudies / limit),
+                totalRecords: totalStudies,
+                limit: limit,
+                hasNextPage: (1 * limit) < totalStudies,
+                hasPrevPage: false,
+                recordRange: { start: 1, end: Math.min(formattedStudies.length, totalStudies) },
+                isSinglePage: totalStudies <= limit
+            },
+            summary: {
+                byCategory: { all: totalStudies, pending: 0, inprogress: 0, completed: totalStudies },
+                urgentStudies: formattedStudies.filter(s => ['URGENT', 'EMERGENCY', 'STAT'].includes(s.priority)).length,
+                total: totalStudies
+            },
+            performance: {
+                queryTime: processingTime,
+                fromCache: false,
+                recordsReturned: formattedStudies.length,
+                breakdown: {
+                    coreQuery: queryTime,
+                    lookups: studies.length > 0 ? `${Date.now() - formatStart}ms` : 0,
+                    formatting: formatTime
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ DOCTOR COMPLETED: Error fetching completed studies:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error fetching completed studies.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    }
+};
+
+
 
 
 

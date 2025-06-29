@@ -15,28 +15,38 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
       try {
         // If we already have the study with patient data, use it
         if (study && Object.keys(study).length > 0) {
+          console.log('📋 Using study data directly:', study);
+          
+          // 🔧 FIXED: Use actual study data structure from backend
           setPatientData({
             patientID: study.patientId,
             patientNameRaw: study.patientName,
-            ageString: study.ageGender ? study.ageGender.split('/')[0] : '',
-            dateOfBirth: study.patientDateOfBirth,
+            ageString: study.ageGender ? study.ageGender.split(' / ')[0] : '',
+            gender: study.ageGender ? study.ageGender.split(' / ')[1] : '',
             studyData: {
-              studyId: study.orthancStudyID || study._id,
+              studyId: study._id,
               studyInstanceUID: study.studyInstanceUID,
               studyDescription: study.description,
-              imageCenter: study.institutionName || study.location,
+              imageCenter: study.location,
               modality: study.modality,
               studyStatus: study.workflowStatus,
-              noOfSeries: study.numberOfSeries || (study.seriesImages ? study.seriesImages.split('/')[0] : ''),
-              noOfImages: study.numberOfImages || (study.seriesImages ? study.seriesImages.split('/')[1] : ''),
+              noOfSeries: study.series ? study.series.split('/')[0] : '',
+              noOfImages: study.series ? study.series.split('/')[1] : '',
               studyDate: study.studyDate || formatDateString(study.studyDateTime),
-              referringPhysician: study.referredBy,
+              referringPhysician: study.referringPhysicianName || '',
               accessionNumber: study.accessionNumber,
               uploadDate: formatDateTimeString(study.uploadDateTime),
-              reportDate: formatDateTimeString(study.reportedDateTime),
-              assignedDate: formatDateTimeString(study.assignedDate),
+              reportDate: study.reportedDate ? formatDateTimeString(study.reportedDate) : '',
+              assignedDate: study.assignmentHistory?.lastAssignedAt ? formatDateTimeString(study.assignmentHistory.lastAssignedAt) : '',
               reportedBy: study.reportedBy,
-              turnaroundTime: study.diffAssignAndReportTAT || '25 Minutes'
+              turnaroundTime: study.diffAssignAndReportTAT || 'Pending',
+              // 🔧 NEW: Additional fields from actual data
+              orthancStudyID: study.orthancStudyID,
+              priority: study.priority,
+              caseType: study.caseType,
+              clinicalHistory: study.clinicalHistory,
+              assignedDoctorName: study.assignedDoctorName,
+              latestAssignedDoctor: study.latestAssignedDoctorDetails
             }
           });
           setLoading(false);
@@ -93,6 +103,58 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
     }
   };
 
+  const calculateFrontendTAT = (patientDetails) => {
+    console.log(`[Frontend TAT] Calculating TAT with data:`, patientDetails);
+
+    // 🔧 PRIORITY 1: Use backend calculated TAT from studies if available
+    if (patientDetails?.studies?.[0]?.tat) {
+        const backendTAT = patientDetails.studies[0].tat;
+        console.log(`[Frontend TAT] Using backend calculated TAT:`, backendTAT);
+        
+        // Use totalTATDays if available, otherwise calculate from minutes
+        if (backendTAT.totalTATDays !== null && backendTAT.totalTATDays !== undefined) {
+            return backendTAT.totalTATDays;
+        }
+        
+        if (backendTAT.totalTATMinutes) {
+            return Math.floor(backendTAT.totalTATMinutes / (60 * 24)); // Convert minutes to days
+        }
+        
+        if (backendTAT.resetAwareTATDays !== null) {
+            return backendTAT.resetAwareTATDays;
+        }
+    }
+
+    // 🔧 PRIORITY 2: Check if we just performed a TAT reset and have fresh data
+    if (patientDetails?.tatResetInfo?.wasReset && 
+        patientDetails?.tatResetInfo?.freshTATData?.length > 0) {
+        const freshTAT = patientDetails.tatResetInfo.freshTATData[0].tat;
+        console.log(`[Frontend TAT] Using fresh TAT after reset:`, freshTAT);
+        
+        if (freshTAT.resetAwareTATDays !== null) {
+            return freshTAT.resetAwareTATDays;
+        }
+        
+        if (freshTAT.totalTATDays !== null) {
+            return freshTAT.totalTATDays;
+        }
+    }
+
+    // 🔧 FALLBACK: Calculate from order date if no backend TAT
+    if (patientDetails?.visitInfo?.orderDate) {
+        const startDate = new Date(patientDetails.visitInfo.orderDate);
+        if (!isNaN(startDate.getTime())) {
+            const currentDate = new Date();
+            const totalDays = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
+            console.log(`[Frontend TAT] Calculated from order date: ${totalDays} days`);
+            return totalDays;
+        }
+    }
+
+    console.log(`[Frontend TAT] No valid TAT data found, returning 0`);
+    return 0;
+};
+
   if (!isOpen) return null;
 
   return (
@@ -131,57 +193,63 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                   <tbody>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200 w-1/6">StudyId</td>
-                      <td className="px-4 py-2 border border-gray-200 w-1/3">{study._id || patientData.studyData?.studyId || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200 w-1/3">{patientData.studyData?.studyId || study._id || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200 w-1/6">Study InstanceUID</td>
-                      <td className="px-4 py-2 border border-gray-200 w-1/3">{study.studyInstanceUID || patientData.studyData?.studyInstanceUID || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200 w-1/3">{patientData.studyData?.studyInstanceUID || study.studyInstanceUID || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientId</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.patientId || patientData.patientID || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.patientID || study.patientId || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Study Description</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.description || patientData.studyData?.studyDescription || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyDescription || study.description || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientName</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.patientName || patientData.patientNameRaw || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.patientNameRaw || study.patientName || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Image Center Name</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.location || patientData.studyData?.imageCenter || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.imageCenter || study.location || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientAge</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.ageGender?.split('/')[0].trim() || patientData.ageString || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.ageString || (study.ageGender ? study.ageGender.split(' / ')[0] : '')}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Modality</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.modality || patientData.studyData?.modality || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.modality || study.modality || ''}</td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientDOB</td>
-                      <td className="px-4 py-2 border border-gray-200">{''}</td>
+                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">PatientGender</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.gender || (study.ageGender ? study.ageGender.split(' / ')[1] : '')}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">StudyStatus</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.workflowStatus || patientData.studyData?.studyStatus || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyStatus || study.workflowStatus || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">StudyDate</td>
-                      <td className="px-4 py-2 border border-gray-200">{formatDateString(study.studyDateTime) || patientData.studyData?.studyDate || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.studyDate || formatDateString(study.studyDateTime || study.studyDate) || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">NoOfSeries</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.numberOfSeries || patientData.studyData?.noOfSeries || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.noOfSeries || (study.series ? study.series.split('/')[0] : '') || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Referring Physician Name</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.referredBy || patientData.studyData?.referringPhysician || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.referringPhysician || study.referringPhysicianName || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">NoOfImages</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.numberOfImages || patientData.studyData?.noOfImages || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.noOfImages || (study.series ? study.series.split('/')[1] : '') || ''}</td>
                     </tr>
                     <tr>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Accession Number</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.accessionNumber || patientData.studyData?.accessionNumber || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.accessionNumber || study.accessionNumber || ''}</td>
                       <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">UploadDate</td>
-                      <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.uploadDateTime) || patientData.studyData?.uploadDate || ''}</td>
+                      <td className="px-4 py-2 border border-gray-200">{patientData.studyData?.uploadDate || formatDateTimeString(study.uploadDateTime) || ''}</td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">TechnologistName</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.technologistName || patientData.studyData?.technologistName }</td>
-                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200"></td>
-                      <td className="px-4 py-2 border border-gray-200"></td>
+                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Priority</td>
+                      <td className="px-4 py-2 border border-gray-200">{study.priority || 'NORMAL'}</td>
+                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Case Type</td>
+                      <td className="px-4 py-2 border border-gray-200">{study.caseType || 'routine'}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Clinical History</td>
+                      <td className="px-4 py-2 border border-gray-200 text-sm">{study.clinicalHistory || 'Not provided'}</td>
+                      <td className="px-4 py-2 bg-gray-100 font-medium border border-gray-200">Orthanc Study ID</td>
+                      <td className="px-4 py-2 border border-gray-200">{study.orthancStudyID || ''}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -190,25 +258,74 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
               {/* Assigned Information Section */}
               <div className="mb-4">
                 <div className="bg-slate-700 text-white px-4 py-2">
-                  <h3 className="font-medium">Assigned Information</h3>
+                  <h3 className="font-medium">Assignment Information</h3>
                 </div>
                 <table className="w-full border-collapse">
                   <thead>
                     <tr>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Technologist</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Radiologist</th>
-                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Date of Assigned</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Assignment #</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Doctor Name</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Specialization</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Date Assigned</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr>
-                      <td className="px-4 py-2 border border-gray-200">Xcentic</td>
-                      <td className="px-4 py-2 border border-gray-200">{study.assignedDoctorName || study.reportedBy}</td>
-                      <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.assignedDate || study.lastAssignmentAt) || ''}</td>
-                    </tr>
+                    {study.doctorAssignments && study.doctorAssignments.length > 0 ? (
+                      study.doctorAssignments.map((assignment, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
+                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorDetails?.fullName || 'Unknown'}</td>
+                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorDetails?.specialization || 'Unknown'}</td>
+                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(assignment.assignedAt) || ''}</td>
+                          <td className="px-4 py-2 border border-gray-200">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              assignment.doctorDetails?.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                            }`}>
+                              {assignment.doctorDetails?.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="5" className="px-4 py-2 text-center border border-gray-200">
+                          No assignments found
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              
+              {/* Current Assignment Summary */}
+              {study.latestAssignedDoctorDetails && (
+                <div className="mb-4">
+                  <div className="bg-slate-700 text-white px-4 py-2">
+                    <h3 className="font-medium">Current Assignment</h3>
+                  </div>
+                  <div className="p-4 bg-blue-50 border border-blue-200">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="font-medium text-gray-600">Doctor:</span>
+                        <p className="font-semibold text-blue-800">{study.latestAssignedDoctorDetails.fullName}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Specialization:</span>
+                        <p className="text-gray-800">{study.latestAssignedDoctorDetails.specialization}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Email:</span>
+                        <p className="text-gray-800">{study.latestAssignedDoctorDetails.email}</p>
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-600">Assigned Date:</span>
+                        <p className="text-gray-800">{formatDateTimeString(study.latestAssignedDoctorDetails.assignedAt)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {/* Study Download Information Section */}
               <div className="mb-4">
@@ -226,7 +343,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                     {study.downloadHistory?.length > 0 ? (
                       study.downloadHistory.map((download, idx) => (
                         <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user }</td>
+                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'Unknown User'}</td>
                           <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
                         </tr>
                       ))
@@ -257,7 +374,7 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                     {study.reportDownloadHistory?.length > 0 ? (
                       study.reportDownloadHistory.map((download, idx) => (
                         <tr key={idx}>
-                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user }</td>
+                          <td className="px-4 py-2 border border-gray-200">{download.userName || download.user || 'Unknown User'}</td>
                           <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(download.date || download.downloadedAt) || ''}</td>
                         </tr>
                       ))
@@ -283,25 +400,68 @@ const PatientReport = ({ patientId, isOpen, onClose, study = {} }) => {
                       <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Reported By</th>
                       <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">ReportDate</th>
                       <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">TurnAroundTime</th>
+                      <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Report Available</th>
                     </tr>
                   </thead>
                   <tbody>
                     {study.reportedBy ? (
                       <tr>
-                        <td className="px-4 py-2 border border-gray-200">{study.reportedBy }</td>
-                        <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.reportDate || study.reportFinalizedAt) || ''}</td>
-                        <td className="px-4 py-2 border border-gray-200">{study.diffAssignAndReportTAT || '29 Minutes'}</td>
+                        <td className="px-4 py-2 border border-gray-200">{study.reportedBy}</td>
+                        <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(study.reportDate || study.reportFinalizedAt) || 'Not reported yet'}</td>
+                        <td className="px-4 py-2 border border-gray-200">{study.diffAssignAndReportTAT || 'Pending'}</td>
+                        <td className="px-4 py-2 border border-gray-200">
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            study.ReportAvailable ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {study.ReportAvailable ? 'Available' : 'Not Available'}
+                          </span>
+                        </td>
                       </tr>
                     ) : (
                       <tr>
-                        <td colSpan="3" className="px-4 py-2 text-center border border-gray-200">
-                          No Report Download Status Found...!
+                        <td colSpan="4" className="px-4 py-2 text-center border border-gray-200">
+                          No Report Status Found...!
                         </td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
+              
+              {/* Assignment History Section */}
+              {study.assignmentChain && study.assignmentChain.length > 0 && (
+                <div className="mb-4">
+                  <div className="bg-slate-700 text-white px-4 py-2">
+                    <h3 className="font-medium">Assignment Chain History</h3>
+                  </div>
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Step</th>
+                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Doctor Name</th>
+                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Assigned Date</th>
+                        <th className="px-4 py-2 text-left font-medium bg-slate-700 text-white border border-slate-600">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {study.assignmentChain.map((assignment, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2 border border-gray-200">{index + 1}</td>
+                          <td className="px-4 py-2 border border-gray-200">{assignment.doctorName}</td>
+                          <td className="px-4 py-2 border border-gray-200">{formatDateTimeString(assignment.assignedAt)}</td>
+                          <td className="px-4 py-2 border border-gray-200">
+                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                              assignment.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            }`}>
+                              {assignment.isActive ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               
               {/* Dispatched Information Section */}
               <div className="mb-4">

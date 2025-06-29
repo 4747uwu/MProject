@@ -140,26 +140,28 @@ const StudySeries = ({ study, isOpen, onClose }) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {study?.series && study.series.length > 0 ? (
-                    study.series.map((series, idx) => (
-                      <tr key={idx} className="border-b border-gray-200">
-                        <td className="border border-gray-300 p-2">{idx + 1}</td>
-                        <td className="border border-gray-300 p-2">{series.seriesDate || 'N/A'}</td>
-                        <td className="border border-gray-300 p-2">{series.seriesTime || 'N/A'}</td>
-                        <td className="border border-gray-300 p-2">{series.seriesDescription || 'N/A'}</td>
-                        <td className="border border-gray-300 p-2">{series.bodyPart || 'N/A'}</td>
-                        <td className="border border-gray-300 p-2">{series.patientPosition || 'N/A'}</td>
-                        <td className="border border-gray-300 p-2">{series.numberOfImages || 'N/A'}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="7" className="border border-gray-300 p-3 text-center">
-                        No Series Found...!
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
+  {Array.isArray(study?.series) && study.series.length > 0 ? (
+    study.series.map((series, idx) => (
+      <tr key={idx} className="border-b border-gray-200">
+        <td className="border border-gray-300 p-2">{idx + 1}</td>
+        <td className="border border-gray-300 p-2">{series.seriesDate || 'N/A'}</td>
+        <td className="border border-gray-300 p-2">{series.seriesTime || 'N/A'}</td>
+        <td className="border border-gray-300 p-2">{series.seriesDescription || 'N/A'}</td>
+        <td className="border border-gray-300 p-2">{series.bodyPart || 'N/A'}</td>
+        <td className="border border-gray-300 p-2">{series.patientPosition || 'N/A'}</td>
+        <td className="border border-gray-300 p-2">{series.numberOfImages || 'N/A'}</td>
+      </tr>
+    ))
+  ) : (
+    <tr>
+      <td colSpan="7" className="border border-gray-300 p-3 text-center">
+        {typeof study?.series === 'string' && study.series.length > 0
+          ? `Series info: ${study.series}`
+          : 'No Series Found...!'}
+      </td>
+    </tr>
+  )}
+</tbody>
               </table>
             </div>
           </div>

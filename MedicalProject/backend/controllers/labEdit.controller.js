@@ -579,7 +579,7 @@ export const getPatientDetailedView = async (req, res) => {
       };
 
       // 🔧 PERFORMANCE: Cache the result
-      cache.set(cacheKey, responseData, 180); // 3 minutes
+      // cache.set(cacheKey, responseData, 180); // 3 minutes
 
       console.log('✅ Patient detailed view fetched successfully with ALL NEW FIELDS');
       console.log(`📊 Enhanced Summary: ${responseData.summary.totalStudies} studies, ${responseData.summary.emergencyCases} emergency, ${responseData.summary.uniqueTechnologists} technologists`);
@@ -832,16 +832,11 @@ const resetTATForPatientStudies = async (patientObjectId, changeInfo, userId) =>
 };
 // 🆕 NEW: Helper function to calculate TAT for a single study (extract from getPatientDetailedView)
 // 🔧 FIXED: Helper function to calculate TAT for a single study
+// 🔧 STANDARDIZED: Unified TAT calculation function
 const calculateTATForStudy = (study) => {
-  if (!study) return {};
+  if (!study) return getEmptyTAT();
 
   console.log(`[TAT Calc] Calculating TAT for study: ${study.studyInstanceUID}`);
-  console.log(`[TAT Calc] Raw dates:`, {
-      studyDate: study.studyDate,
-      createdAt: study.createdAt,
-      assignedAt: study.assignment?.assignedAt,
-      reportFinalizedAt: study.reportInfo?.finalizedAt
-  });
 
   // 🔧 CRITICAL FIX: Handle study date in YYYYMMDD format
   let studyDate = null;
@@ -852,17 +847,10 @@ const calculateTATForStudy = (study) => {
           const month = study.studyDate.substring(4, 6);
           const day = study.studyDate.substring(6, 8);
           studyDate = new Date(`${year}-${month}-${day}`);
-          console.log(`[TAT Calc] Converted YYYYMMDD ${study.studyDate} to Date: ${studyDate}`);
-      } else if (typeof study.studyDate === 'string') {
-          // Try direct parsing
-          studyDate = new Date(study.studyDate);
       } else {
-          // 🔧 FIX: Don't parse numeric values as dates directly
-          console.log(`[TAT Calc] ⚠️ Unexpected studyDate format:`, typeof study.studyDate, study.studyDate);
-          studyDate = null;
+          studyDate = new Date(study.studyDate);
       }
       
-      // Validate the date
       if (studyDate && isNaN(studyDate.getTime())) {
           console.log(`[TAT Calc] ⚠️ Invalid study date: ${study.studyDate}`);
           studyDate = null;
@@ -874,53 +862,98 @@ const calculateTATForStudy = (study) => {
   const reportDate = study.reportInfo?.finalizedAt ? new Date(study.reportInfo.finalizedAt) : null;
   const currentDate = new Date();
 
-  console.log(`[TAT Calc] Processed dates:`, {
-      studyDate: studyDate ? studyDate.toISOString() : 'null',
-      uploadDate: uploadDate ? uploadDate.toISOString() : 'null',
-      assignedDate: assignedDate ? assignedDate.toISOString() : 'null',
-      reportDate: reportDate ? reportDate.toISOString() : 'null',
-      currentDate: currentDate.toISOString()
-  });
-
   const calculateMinutes = (start, end) => {
       if (!start || !end) return null;
-      const minutes = Math.round((end - start) / (1000 * 60));
-      console.log(`[TAT Calc] Minutes between ${start.toISOString()} and ${end.toISOString()}: ${minutes}`);
-      return minutes;
+      return Math.round((end - start) / (1000 * 60));
   };
 
   const calculateDays = (start, end) => {
       if (!start || !end) return null;
-      const days = Math.round((end - start) / (1000 * 60 * 60 * 24));
-      console.log(`[TAT Calc] Days between ${start.toISOString()} and ${end.toISOString()}: ${days}`);
-      return days;
+      return Math.round((end - start) / (1000 * 60 * 60 * 24));
   };
 
-  // 🔧 CRITICAL FIX: Use upload date as baseline for TAT calculation after reset
-  const tatBaseline = uploadDate; // This is what gets reset
+  // 🔧 CRITICAL: Calculate TAT based on what phase we're in
   const endDate = reportDate || currentDate;
   
   const result = {
+      // Phase 1: Study to Upload
       studyToUploadTAT: studyDate && uploadDate ? calculateMinutes(studyDate, uploadDate) : null,
+      
+      // Phase 2: Upload to Assignment
       uploadToAssignmentTAT: uploadDate && assignedDate ? calculateMinutes(uploadDate, assignedDate) : null,
+      
+      // Phase 3: Assignment to Report
       assignmentToReportTAT: assignedDate && reportDate ? calculateMinutes(assignedDate, reportDate) : null,
+      
+      // End-to-End TAT calculations
       studyToReportTAT: studyDate && reportDate ? calculateMinutes(studyDate, reportDate) : null,
       uploadToReportTAT: uploadDate && reportDate ? calculateMinutes(uploadDate, reportDate) : null,
       
-      // 🔧 CRITICAL FIX: Calculate TAT from upload (reset baseline) to current/report
-      totalTATDays: tatBaseline ? calculateDays(tatBaseline, endDate) : null,
+      // Total TAT (from upload baseline to current/report)
+      totalTATDays: uploadDate ? calculateDays(uploadDate, endDate) : null,
+      totalTATMinutes: uploadDate ? calculateMinutes(uploadDate, endDate) : null,
       
-      // 🔧 SEPARATE: Keep study-to-current for reference (this won't reset)
-      studyToCurrentDays: studyDate ? calculateDays(studyDate, currentDate) : null,
+      // Reset-aware TAT (for studies that had TAT reset)
+      resetAwareTATDays: uploadDate ? calculateDays(uploadDate, currentDate) : null,
       
-      // 🆕 NEW: Add reset-aware TAT (this should be 0 or very small after reset)
-      resetAwareTATDays: tatBaseline ? calculateDays(tatBaseline, currentDate) : null
+      // Formatted versions for display
+      studyToReportTATFormatted: null,
+      uploadToReportTATFormatted: null,
+      assignmentToReportTATFormatted: null,
+      totalTATFormatted: null
   };
+
+  // Apply formatting
+  if (result.studyToReportTAT) {
+      result.studyToReportTATFormatted = formatTAT(result.studyToReportTAT);
+  }
+  if (result.uploadToReportTAT) {
+      result.uploadToReportTATFormatted = formatTAT(result.uploadToReportTAT);
+  }
+  if (result.assignmentToReportTAT) {
+      result.assignmentToReportTATFormatted = formatTAT(result.assignmentToReportTAT);
+  }
+  if (result.totalTATDays !== null) {
+      result.totalTATFormatted = `${result.totalTATDays} days`;
+  }
 
   console.log(`[TAT Calc] Final TAT result:`, result);
   return result;
 };
 
+// 🔧 HELPER: Get empty TAT structure
+const getEmptyTAT = () => ({
+    studyToUploadTAT: null,
+    uploadToAssignmentTAT: null,
+    assignmentToReportTAT: null,
+    studyToReportTAT: null,
+    uploadToReportTAT: null,
+    totalTATDays: null,
+    totalTATMinutes: null,
+    resetAwareTATDays: null,
+    studyToReportTATFormatted: 'N/A',
+    uploadToReportTATFormatted: 'N/A',
+    assignmentToReportTATFormatted: 'N/A',
+    totalTATFormatted: 'N/A'
+});
+
+// 🔧 HELPER: Format TAT for display
+const formatTAT = (minutes) => {
+    if (!minutes || minutes <= 0) return 'N/A';
+    
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    
+    if (hours === 0) {
+        return `${remainingMinutes}m`;
+    } else if (hours < 24) {
+        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+    } else {
+        const days = Math.floor(hours / 24);
+        const remainingHours = hours % 24;
+        return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+    }
+};
 
 // 🔧 OPTIMIZED: updatePatientDetails (same name, enhanced performance)
 export const updatePatientDetails = async (req, res) => {

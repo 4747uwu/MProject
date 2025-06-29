@@ -10,6 +10,7 @@ import mongoose from 'mongoose';
 import WasabiService from '../services/wasabi.service.js';
 import multer from 'multer';
 import sharp from 'sharp'; // For image optimization
+import { calculateStudyTAT, getLegacyTATFields,updateStudyTAT } from '../utils/TATutility.js';
 
 
 // import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
@@ -30,6 +31,95 @@ const signatureUpload = multer({
         }
     }
 });
+
+const calculateTATForStudy = (study) => {
+    if (!study) return getEmptyTAT();
+  
+    console.log(`[TAT Calc] Calculating TAT for study: ${study.studyInstanceUID}`);
+  
+    // 🔧 CRITICAL FIX: Handle study date in YYYYMMDD format
+    let studyDate = null;
+    if (study.studyDate) {
+        if (typeof study.studyDate === 'string' && study.studyDate.length === 8) {
+            // Handle YYYYMMDD format (like "19960308")
+            const year = study.studyDate.substring(0, 4);
+            const month = study.studyDate.substring(4, 6);
+            const day = study.studyDate.substring(6, 8);
+            studyDate = new Date(`${year}-${month}-${day}`);
+        } else {
+            studyDate = new Date(study.studyDate);
+        }
+        
+        if (studyDate && isNaN(studyDate.getTime())) {
+            console.log(`[TAT Calc] ⚠️ Invalid study date: ${study.studyDate}`);
+            studyDate = null;
+        }
+    }
+  
+    const uploadDate = study.createdAt ? new Date(study.createdAt) : null;
+    const assignedDate = study.assignment?.assignedAt ? new Date(study.assignment.assignedAt) : null;
+    const reportDate = study.reportInfo?.finalizedAt ? new Date(study.reportInfo.finalizedAt) : null;
+    const currentDate = new Date();
+  
+    const calculateMinutes = (start, end) => {
+        if (!start || !end) return null;
+        return Math.round((end - start) / (1000 * 60));
+    };
+  
+    const calculateDays = (start, end) => {
+        if (!start || !end) return null;
+        return Math.round((end - start) / (1000 * 60 * 60 * 24));
+    };
+  
+    // 🔧 CRITICAL: Calculate TAT based on what phase we're in
+    const endDate = reportDate || currentDate;
+    
+    const result = {
+        // Phase 1: Study to Upload
+        studyToUploadTAT: studyDate && uploadDate ? calculateMinutes(studyDate, uploadDate) : null,
+        
+        // Phase 2: Upload to Assignment
+        uploadToAssignmentTAT: uploadDate && assignedDate ? calculateMinutes(uploadDate, assignedDate) : null,
+        
+        // Phase 3: Assignment to Report
+        assignmentToReportTAT: assignedDate && reportDate ? calculateMinutes(assignedDate, reportDate) : null,
+        
+        // End-to-End TAT calculations
+        studyToReportTAT: studyDate && reportDate ? calculateMinutes(studyDate, reportDate) : null,
+        uploadToReportTAT: uploadDate && reportDate ? calculateMinutes(uploadDate, reportDate) : null,
+        
+        // Total TAT (from upload baseline to current/report)
+        totalTATDays: uploadDate ? calculateDays(uploadDate, endDate) : null,
+        totalTATMinutes: uploadDate ? calculateMinutes(uploadDate, endDate) : null,
+        
+        // Reset-aware TAT (for studies that had TAT reset)
+        resetAwareTATDays: uploadDate ? calculateDays(uploadDate, currentDate) : null,
+        
+        // Formatted versions for display
+        studyToReportTATFormatted: null,
+        uploadToReportTATFormatted: null,
+        assignmentToReportTATFormatted: null,
+        totalTATFormatted: null
+    };
+  
+    // Apply formatting
+    if (result.studyToReportTAT) {
+        result.studyToReportTATFormatted = formatTAT(result.studyToReportTAT);
+    }
+    if (result.uploadToReportTAT) {
+        result.uploadToReportTATFormatted = formatTAT(result.uploadToReportTAT);
+    }
+    if (result.assignmentToReportTAT) {
+        result.assignmentToReportTATFormatted = formatTAT(result.assignmentToReportTAT);
+    }
+    if (result.totalTATDays !== null) {
+        result.totalTATFormatted = `${result.totalTATDays} days`;
+    }
+  
+    console.log(`[TAT Calc] Final TAT result:`, result);
+    return result;
+  };
+  
 
 // 🔧 PERFORMANCE: Advanced caching with different TTLs
 const cache = new NodeCache({ 
@@ -184,7 +274,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
-                    reportedBy: 1,
+                    reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
                     caseType: 1,
@@ -400,6 +490,9 @@ export const getAllStudiesForAdmin = async (req, res) => {
 
             // Fast category lookup using pre-compiled map
             const currentCategory = categoryMap[study.workflowStatus] || 'unknown';
+            const tat = study.calculatedTAT || calculateStudyTAT(study);
+            const legacyTATFields = getLegacyTATFields(tat);
+
 
             return {
                 _id: study._id,
@@ -415,21 +508,56 @@ export const getAllStudiesForAdmin = async (req, res) => {
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate && study.studyTime ? 
-                              `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                              (study.studyDate || 'N/A'),
+                studyDateTime: study.studyDate
+                ? new Date(study.studyDate).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 studyDate: study.studyDate,
-                uploadDateTime: study.createdAt,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: currentCategory,
                 createdAt: study.createdAt,
-                reportedBy: study.reportedBy || latestAssignedDoctor?.userAccount?.fullName || 'N/A',
+                reportedBy: study.reportInfo?.reporterName 
+                
+                || 'N/A',
+                reportedDate: study.reportInfo?.finalizedAt
+                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : null,
+
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: study.clinicalHistory || '',
+                tat: tat,
+                ...legacyTATFields,
+                totalTATDays: tat.totalTATDays,
+                totalTATFormatted: tat.totalTATFormatted,
+                isOverdue: tat.isOverdue,
+                tatPhase: tat.phase,
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
@@ -1715,6 +1843,13 @@ export const assignDoctorToStudy = async (req, res) => {
                     { session: currentSession }
                 );
             }
+
+            const freshTAT = calculateStudyTAT(updatedStudyDoc.toObject());
+            await updateStudyTAT(studyId, freshTAT, currentSession);
+
+            console.log(`✅ TAT recalculated after assignment - Upload to Assignment: ${freshTAT.uploadToAssignmentTATFormatted}`);
+    
+            
 
             // Clear caches
             const patientIdForCache = updatedStudyDoc.patient?.patientID || updatedStudyDoc.patientId;
@@ -3833,7 +3968,7 @@ export const getPendingStudies = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
-                    reportedBy: 1,
+                    reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
                     caseType: 1,
@@ -4041,12 +4176,43 @@ export const getPendingStudies = async (req, res) => {
                 studyDateTime: study.studyDate && study.studyTime ? 
                               `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
                               (study.studyDate || 'N/A'),
-                studyDate: study.studyDate || null,
-                uploadDateTime: study.createdAt,
+                              studyDateTime: study.studyDate
+                              ? new Date(study.studyDate).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
+                              studyDate: study.studyDate,
+                              uploadDateTime: study.createdAt
+                              ? new Date(study.createdAt).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'pending', // All results will be pending
                 createdAt: study.createdAt,
-                reportedBy: study.reportedBy || 'N/A',
+                reportedBy: study.reportInfo?.reporterName 
+                
+                || 'N/A',
+                reportedDate: study.reportInfo?.finalizedAt
+                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -4310,7 +4476,7 @@ export const getInProgressStudies = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
-                    reportedBy: 1,
+                    reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
                     caseType: 1,
@@ -4514,12 +4680,43 @@ export const getInProgressStudies = async (req, res) => {
                 studyDateTime: study.studyDate && study.studyTime ? 
                               `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
                               (study.studyDate || 'N/A'),
-                studyDate: study.studyDate || null,
-                uploadDateTime: study.createdAt,
+                              studyDateTime: study.studyDate
+                              ? new Date(study.studyDate).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
+                              studyDate: study.studyDate,
+                              uploadDateTime: study.createdAt
+                              ? new Date(study.createdAt).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'inprogress',
                 createdAt: study.createdAt,
-                reportedBy: study.reportedBy || latestAssignedDoctor?.userAccount?.fullName || 'N/A',
+                reportedBy: study.reportInfo?.reporterName 
+                
+                || 'N/A',
+                reportedDate: study.reportInfo?.finalizedAt
+                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -4765,7 +4962,7 @@ export const getCompletedStudies = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
-                    reportedBy: 1,
+                    reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
                     caseType: 1,
@@ -4980,12 +5177,43 @@ export const getCompletedStudies = async (req, res) => {
                 studyDateTime: study.studyDate && study.studyTime ? 
                               `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
                               (study.studyDate || 'N/A'),
-                studyDate: study.studyDate || null,
-                uploadDateTime: study.createdAt,
+                              studyDateTime: study.studyDate
+                              ? new Date(study.studyDate).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
+                              studyDate: study.studyDate,
+                              uploadDateTime: study.createdAt
+                              ? new Date(study.createdAt).toLocaleString('en-GB', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false
+                              }).replace(',', '')
+                              : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
-                reportedBy: study.reportedBy || latestAssignedDoctor?.userAccount?.fullName || 'N/A',
+                reportedBy: study.reportInfo?.reporterName 
+                
+                || 'N/A',
+                reportedDate: study.reportInfo?.finalizedAt
+                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',

@@ -372,6 +372,76 @@ const DicomStudySchema = new mongoose.Schema({
     },
     reportTime: { type: String },
     
+    // 🆕 NEW: Add calculatedTAT field to store TAT values
+    calculatedTAT: {
+        // Raw TAT values in minutes
+        studyToUploadTAT: { type: Number, default: null, index: { sparse: true, background: true } },
+        uploadToAssignmentTAT: { type: Number, default: null, index: { sparse: true, background: true } },
+        assignmentToReportTAT: { type: Number, default: null, index: { sparse: true, background: true } },
+        studyToReportTAT: { type: Number, default: null, index: { sparse: true, background: true } },
+        uploadToReportTAT: { type: Number, default: null, index: { sparse: true, background: true } },
+        totalTATMinutes: { type: Number, default: null, index: { sparse: true, background: true } },
+        totalTATDays: { type: Number, default: null, index: { sparse: true, background: true } },
+        
+        // Reset-aware calculations
+        resetAwareTATDays: { type: Number, default: null },
+        resetAwareTATMinutes: { type: Number, default: null },
+        
+        // Formatted versions for quick access
+        studyToUploadTATFormatted: { type: String, default: 'N/A' },
+        uploadToAssignmentTATFormatted: { type: String, default: 'N/A' },
+        assignmentToReportTATFormatted: { type: String, default: 'N/A' },
+        studyToReportTATFormatted: { type: String, default: 'N/A' },
+        uploadToReportTATFormatted: { type: String, default: 'N/A' },
+        totalTATFormatted: { type: String, default: 'N/A' },
+        
+        // Status and metadata
+        isCompleted: { type: Boolean, default: false },
+        isOverdue: { type: Boolean, default: false, index: { background: true } },
+        phase: { 
+            type: String, 
+            enum: ['not_started', 'uploaded', 'assigned', 'completed'],
+            default: 'not_started',
+            index: { background: true }
+        },
+        
+        // Calculation metadata
+        calculatedAt: { type: Date, default: Date.now },
+        calculatedBy: { type: String, default: 'system' },
+        lastUpdated: { type: Date, default: Date.now },
+        
+        // Reset information
+        resetAt: { type: Date },
+        resetReason: { type: String },
+        resetCount: { type: Number, default: 0 },
+        
+        // Key dates snapshot
+        keyDates: {
+            studyDate: { type: Date },
+            uploadDate: { type: Date },
+            assignedDate: { type: Date },
+            reportDate: { type: Date },
+            calculationTime: { type: Date }
+        }
+    },
+
+    // 🔧 UPDATE: Enhanced timingInfo for backward compatibility
+    timingInfo: {
+        uploadToAssignmentMinutes: { type: Number, index: { sparse: true, background: true } },
+        assignmentToReportMinutes: { type: Number, index: { sparse: true, background: true } },
+        reportToDownloadMinutes: { type: Number, index: { sparse: true, background: true } },
+        totalTATMinutes: { type: Number, index: { sparse: true, background: true } },
+        
+        // Reset tracking
+        tatResetAt: { type: Date },
+        tatResetReason: { type: String },
+        tatResetCount: { type: Number, default: 0 },
+        
+        // Calculation metadata
+        lastCalculated: { type: Date },
+        calculationMethod: { type: String, default: 'tatCalculator' }
+    },
+
 }, { 
     timestamps: true,
     // 🔧 SUPER FAST: Collection-level optimizations
@@ -595,5 +665,103 @@ DicomStudySchema.methods.toSummary = function() {
         ReportAvailable: this.ReportAvailable
     };
 };
+
+// 🔧 MIDDLEWARE: Auto-calculate TAT on save
+DicomStudySchema.pre('save', async function(next) {
+    // Import TAT calculator (use dynamic import to avoid circular dependency)
+    try {
+        const { calculateStudyTAT } = await import('../utils/TATutility.js');
+        
+        // 🔧 CALCULATE: TAT whenever study is saved
+        if (this.isModified(['createdAt', 'assignment', 'reportInfo', 'workflowStatus']) || this.isNew) {
+            console.log(`[Schema Middleware] 🔄 Auto-calculating TAT for study: ${this.studyInstanceUID}`);
+            
+            const tat = calculateStudyTAT(this.toObject());
+            
+            // Update calculatedTAT field
+            this.calculatedTAT = tat;
+            
+            // Update timingInfo for backward compatibility
+            this.timingInfo = this.timingInfo || {};
+            this.timingInfo.uploadToAssignmentMinutes = tat.uploadToAssignmentTAT;
+            this.timingInfo.assignmentToReportMinutes = tat.assignmentToReportTAT;
+            this.timingInfo.totalTATMinutes = tat.totalTATMinutes;
+            this.timingInfo.lastCalculated = new Date();
+            this.timingInfo.calculationMethod = 'tatCalculator';
+            
+            console.log(`[Schema Middleware] ✅ TAT auto-calculated - Total: ${tat.totalTATFormatted}`);
+        }
+    } catch (error) {
+        console.error('[Schema Middleware] ❌ Error auto-calculating TAT:', error);
+        // Don't fail the save operation
+    }
+    
+    // Continue with existing pre-save logic
+    // ... rest of your existing pre-save middleware
+    
+    next();
+});
+
+// 🔧 METHODS: Instance method to get current TAT
+DicomStudySchema.methods.getCurrentTAT = function(forceRecalculate = false) {
+    if (forceRecalculate || !this.calculatedTAT?.calculatedAt) {
+        // Dynamically import and calculate
+        return import('../utils/tatCalculator.js').then(({ calculateStudyTAT }) => {
+            return calculateStudyTAT(this.toObject());
+        });
+    }
+    return Promise.resolve(this.calculatedTAT);
+};
+
+// 🔧 METHODS: Instance method to reset TAT
+DicomStudySchema.methods.resetTAT = function(reason = 'manual_reset') {
+    return import('../utils/tatCalculator.js').then(({ resetStudyTAT }) => {
+        return resetStudyTAT(this._id, reason);
+    });
+};
+
+// 🔧 STATICS: Static method to bulk update TAT
+DicomStudySchema.statics.bulkUpdateTAT = async function(query = {}) {
+    const { calculateBatchTAT } = await import('../utils/tatCalculator.js');
+    
+    const studies = await this.find(query).lean();
+    const tatResults = calculateBatchTAT(studies);
+    
+    const bulkOps = studies.map((study, index) => ({
+        updateOne: {
+            filter: { _id: study._id },
+            update: { 
+                $set: { 
+                    calculatedTAT: tatResults[index],
+                    'timingInfo.totalTATMinutes': tatResults[index].totalTATMinutes,
+                    'timingInfo.lastCalculated': new Date()
+                }
+            }
+        }
+    }));
+
+    if (bulkOps.length > 0) {
+        await this.bulkWrite(bulkOps);
+        console.log(`✅ Bulk updated TAT for ${bulkOps.length} studies`);
+    }
+    
+    return { updated: bulkOps.length };
+};
+
+// 🔧 INDEXES: Add TAT-specific indexes
+DicomStudySchema.index({ 'calculatedTAT.totalTATMinutes': 1, workflowStatus: 1 }, { 
+    name: 'tat_performance_index',
+    background: true 
+});
+
+DicomStudySchema.index({ 'calculatedTAT.isOverdue': 1, workflowStatus: 1 }, { 
+    name: 'overdue_studies_index',
+    background: true 
+});
+
+DicomStudySchema.index({ 'calculatedTAT.phase': 1, createdAt: -1 }, { 
+    name: 'tat_phase_index',
+    background: true 
+});
 
 export default mongoose.model('DicomStudy', DicomStudySchema);

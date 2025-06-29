@@ -179,16 +179,45 @@ function processDicomPersonName(dicomNameField) {
   };
 }
 
+// 🔧 ENHANCED: Fix DICOM date parsing
 function formatDicomDateToISO(dicomDate) {
-  if (!dicomDate || typeof dicomDate !== 'string' || dicomDate.length !== 8) return '';
-  try {
-    const year = dicomDate.substring(0, 4);
-    const month = dicomDate.substring(4, 6);
-    const day = dicomDate.substring(6, 8);
-    return `${year}-${month}-${day}`;
-  } catch {
-    return '';
+  if (!dicomDate || typeof dicomDate !== 'string') return null;
+  
+  // Handle different DICOM date formats
+  let cleanDate = dicomDate.trim();
+  
+  // Handle YYYYMMDD format (standard DICOM)
+  if (cleanDate.length === 8 && /^\d{8}$/.test(cleanDate)) {
+    try {
+      const year = cleanDate.substring(0, 4);
+      const month = cleanDate.substring(4, 6);
+      const day = cleanDate.substring(6, 8);
+      
+      // Validate date components
+      const yearNum = parseInt(year);
+      const monthNum = parseInt(month);
+      const dayNum = parseInt(day);
+      
+      if (yearNum >= 1900 && yearNum <= 2100 && monthNum >= 1 && monthNum <= 12 && dayNum >= 1 && dayNum <= 31) {
+        return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+      }
+    } catch (error) {
+      console.warn('Error parsing DICOM date:', dicomDate, error);
+    }
   }
+  
+  // Handle other formats or return current date as fallback
+  try {
+    const parsed = new Date(cleanDate);
+    if (!isNaN(parsed.getTime()) && parsed.getFullYear() > 1900) {
+      return parsed;
+    }
+  } catch (error) {
+    console.warn('Error parsing date:', dicomDate, error);
+  }
+  
+  // Return current date as fallback
+  return new Date();
 }
 
 async function findOrCreatePatientFromTags(tags) {
@@ -589,7 +618,7 @@ async function processStableStudy(job) {
       patient: patientRecord._id,
       patientId: patientRecord.patientID,
       sourceLab: labRecord._id,
-      studyDate: tags.StudyDate || '',
+      studyDate: formatDicomDateToISO(tags.StudyDate), // Fixed date parsing
       studyTime: tags.StudyTime || '',
       modalitiesInStudy: Array.from(modalitiesSet),
       examDescription: tags.StudyDescription || 'Unknown Study',

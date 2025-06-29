@@ -153,75 +153,49 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       return;
     }
 
-    const loadingToast = toast.loading(
-      `Processing ${doctorsToAssign.length} assignments and ${doctorsToUnassign.length} unassignments...`
-    );
+    const loadingToast = toast.loading('Assigning doctors...');
     
-    let allSuccessful = true;
     let successfulAssignments = 0;
-    let successfulUnassignments = 0;
+    const assignedDoctors = [];
 
-    // Handle new assignments
+    // Handle assignments
     for (const doctorId of doctorsToAssign) {
-      if (!study || !study._id) {
-        console.error("Study or study ID is undefined");
-        toast.error("Cannot assign: Study information is missing.");
-        allSuccessful = false;
-        break;
-      }
       try {
-        const requestData = { doctorId, priority: 'NORMAL' };
-        console.log(`📤 Assigning study ${study._id} to doctor ${doctorId}`, requestData);
-        const response = await api.post(`/admin/studies/${study._id}/assign`, requestData);
+        const response = await api.post(`/admin/studies/${study._id}/assign`, {
+          doctorId,
+          priority: 'NORMAL'
+        });
+        
         if (response.data.success) {
-          console.log(`✅ Successfully assigned to ${doctorId}`);
           successfulAssignments++;
-        } else {
-          allSuccessful = false;
-          toast.error(response.data.message || `Failed to assign to doctor ID ${doctorId}`);
-          console.error(`❌ Failed assignment for ${doctorId}:`, response.data.message);
+          
+          // 🆕 SIMPLE: Just collect the assigned doctor info
+          const doctorInfo = allDoctors.find(doc => (doc._id || doc.id) === doctorId);
+          assignedDoctors.push({
+            id: doctorId,
+            name: doctorInfo?.fullName || doctorInfo?.firstName + ' ' + doctorInfo?.lastName || 'Unknown Doctor'
+          });
         }
       } catch (error) {
-        allSuccessful = false;
-        const errorMessage = error.response?.data?.message || error.message || `Error assigning to doctor ID ${doctorId}`;
-        toast.error(errorMessage);
-        console.error(`❌ Error assigning to ${doctorId}:`, error);
-      }
-    }
-
-    // Handle unassignments (if you have an unassign endpoint)
-    for (const doctorId of doctorsToUnassign) {
-      try {
-        console.log(`📤 Unassigning study ${study._id} from doctor ${doctorId}`);
-        const response = await api.delete(`/admin/studies/${study._id}/unassign/${doctorId}`);
-        if (response.data.success) {
-          console.log(`✅ Successfully unassigned from ${doctorId}`);
-          successfulUnassignments++;
-        } else {
-          console.error(`❌ Failed unassignment for ${doctorId}:`, response.data.message);
-        }
-      } catch (error) {
-        console.error(`❌ Error unassigning from ${doctorId}:`, error);
-        // Don't fail the entire operation for unassignment errors
+        console.error('Assignment error:', error);
+        toast.error(`Failed to assign to doctor`);
       }
     }
 
     toast.dismiss(loadingToast);
 
-    // Show success messages
     if (successfulAssignments > 0) {
-      toast.success(`Successfully assigned study to ${successfulAssignments} doctor(s).`);
-    }
-    if (successfulUnassignments > 0) {
-      toast.success(`Successfully unassigned study from ${successfulUnassignments} doctor(s).`);
-    }
-    if (!allSuccessful && successfulAssignments < doctorsToAssign.length) {
-      toast.error(`Could not assign to ${doctorsToAssign.length - successfulAssignments} doctor(s). Check console for details.`);
-    }
-
-    if (allSuccessful || successfulAssignments > 0 || successfulUnassignments > 0) {
-      onAssignComplete && onAssignComplete();
+      // 🆕 SIMPLE: Just return the success data to parent
+      if (onAssignComplete) {
+        onAssignComplete({
+          success: true,
+          studyId: study._id,
+          assignedDoctors: assignedDoctors
+        });
+      }
       onClose();
+    } else {
+      toast.error('No assignments were successful');
     }
   };
 

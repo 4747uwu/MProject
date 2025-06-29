@@ -329,14 +329,20 @@ const LoginPage = () => {
           </div>
 
           <div className="mt-8 mb-6 flex items-center justify-center">
-            <div className="flex items-center space-x-2">
+            <a
+              href="https://www.xcentic.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-2 hover:underline"
+              title="Visit XCENTIC"
+            >
               <span className="text-gray-400 text-sm">Powered by</span>
               <ShinyText 
                 text="XCENTIC" 
                 speed={3}
                 className="text-lg font-bold tracking-wider"
               />
-            </div>
+            </a>
           </div>
         </div>
       </div>

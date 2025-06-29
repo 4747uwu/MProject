@@ -183,6 +183,9 @@ const TATReportTable = ({ studies = [] }) => {
                 Report Date <span className="block text-xs text-gray-300 font-normal">Completed</span>
               </th>
               <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
+                <span className="text-blue-300">S-R TAT</span> <span className="block text-xs text-gray-300 font-normal">Upload→Assignement</span>
+              </th>
+              <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
                 <span className="text-blue-300">S-R TAT</span> <span className="block text-xs text-gray-300 font-normal">Study→Report</span>
               </th>
               <th className="border-r border-gray-600 px-3 py-4 text-center uppercase tracking-wider font-semibold">
@@ -270,17 +273,17 @@ const TATReportTable = ({ studies = [] }) => {
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
-                      {study.billedOnStudyDate ? formatStudyDate(study.billedOnStudyDate) : '-'}
+                      {study.billedOnStudyDate}
                     </div>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
-                      {study.uploadDate ? formatDateTime(study.uploadDate) : '-'}
+                      {study.uploadDate}
                     </div>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
                     <div className="font-mono text-xs text-gray-700">
-                      {study.assignedDate ? formatDateTime(study.assignedDate) : '-'}
+                      {study.assignedDate}
                     </div>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 whitespace-nowrap">
@@ -288,19 +291,31 @@ const TATReportTable = ({ studies = [] }) => {
                       {study.reportDate ? formatDateTime(study.reportDate) : '-'}
                     </div>
                   </td>
+
                   <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffStudyAndReportTAT)}`}>
-                      {formatTATTime(study.diffStudyAndReportTAT)}
+                      {study.fullTatDetails.uploadToAssignmentTAT
+
+                      }
+                    </span>
+                  </td>
+                  <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffStudyAndReportTAT)}`}>
+                      {study.fullTatDetails.studyToReportTATFormatted
+                      }
                     </span>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffUploadAndReportTAT)}`}>
-                      {formatTATTime(study.diffUploadAndReportTAT)}
+                      {study.fullTatDetails.uploadToReportTATFormatted}
                     </span>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full ${getTATStatusColor(study.diffAssignAndReportTAT)}`}>
-                      {formatTATTime(study.diffAssignAndReportTAT)}
+                      {/* {formatTATTime(study.diffAssignAndReportTAT)} */}
+                      {study.fullTatDetails.assignmentToReportTATFormatted
+
+                      }
                     </span>
                   </td>
                   <td className="border-r border-gray-100 px-3 py-3">

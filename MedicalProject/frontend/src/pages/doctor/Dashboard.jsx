@@ -20,7 +20,7 @@ const DoctorDashboard = React.memo(() => {
   const [totalRecords, setTotalRecords] = useState(0);
   
   // 🆕 NEW: Date filter state for backend integration (matching admin)
-  const [dateFilter, setDateFilter] = useState('last24h'); // Default to 24 hours
+  const [dateFilter, setDateFilter] = useState('assignedToday'); // Default to assigned today for doctors
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
   const [dateType, setDateType] = useState('UploadDate'); // StudyDate, UploadDate
@@ -47,21 +47,35 @@ const DoctorDashboard = React.memo(() => {
   const intervalRef = useRef(null);
   const countdownRef = useRef(null);
 
-  // 🔧 ENHANCED: Fetch studies with date filters (matching admin pattern)
-  const fetchStudies = useCallback(async (showLoadingState = true, searchParams = {}) => {
+  // 🆕 NEW: API endpoint mapping for tabs (EXACTLY like admin dashboard)
+  const getEndpointForCategory = useCallback((category) => {
+    switch (category) {
+      case 'pending':
+        return '/doctor/studies/pending';
+      case 'inprogress':
+        return '/doctor/studies/inprogress';
+      case 'completed':
+        return '/doctor/studies/completed';
+      case 'all':
+      default:
+        return '/doctor/assigned-studies';
+    }
+  }, []);
+
+  // 🔧 UPDATED: Fetch studies with dynamic endpoint (EXACTLY like admin dashboard)
+  const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
-      if (showLoadingState) {
-        setLoading(true);
-      }
+      setLoading(true);
+      console.log(`🔄 DOCTOR: Fetching ${activeCategory} studies with synchronized filters`);
       
-      console.log(`🔄 DOCTOR: Fetching studies with limit: ${recordsPerPage}, category: ${activeCategory}, dateFilter: ${dateFilter}`);
+      // 🆕 NEW: Use category-specific endpoint
+      const endpoint = getEndpointForCategory(activeCategory);
       
-      // 🆕 NEW: Build API parameters including date filters (matching admin)
+      // Build common API parameters
       const apiParams = {
         limit: recordsPerPage,
-        category: activeCategory !== 'all' ? activeCategory : undefined,
         dateType: dateType,
-        ...searchParams // Allow override from WorklistSearch
+        ...searchParams
       };
 
       // Add date filter parameters
@@ -78,67 +92,53 @@ const DoctorDashboard = React.memo(() => {
         apiParams[key] === undefined && delete apiParams[key]
       );
 
-      console.log('📤 DOCTOR API Parameters:', apiParams);
+      console.log(`📤 DOCTOR: API Parameters for ${activeCategory}:`, apiParams);
+      console.log(`🎯 DOCTOR: Using endpoint: ${endpoint}`);
       
-      const response = await api.get('/doctor/assigned-studies', {
-        params: apiParams
-      });
+      // 🔧 UPDATED: Make API calls to category-specific endpoints
+      const [studiesResponse, valuesResponse] = await Promise.all([
+        api.get(endpoint, { params: apiParams }),
+        api.get('/doctor/values', { params: apiParams })
+      ]);
       
-      console.log('📊 DOCTOR Studies response:', response.data);
-      
-      if (response.data.success) {
-        setAllStudies(response.data.data);
-        setTotalRecords(response.data.totalRecords);
+      // Process studies response
+      if (studiesResponse.data.success) {
+        setAllStudies(studiesResponse.data.data);
+        setTotalRecords(studiesResponse.data.totalRecords);
         setLastRefresh(new Date());
         
-        // Use the backend-provided category counts if available
-        if (response.data.summary?.byCategory) {
+        // Update dashboard stats from backend response
+        if (studiesResponse.data.summary?.byCategory) {
           setDashboardStats({
-            totalStudies: response.data.summary.byCategory.all || response.data.totalRecords,
-            pendingStudies: response.data.summary.byCategory.pending || 0,
-            inProgressStudies: response.data.summary.byCategory.inprogress || 0,
-            completedStudies: response.data.summary.byCategory.completed || 0,
-            urgentStudies: response.data.summary.urgentStudies || 
-                           response.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
-            todayAssigned: response.data.summary.todayAssigned || 
-                          response.data.data.filter(s => {
+            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
+            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
+            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
+            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
+            urgentStudies: studiesResponse.data.summary.urgentStudies || 
+                           studiesResponse.data.data.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
+            todayAssigned: studiesResponse.data.summary.todayAssigned || 
+                          studiesResponse.data.data.filter(s => {
                             const today = new Date().toDateString();
                             return new Date(s.assignedDate).toDateString() === today;
                           }).length
           });
-        } else {
-          // Fallback to the client-side counting (less efficient)
-          const studies = response.data.data;
-          setDashboardStats({
-            totalStudies: response.data.totalRecords,
-            pendingStudies: studies.filter(s => s.currentCategory === 'pending').length,
-            inProgressStudies: studies.filter(s => s.currentCategory === 'inprogress').length,
-            completedStudies: studies.filter(s => s.currentCategory === 'completed').length,
-            urgentStudies: studies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
-            todayAssigned: studies.filter(s => {
-              const today = new Date().toDateString();
-              return new Date(s.assignedDate).toDateString() === today;
-            }).length
-          });
         }
+      }
 
-        // 🆕 NEW: Calculate values for WorklistSearch compatibility
+      // Process values response
+      if (valuesResponse.data && valuesResponse.data.success) {
         setValues({
-          today: response.data.data.length,
-          pending: response.data.data.filter(s => s.currentCategory === 'pending').length,
-          inprogress: response.data.data.filter(s => s.currentCategory === 'inprogress').length,
-          completed: response.data.data.filter(s => s.currentCategory === 'completed').length,
-        });
-        
-        console.log('✅ DOCTOR Studies fetched successfully:', {
-          count: response.data.data.length,
-          totalRecords: response.data.totalRecords,
-          dateFilter: dateFilter,
-          isSinglePage: response.data.pagination?.isSinglePage || true
+          today: valuesResponse.data.total || 0,
+          pending: valuesResponse.data.pending || 0,
+          inprogress: valuesResponse.data.inprogress || 0,
+          completed: valuesResponse.data.completed || 0,
         });
       }
+      
+      console.log(`✅ DOCTOR: ${activeCategory} data fetched successfully`);
+      
     } catch (error) {
-      console.error('❌ DOCTOR Error fetching studies:', error);
+      console.error(`❌ DOCTOR: Error fetching ${activeCategory} data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
@@ -148,11 +148,15 @@ const DoctorDashboard = React.memo(() => {
         completed: 0,
       });
     } finally {
-      if (showLoadingState) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
-  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType]);
+  }, [activeCategory, recordsPerPage, dateFilter, customDateFrom, customDateTo, dateType, getEndpointForCategory]);
+
+  // 🔧 SIMPLIFIED: Single useEffect for initial load and dependency changes
+  useEffect(() => {
+    console.log(`🔄 DOCTOR: Data dependencies changed - fetching fresh data`);
+    fetchAllData();
+  }, [fetchAllData]);
 
   // 🆕 NEW: Date filter handlers (matching admin)
   const handleDateFilterChange = useCallback((newDateFilter) => {
@@ -180,15 +184,19 @@ const DoctorDashboard = React.memo(() => {
   // 🆕 NEW: Handle search with backend parameters (matching admin)
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 DOCTOR: Handling search with backend params:', searchParams);
-    fetchStudies(true, searchParams);
-  }, [fetchStudies]);
+    fetchAllData(searchParams);
+  }, [fetchAllData]);
 
-  // Handle category change
+  // Handle category change (EXACTLY like admin)
   const handleCategoryChange = useCallback((category) => {
-    console.log(`🏷️ DOCTOR: Changing category to: ${category}`);
-    setActiveCategory(category);
-    setNextRefreshIn(300); // Reset countdown
-  }, []);
+    console.log(`🏷️ DOCTOR: Changing category from ${activeCategory} to ${category}`);
+    
+    // 🔧 FIXED: Only change if actually different
+    if (activeCategory !== category) {
+      setActiveCategory(category);
+      setNextRefreshIn(300); // Reset countdown
+    }
+  }, [activeCategory]);
 
   // 🔧 SIMPLIFIED: Handle records per page change (no pagination, matching admin)
   const handleRecordsPerPageChange = useCallback((newRecordsPerPage) => {
@@ -200,28 +208,22 @@ const DoctorDashboard = React.memo(() => {
   // Handle assignment completion (refresh data)
   const handleAssignmentComplete = useCallback(() => {
     console.log('📋 DOCTOR: Assignment completed, refreshing studies...');
-    fetchStudies();
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle manual refresh
   const handleManualRefresh = useCallback(() => {
     console.log('🔄 DOCTOR: Manual refresh triggered');
-    fetchStudies();
+    fetchAllData();
     setNextRefreshIn(300); // Reset countdown
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // Handle worklist view
   const handleWorklistView = useCallback((view) => {
     console.log('DOCTOR: Worklist view changed:', view);
     setNextRefreshIn(300); // Reset countdown
   }, []);
-
-  // Initial data fetch (triggered when dependencies change)
-  useEffect(() => {
-    console.log(`🔄 DOCTOR useEffect triggered - Records: ${recordsPerPage}, Category: ${activeCategory}, DateFilter: ${dateFilter}`);
-    fetchStudies();
-  }, [fetchStudies]);
 
   // 🔧 AUTO-REFRESH EVERY 5 MINUTES
   useEffect(() => {
@@ -236,7 +238,7 @@ const DoctorDashboard = React.memo(() => {
     // Set up auto-refresh every 5 minutes (300 seconds)
     intervalRef.current = setInterval(() => {
       console.log('🔄 DOCTOR: Auto-refreshing studies...');
-      fetchStudies(false); // Don't show loading state for auto-refresh
+      fetchAllData(); // Don't show loading state for auto-refresh
       setNextRefreshIn(300); // Reset countdown
     }, 300000); // 5 minutes
 
@@ -249,6 +251,7 @@ const DoctorDashboard = React.memo(() => {
         return prev - 1;
       });
     }, 1000);
+    console.log(allStudies)
 
     // Cleanup function
     return () => {
@@ -259,7 +262,7 @@ const DoctorDashboard = React.memo(() => {
         clearInterval(countdownRef.current);
       }
     };
-  }, [fetchStudies]);
+  }, [fetchAllData]);
 
   // 🔧 FORMAT NEXT REFRESH TIME
   const formatRefreshTime = useMemo(() => {
@@ -306,7 +309,7 @@ const DoctorDashboard = React.memo(() => {
               onDateTypeChange={handleDateTypeChange}
               onSearchWithBackend={handleSearchWithBackend}
               values={values}
-              // 🆕 NEW: Pass additional props for integrated controls (NO websocket props)
+              // 🆕 NEW: Pass additional props for integrated controls (NO websocket props for doctor)
               connectionStatus="connected" // Static for doctor dashboard
               onManualRefresh={handleManualRefresh}
             />
@@ -318,10 +321,8 @@ const DoctorDashboard = React.memo(() => {
           <details className="bg-white rounded border border-gray-200 shadow-sm">
             <summary className="px-2 py-1.5 cursor-pointer text-xs font-medium text-gray-700 hover:bg-gray-50 select-none">
               <span className="flex items-center justify-between">
-                View Statistics
-                <svg className="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+                <span>View Doctor Statistics</span>
+                <span className="text-blue-600">Auto-refresh: {formatRefreshTime}</span>
               </span>
             </summary>
             <div className="px-2 pb-2">
