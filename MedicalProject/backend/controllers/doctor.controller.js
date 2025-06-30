@@ -15,11 +15,13 @@ const DOCTOR_STATUS_CATEGORIES = {
         'report_in_progress', 
         'report_uploaded', 
         'report_downloaded_radiologist', 
-        'report_downloaded'
+        'report_downloaded',
+        'report_finalized', 
+        'report_drafted'
+
     ],
     completed: [
-        'report_finalized', 
-        'report_drafted',
+        
         'final_report_downloaded'
     ]
 };
