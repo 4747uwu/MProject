@@ -3729,6 +3729,7 @@ export const registerDoctor = async (req, res) => {
 };
 
 // 🔧 UPDATED: Register lab and staff with Resend (aligned with registerDoctor pattern)
+// In the registerLabAndStaff function, update the response to include the ObjectId:
 export const registerLabAndStaff = async (req, res) => {
     const session = await mongoose.startSession();
     
@@ -3747,7 +3748,7 @@ export const registerLabAndStaff = async (req, res) => {
                 throw new Error('Staff username, email, and full name are required.');
             }
 
-            const staffPassword ='starRadiology'
+            const staffPassword = generateRandomPassword();
 
             // Check for existing records
             const [labExists, staffUserExists] = await Promise.all([
@@ -3794,33 +3795,25 @@ export const registerLabAndStaff = async (req, res) => {
 
             return {
                 lab: newLabDocument[0].toObject(),
-                staffUser: staffUserResponse,
-                emailData: {
-                    email: staffEmail,
-                    fullName: staffFullName,
-                    username: staffUsername,
-                    password: staffPassword
-                }
+                staffUser: staffUserResponse
             };
         });
 
         console.log('✅ Lab and staff transaction completed successfully');
 
-        // 🔧 UPDATED: Send welcome email asynchronously using Resend (matching registerDoctor pattern)
+        // Send welcome email asynchronously using Resend
         setImmediate(async () => {
-            console.log('📧 Sending lab staff welcome email via Resend...');
-            const emailSent = await sendWelcomeEmail(
-                result.emailData.email, 
-                result.emailData.fullName, 
-                result.emailData.username, 
-                result.emailData.password, 
-                'lab_staff'
-            );
-            
-            if (emailSent) {
-                console.log('✅ Lab staff welcome email sent successfully via Resend');
-            } else {
-                console.error('❌ Failed to send lab staff welcome email via Resend');
+            try {
+                const emailSent = await sendWelcomeEmail(
+                    result.staffUser.email, 
+                    result.staffUser.fullName, 
+                    result.staffUser.username, 
+                    staffPassword, 
+                    'lab_staff'
+                );
+                console.log(`📧 Welcome email ${emailSent ? 'sent' : 'failed'} to ${result.staffUser.email}`);
+            } catch (emailError) {
+                console.error('❌ Error sending welcome email:', emailError);
             }
         });
 
@@ -3829,9 +3822,11 @@ export const registerLabAndStaff = async (req, res) => {
             message: 'Laboratory and initial lab staff user registered successfully. A welcome email with login credentials is being sent via Resend.',
             data: {
                 labId: result.lab._id,
+                labEntityId: result.lab._id.toString(), // 🆕 ADD: MongoDB ObjectId as string
                 labName: result.lab.name,
                 labIdentifier: result.lab.identifier,
                 staffUserId: result.staffUser._id,
+                staffEntityId: result.staffUser._id.toString(), // 🆕 ADD: Staff ObjectId as string
                 staffName: result.staffUser.fullName,
                 staffUsername: result.staffUser.username,
                 emailQueued: true

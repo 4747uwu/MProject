@@ -294,6 +294,55 @@ async function findOrCreateSourceLab(tags) {
   };
 
   try {
+    // 🆕 PRIORITY 1: Check for custom Lab ID in DICOM tag [0011,1010]
+    const customLabId = tags["0011,1010"];
+    
+    if (customLabId && customLabId.trim() !== '' && customLabId !== 'UNKNOWN_LAB') {
+      console.log(`[StableStudy] 🔍 Found custom Lab ID in DICOM tag [0011,1010]: ${customLabId}`);
+      
+      try {
+        // Validate if it's a valid MongoDB ObjectId format
+        if (mongoose.Types.ObjectId.isValid(customLabId)) {
+          console.log(`[StableStudy] ✅ Lab ID is valid MongoDB ObjectId: ${customLabId}`);
+          
+          // Find lab by MongoDB ObjectId
+          const labFromCustomId = await Lab.findById(customLabId);
+          
+          if (labFromCustomId && labFromCustomId.isActive) {
+            console.log(`[StableStudy] ✅ Found lab by custom ID: ${labFromCustomId.name} (${labFromCustomId.identifier})`);
+            return labFromCustomId;
+          } else if (labFromCustomId && !labFromCustomId.isActive) {
+            console.warn(`[StableStudy] ⚠️ Lab found but inactive: ${labFromCustomId.name} (${labFromCustomId.identifier})`);
+            // Continue to fallback methods for inactive labs
+          } else {
+            console.warn(`[StableStudy] ⚠️ Lab not found with custom ID: ${customLabId}`);
+            // Continue to fallback methods
+          }
+        } else {
+          console.warn(`[StableStudy] ⚠️ Custom Lab ID is not a valid MongoDB ObjectId: ${customLabId}`);
+          
+          // Try to find by identifier if not a valid ObjectId
+          const labByIdentifier = await Lab.findOne({ 
+            identifier: customLabId.toUpperCase(),
+            isActive: true 
+          });
+          
+          if (labByIdentifier) {
+            console.log(`[StableStudy] ✅ Found lab by identifier: ${labByIdentifier.name} (${labByIdentifier.identifier})`);
+            return labByIdentifier;
+          }
+        }
+      } catch (labLookupError) {
+        console.error(`[StableStudy] ❌ Error looking up lab with custom ID ${customLabId}:`, labLookupError.message);
+        // Continue to fallback methods
+      }
+    } else {
+      console.log(`[StableStudy] 📋 No custom Lab ID found in DICOM tag [0011,1010] or value is UNKNOWN_LAB`);
+    }
+
+    // 🔄 FALLBACK: Original logic for finding labs from DICOM tags
+    console.log(`[StableStudy] 🔄 Using fallback lab detection methods`);
+    
     const possibleLabSources = [
       tags.InstitutionName,
       tags.StationName,
@@ -312,43 +361,50 @@ async function findOrCreateSourceLab(tags) {
           $or: [
             { name: { $regex: new RegExp(`^${escapeRegex(labName)}$`, 'i') } },
             { identifier: identifier }
-          ]
+          ],
+          isActive: true
         });
 
         if (lab) {
-          console.log(`✅ Found existing lab: ${lab.name}`);
+          console.log(`[StableStudy] ✅ Found existing lab via fallback: ${lab.name}`);
           return lab;
         }
 
-        console.log(`🆕 Creating new lab: ${labName}`);
+        // Create new lab if none found
+        console.log(`[StableStudy] 🆕 Creating new lab via fallback: ${labName}`);
         lab = new Lab({
           name: labName,
           identifier: identifier,
           isActive: true,
-          notes: `Auto-created from stable study DICOM tags on ${new Date().toISOString()}`,
+          notes: `Auto-created from stable study DICOM tags on ${new Date().toISOString()}. Original custom Lab ID: ${customLabId || 'Not provided'}`,
           contactPerson: tags.PerformingPhysicianName || tags.ReferringPhysicianName || '',
           metadata: {
             sourceField: 'InstitutionName',
             originalDicomValue: source,
-            createdFromStableStudy: true
+            createdFromStableStudy: true,
+            originalCustomLabId: customLabId || null
           }
         });
 
         await lab.save();
-        console.log(`✅ Created new lab: ${lab.name} (ID: ${lab._id})`);
+        console.log(`[StableStudy] ✅ Created new lab via fallback: ${lab.name} (ID: ${lab._id})`);
         return lab;
       }
     }
 
-    // Fallback to default lab
+    // Final fallback to default lab
     let defaultLab = await Lab.findOne({ identifier: DEFAULT_LAB.identifier });
     
     if (!defaultLab) {
-      console.log(`🆕 Creating default lab: ${DEFAULT_LAB.name}`);
-      defaultLab = new Lab(DEFAULT_LAB);
+      console.log(`[StableStudy] 🆕 Creating default lab: ${DEFAULT_LAB.name}`);
+      defaultLab = new Lab({
+        ...DEFAULT_LAB,
+        notes: `Default lab created. Original custom Lab ID: ${customLabId || 'Not provided'}`
+      });
       await defaultLab.save();
     }
 
+    console.log(`[StableStudy] 🔄 Using default lab: ${defaultLab.name}`);
     return defaultLab;
 
   } catch (error) {
@@ -360,10 +416,13 @@ async function findOrCreateSourceLab(tags) {
       emergencyLab = new Lab({
         name: 'Emergency Default Lab',
         identifier: 'EMERGENCY_DEFAULT',
-        isActive: true
+        isActive: true,
+        notes: `Emergency lab created due to error. Original custom Lab ID: ${tags["0011,1010"] || 'Not provided'}`
       });
       await emergencyLab.save();
     }
+    
+    console.log(`[StableStudy] 🚨 Using emergency lab: ${emergencyLab.name}`);
     return emergencyLab;
   }
 }
@@ -618,7 +677,7 @@ async function processStableStudy(job) {
       patient: patientRecord._id,
       patientId: patientRecord.patientID,
       sourceLab: labRecord._id,
-      studyDate: formatDicomDateToISO(tags.StudyDate), // Fixed date parsing
+      studyDate: formatDicomDateToISO(tags.StudyDate),
       studyTime: tags.StudyTime || '',
       modalitiesInStudy: Array.from(modalitiesSet),
       examDescription: tags.StudyDescription || 'Unknown Study',
@@ -678,6 +737,17 @@ async function processStableStudy(job) {
       studyComments: tags.StudyComments || '',
       additionalPatientHistory: tags.AdditionalPatientHistory || '',
       
+      // 🆕 ADD: Store custom Lab ID information
+      customLabInfo: {
+        dicomLabId: tags["0011,1010"] || null,
+        labIdSource: tags["0011,1010"] ? 'dicom_custom_tag' : 'fallback_detection',
+        labDetectionMethod: tags["0011,1010"] && mongoose.Types.ObjectId.isValid(tags["0011,1010"]) 
+          ? 'mongodb_objectid' 
+          : tags["0011,1010"] 
+            ? 'identifier_lookup' 
+            : 'dicom_tags_fallback'
+      },
+      
       storageInfo: {
         type: 'orthanc',
         orthancStudyId: orthancStudyId,
@@ -688,18 +758,20 @@ async function processStableStudy(job) {
         debugInfo: {
           apiInstancesFound: actualInstanceCount,
           webUIShowsInstances: true,
-          apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only'
+          apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only',
+          customLabIdProvided: !!tags["0011,1010"], // 🆕 ADD: Track if custom Lab ID was provided
+          customLabIdValue: tags["0011,1010"] || null
         }
       }
     };
     
-    if (dicomStudyDoc) {
+   if (dicomStudyDoc) {
       console.log(`[StableStudy] 📝 Updating existing study`);
       Object.assign(dicomStudyDoc, studyData);
       dicomStudyDoc.statusHistory.push({
         status: studyData.workflowStatus,
         changedAt: new Date(),
-        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}`
+        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
       });
     } else {
       console.log(`[StableStudy] 🆕 Creating new study`);
@@ -708,7 +780,7 @@ async function processStableStudy(job) {
         statusHistory: [{
           status: studyData.workflowStatus,
           changedAt: new Date(),
-          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}`
+          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
         }]
       });
     }
