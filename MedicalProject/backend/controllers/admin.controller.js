@@ -148,6 +148,15 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
                     filterEndDate = new Date(now);
                     break;
+
+                    case 'today':
+                        // 🔧 FIXED: Add missing 'today' case
+                        const todayStart = new Date();
+                        todayStart.setHours(0, 0, 0, 0);
+                        filterStartDate = todayStart;
+                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
+                        break;
+
                 case 'yesterday':
                     const yesterdayStart = now - 86400000;
                     const dayStart = new Date(yesterdayStart);
@@ -177,10 +186,12 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     filterEndDate = new Date(now);
             }
         } else {
-            const now = Date.now();
-            filterStartDate = new Date(now - 86400000);
-            filterEndDate = new Date(now);
-        }
+    // 🔧 FIXED: Default to today when no date filter specified (same as getValues)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    filterStartDate = todayStart;
+    filterEndDate = new Date(todayStart.getTime() + 86399999);
+}
 
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
@@ -672,6 +683,16 @@ export const getValues = async (req, res) => {
                     filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
                     filterEndDate = new Date(now);
                     break;
+
+                
+                case 'today':
+                        // 🔧 FIXED: Consistent today handling
+                        const todayStart = new Date();
+                        todayStart.setHours(0, 0, 0, 0);
+                        filterStartDate = todayStart;
+                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
+                        break;
+
                 case 'yesterday':
                     const yesterdayStart = now - 86400000;
                     const dayStart = new Date(yesterdayStart);
@@ -701,15 +722,12 @@ export const getValues = async (req, res) => {
                     filterEndDate = new Date(now);
             }
         } else {
-            // Default to today if no date filter specified
-            const now = new Date();
-            const todayStart = new Date(now);
-            todayStart.setHours(0, 0, 0, 0);
-            const todayEnd = new Date(now);
-            todayEnd.setHours(23, 59, 59, 999);
-            filterStartDate = todayStart;
-            filterEndDate = todayEnd;
-        }
+    // 🔧 FIXED: Default to today when no date filter specified (consistent across all functions)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    filterStartDate = todayStart;
+    filterEndDate = new Date(todayStart.getTime() + 86399999);
+}
 
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
