@@ -3900,10 +3900,9 @@ export const getPendingStudies = async (req, res) => {
                     filterEndDate = new Date(now);
             }
         } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            const now = Date.now();
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
         }
 
         // Apply date filter with proper indexing
@@ -4401,10 +4400,9 @@ export const getInProgressStudies = async (req, res) => {
                     filterEndDate = new Date(now);
             }
         } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            const now = Date.now();
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
         }
 
         // Apply date filter with proper indexing
@@ -4888,10 +4886,9 @@ export const getCompletedStudies = async (req, res) => {
                     filterEndDate = new Date(now);
             }
         } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            const now = Date.now();
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
         }
 
         // Apply date filter with proper indexing
