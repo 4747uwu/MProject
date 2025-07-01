@@ -493,7 +493,7 @@ const LabRegistrationForm = () => {
                             onChange={(e) => setLabIsActive(e.target.value === "true")}
                           >
                             <option value="true">Active</option>
-                            <option value="false">Inactive</option>
+                            <option value="false">Inactive2</option>
                           </select>
                         </div>
                       </div>
