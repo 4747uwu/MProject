@@ -471,7 +471,7 @@ export const getAllStudiesForLab = async (req, res) => {
             console.log(`🔍 LAB: Applied search filter: ${search}`);
         }
 
-        // Apply category filters with FIXED status arrays
+        // Apply category filters
         if (status) {
             queryFilters.workflowStatus = status;
             console.log(`📋 LAB: Applied status filter: ${status}`);
@@ -480,28 +480,49 @@ export const getAllStudiesForLab = async (req, res) => {
                 case 'pending':
                     queryFilters.workflowStatus = { $in: ['new_study_received', 'pending_assignment'] };
                     break;
-                
-                case 'inprogress': // Handle both variations
+                case 'processing':
                     queryFilters.workflowStatus = { 
                         $in: [
-                            'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                            'report_finalized', 'report_drafted', 'report_uploaded', 
-                            'report_downloaded_radiologist', 'report_downloaded' // 🔧 FIX: Added missing status
+                            'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'
                         ] 
                     };
                     break;
                 case 'completed':
-                    queryFilters.workflowStatus = 'final_report_downloaded';
+                    queryFilters.workflowStatus = { 
+                        $in: [
+                            'report_finalized', 'report_uploaded', 
+                            'report_downloaded_radiologist', 'report_downloaded',
+                            'final_report_downloaded'
+                        ] 
+                    };
                     break;
             }
             console.log(`🏷️ LAB: Applied category filter: ${category}`);
         }
 
+        // Apply modality filter
+        if (modality) {
+            queryFilters.$or = [
+                { modality: modality },
+                { modalitiesInStudy: { $in: [modality] } }
+            ];
+            console.log(`🏥 LAB: Applied modality filter: ${modality}`);
+        }
+
+        // Apply priority filter
+        if (priority) {
+            queryFilters.caseType = priority;
+            console.log(`⚡ LAB: Applied priority filter: ${priority}`);
+        }
+
+        // 🔧 DEBUG: Log final query filters
+        console.log(`🔍 LAB: Final query filters:`, JSON.stringify(queryFilters, null, 2));
+
         // Continue with existing aggregation pipeline...
         const pipeline = [
             { $match: queryFilters },
             
-            // Add currentCategory calculation with FIXED status handling
+            // Add currentCategory calculation
             {
                 $addFields: {
                     currentCategory: {
@@ -513,14 +534,16 @@ export const getAllStudiesForLab = async (req, res) => {
                                 },
                                 {
                                     case: { $in: ["$workflowStatus", [
-                                        'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                                        'report_finalized', 'report_drafted', 'report_uploaded', 
-                                        'report_downloaded_radiologist', 'report_downloaded' // 🔧 FIX: Added missing status
+                                        'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'
                                     ]] },
-                                    then: 'inprogress'
+                                    then: 'processing'
                                 },
                                 {
-                                    case: { $in: ["$workflowStatus", ['final_report_downloaded']] },
+                                    case: { $in: ["$workflowStatus", [
+                                        'report_finalized', 'report_uploaded', 
+                                        'report_downloaded_radiologist', 'report_downloaded',
+                                        'final_report_downloaded'
+                                    ]] },
                                     then: 'completed'
                                 }
                             ],
@@ -794,7 +817,7 @@ export const getAllStudiesForLab = async (req, res) => {
                                                 case: { $in: ["$workflowStatus", [
                                                     'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'
                                                 ]] },
-                                                then: "inprogress"
+                                                then: "processing"
                                             },
                                             {
                                                 case: { $in: ["$workflowStatus", [
@@ -858,7 +881,7 @@ export const getAllStudiesForLab = async (req, res) => {
         const categoryCounts = {
             all: totalStudies,
             pending: 0,
-            inprogress: 0,
+            processing: 0,
             completed: 0
         };
 
@@ -1295,7 +1318,7 @@ export const getPendingStudies = async (req, res) => {
                 byCategory: {
                     all: totalStudies,
                     pending: totalStudies,
-                    inprogress: 0,
+                    processing: 0,
                     completed: 0
                 },
                 urgentStudies: formattedStudies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
@@ -1453,7 +1476,7 @@ export const getProcessingStudies = async (req, res) => {
             { $match: queryFilters },
             {
                 $addFields: {
-                    currentCategory: 'inprogress'
+                    currentCategory: 'processing'
                 }
             },
             // Same lookups as getAllStudiesForLab...
@@ -1556,6 +1579,7 @@ export const getProcessingStudies = async (req, res) => {
                     studyDate: 1,
                     studyTime: 1,
                     doctorReports:1,
+                    createdAt: 1,
                     ReportAvailable: 1,
                     lastAssignedDoctor: 1,
                     reportedBy: 1,
@@ -1575,7 +1599,7 @@ export const getProcessingStudies = async (req, res) => {
             DicomStudy.countDocuments(queryFilters)
         ]);
 
-        // Format studies (same as getAllStudiesForLab)
+        // Same formatting as pending studies...
         const formattedStudies = studies.map(study => {
             const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = Array.isArray(study.sourceLab) ? study.sourceLab[0] : study.sourceLab;
@@ -1624,18 +1648,6 @@ export const getProcessingStudies = async (req, res) => {
                     })
                     : 'N/A',
 
-                uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
-
                 reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
                 ? (() => {
                     // Use the latest uploadedAt if multiple reports
@@ -1655,6 +1667,18 @@ export const getProcessingStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
@@ -1698,7 +1722,7 @@ export const getProcessingStudies = async (req, res) => {
                 byCategory: {
                     all: totalStudies,
                     pending: 0,
-                    inprogress: totalStudies,
+                    processing: totalStudies,
                     completed: 0
                 },
                 urgentStudies: formattedStudies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
@@ -1726,7 +1750,7 @@ export const getProcessingStudies = async (req, res) => {
                     labId: req.user.lab?._id,
                     labName: req.user.lab?.name,
                     statusesIncluded: ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'],
-                    category: 'inprogress'
+                    category: 'processing'
                 }
             }
         };
@@ -1973,7 +1997,7 @@ export const getCompletedStudies = async (req, res) => {
             DicomStudy.countDocuments(queryFilters)
         ]);
 
-        // Format studies (same as getAllStudiesForLab)
+        // Same formatting as other functions...
         const formattedStudies = studies.map(study => {
             const patient = Array.isArray(study.patient) ? study.patient[0] : study.patient;
             const sourceLab = Array.isArray(study.sourceLab) ? study.sourceLab[0] : study.sourceLab;
@@ -2099,7 +2123,7 @@ export const getCompletedStudies = async (req, res) => {
                 byCategory: {
                     all: totalStudies,
                     pending: 0,
-                    inprogress: 0,
+                    processing: 0,
                     completed: totalStudies
                 },
                 urgentStudies: formattedStudies.filter(s => ['EMERGENCY', 'STAT', 'URGENT'].includes(s.priority)).length,
@@ -2145,272 +2169,16 @@ export const getCompletedStudies = async (req, res) => {
     }
 };
 
-// // 🆕 NEW: Get values specifically for lab (synchronized with filters)
-// export const getValues = async (req, res) => {
-//     console.log(`🔍 LAB: Fetching dashboard values with filters: ${JSON.stringify(req.query)}`);
-//     try {
-//         const startTime = Date.now();
-        
-//         // 🔧 STEP 1: Build lean query filters with optimized date handling (same as getAllStudiesForLab)
-//         const queryFilters = {};
-        
-//         // 🔧 LAB SPECIFIC: Lab filtering
-//         if (req.user.role === 'lab_staff' && req.user.lab) {
-//             queryFilters.sourceLab = new mongoose.Types.ObjectId(req.user.lab._id);
-//             console.log(`🏢 LAB VALUES: Filtering by lab: ${req.user.lab._id}`);
-//         }
-        
-//         let filterStartDate = null;
-//         let filterEndDate = null;
-        
-//         // Optimized date filtering with pre-calculated timestamps
-//         if (req.query.quickDatePreset || req.query.dateFilter) {
-//             const preset = req.query.quickDatePreset || req.query.dateFilter;
-//             const now = new Date();
-            
-//             switch (preset) {
-//                 case 'last24h':
-//                     filterStartDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-//                     filterEndDate = now;
-//                     break;
-//                 case 'today':
-//                     filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-//                     filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-//                     break;
-//                 case 'yesterday':
-//                     const yesterday = new Date(now);
-//                     yesterday.setDate(yesterday.getDate() - 1);
-//                     filterStartDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0, 0);
-//                     filterEndDate = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59, 999);
-//                     break;
-//                 case 'thisWeek':
-//                     const weekStart = new Date(now);
-//                     const dayOfWeek = now.getDay();
-//                     weekStart.setDate(now.getDate() - dayOfWeek);
-//                     weekStart.setHours(0, 0, 0, 0);
-//                     filterStartDate = weekStart;
-//                     filterEndDate = now;
-//                     break;
-//                 case 'thisMonth':
-//                     filterStartDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-//                     filterEndDate = now;
-//                     break;
-//                 case 'custom':
-//                     if (req.query.customDateFrom || req.query.customDateTo) {
-//                         filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-//                         filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-//                     } else {
-//                         const hoursBack = parseInt(process.env.DEFAULT_DATE_RANGE_HOURS) || 24;
-//                         filterStartDate = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
-//                         filterEndDate = now;
-//                     }
-//                     break;
-//                 default:
-//                     const hoursBack = parseInt(process.env.DEFAULT_DATE_RANGE_HOURS) || 24;
-//                     filterStartDate = new Date(now.getTime() - hoursBack * 60 * 60 * 1000);
-//                     filterEndDate = now;
-//             }
-//         } else {
-//             // Default to today if no date filter specified
-//             const now = new Date();
-//             const todayStart = new Date(now);
-//             todayStart.setHours(0, 0, 0, 0);
-//             const todayEnd = new Date(now);
-//             todayEnd.setHours(23, 59, 59, 999);
-//             filterStartDate = todayStart;
-//             filterEndDate = todayEnd;
-//         }
-
-//         // Apply date filter with proper indexing
-//         if (filterStartDate || filterEndDate) {
-//             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
-//             queryFilters[dateField] = {};
-//             if (filterStartDate) queryFilters[dateField].$gte = filterStartDate;
-//             if (filterEndDate) queryFilters[dateField].$lte = filterEndDate;
-//         }
-
-//         // Apply same filters as getAllStudiesForLab
-//         if (req.query.search) {
-//             queryFilters.$or = [
-//                 { accessionNumber: { $regex: req.query.search, $options: 'i' } },
-//                 { studyInstanceUID: { $regex: req.query.search, $options: 'i' } }
-//             ];
-//         }
-
-//         if (req.query.modality) {
-//             queryFilters.$or = [
-//                 { modality: req.query.modality },
-//                 { modalitiesInStudy: req.query.modality }
-//             ];
-//         }
-
-//         if (req.query.priority) {
-//             queryFilters.caseType = req.query.priority;
-//         }
-
-//         console.log(`🔍 LAB VALUES: Dashboard query filters:`, JSON.stringify(queryFilters, null, 2));
-
-//         // 🔧 FIXED: Status mapping for lab with ALL possible statuses
-//         const statusCategories = {
-//             pending: ['new_study_received', 'pending_assignment'],
-//             inprogress: [
-//                 'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-//                 'report_finalized', 'report_drafted', 'report_uploaded', 
-//                 'report_downloaded_radiologist', 'report_downloaded' // 🔧 FIX: Added missing status
-//             ],
-//             completed: ['final_report_downloaded']
-//         };
-
-//         // 🔧 ENHANCED: Aggregation pipeline with null/undefined handling
-//         const pipeline = [
-//             {
-//                 $match: queryFilters
-//             },
-//             {
-//                 $addFields: {
-//                     // 🔧 CRITICAL: Handle null/undefined workflowStatus
-//                     safeWorkflowStatus: {
-//                         $ifNull: ['$workflowStatus', 'unknown']
-//                     }
-//                 }
-//             },
-//             {
-//                 $group: {
-//                     _id: '$safeWorkflowStatus',
-//                     count: { $sum: 1 }
-//                 }
-//             }
-//         ];
-
-//         // Execute queries with same filters
-//         const [statusCountsResult, totalFilteredResult] = await Promise.allSettled([
-//             DicomStudy.aggregate(pipeline).allowDiskUse(false),
-//             DicomStudy.countDocuments(queryFilters)
-//         ]);
-
-//         if (statusCountsResult.status === 'rejected') {
-//             throw new Error(`Status counts query failed: ${statusCountsResult.reason.message}`);
-//         }
-
-//         const statusCounts = statusCountsResult.value;
-//         const totalFiltered = totalFilteredResult.status === 'fulfilled' ? totalFilteredResult.value : 0;
-
-//         console.log(`📊 LAB VALUES: Raw status counts:`, statusCounts);
-//         console.log(`📊 LAB VALUES: Total filtered:`, totalFiltered);
-
-//         // 🔧 FIXED: Calculate category totals with proper null/undefined protection
-//         let pending = 0;
-//         let inprogress = 0;
-//         let completed = 0;
-//         let unknown = 0;
-
-//         statusCounts.forEach(({ _id: status, count }) => {
-//             // 🔧 CRITICAL: Null/undefined protection
-//             if (!status || status === 'unknown' || status === null || status === undefined) {
-//                 unknown += count;
-//                 console.log(`⚠️ LAB VALUES: Found ${count} studies with unknown/null status`);
-//                 return;
-//             }
-
-//             // 🔧 FIXED: Safe array checking with status validation
-//             if (statusCategories.pending && statusCategories.pending.includes(status)) {
-//                 pending += count;
-//                 console.log(`✅ LAB VALUES: Added ${count} studies to PENDING (status: ${status})`);
-//             } else if (statusCategories.inprogress && statusCategories.inprogress.includes(status)) {
-//                 inprogress += count;
-//                 console.log(`✅ LAB VALUES: Added ${count} studies to INPROGRESS (status: ${status})`);
-//             } else if (statusCategories.completed && statusCategories.completed.includes(status)) {
-//                 completed += count;
-//                 console.log(`✅ LAB VALUES: Added ${count} studies to COMPLETED (status: ${status})`);
-//             } else {
-//                 unknown += count;
-//                 console.log(`⚠️ LAB VALUES: Unrecognized status: ${status} with ${count} studies`);
-//             }
-//         });
-
-//         // 🔧 STEP 3: If category filter is applied, adjust the totals accordingly
-//         if (req.query.category && req.query.category !== 'all') {
-//             const categoryFilter = req.query.category;
-            
-//             // Reset all counts to 0 first
-//             let filteredPending = 0;
-//             let filteredProcessing = 0;
-//             let filteredCompleted = 0;
-            
-//             // Set only the filtered category to the total count
-//             switch (categoryFilter) {
-//                 case 'pending':
-//                     filteredPending = totalFiltered;
-//                     break;
-//                 case 'inprogress':
-//                     filteredProcessing = totalFiltered;
-//                     break;
-//                 case 'completed':
-//                     filteredCompleted = totalFiltered;
-//                     break;
-//             }
-            
-//             // Override the calculated values with filtered values
-//             pending = filteredPending;
-//             inprogress = filteredProcessing;
-//             completed = filteredCompleted;
-//         }
-
-//         const processingTime = Date.now() - startTime;
-//         console.log(`🎯 LAB VALUES: Dashboard values fetched in ${processingTime}ms with filters applied`);
-
-//         // Enhanced response with filter information
-//         const response = {
-//             success: true,
-//             total: totalFiltered, // Total matching the applied filters
-//             pending: pending,
-//             inprogress: inprogress, // Keep same naming as admin for consistency
-//             completed: completed,
-//             performance: {
-//                 queryTime: processingTime,
-//                 fromCache: false,
-//                 filtersApplied: Object.keys(queryFilters).length > 0
-//             }
-//         };
-
-//         // Add filter summary for debugging/transparency
-//         if (process.env.NODE_ENV === 'development') {
-//             response.debug = {
-//                 filtersApplied: queryFilters,
-//                 dateRange: {
-//                     start: filterStartDate?.toISOString(),
-//                     end: filterEndDate?.toISOString()
-//                 },
-//                 rawStatusCounts: statusCounts,
-//                 labSpecific: {
-//                     labId: req.user.lab?._id,
-//                     labName: req.user.lab?.name
-//                 }
-//             };
-//         }
-
-//         res.status(200).json(response);
-
-//     } catch (error) {
-//         console.error('❌ LAB VALUES: Error fetching dashboard values:', error);
-//         res.status(500).json({ 
-//             success: false, 
-//             message: 'Server error fetching dashboard statistics.',
-//             error: process.env.NODE_ENV === 'development' ? error.message : undefined
-//         });
-//     }
-// };
-
-
 // 🆕 NEW: Get values specifically for lab (synchronized with filters)
 export const getValues = async (req, res) => {
     console.log(`🔍 LAB: Fetching dashboard values with filters: ${JSON.stringify(req.query)}`);
     try {
         const startTime = Date.now();
         
-        // --- The logic for building queryFilters remains the same ---
+        // 🔧 STEP 1: Build lean query filters with optimized date handling (same as getAllStudiesForLab)
         const queryFilters = {};
         
+        // 🔧 LAB SPECIFIC: Lab filtering
         if (req.user.role === 'lab_staff' && req.user.lab) {
             queryFilters.sourceLab = new mongoose.Types.ObjectId(req.user.lab._id);
             console.log(`🏢 LAB VALUES: Filtering by lab: ${req.user.lab._id}`);
@@ -2419,6 +2187,7 @@ export const getValues = async (req, res) => {
         let filterStartDate = null;
         let filterEndDate = null;
         
+        // Optimized date filtering with pre-calculated timestamps
         if (req.query.quickDatePreset || req.query.dateFilter) {
             const preset = req.query.quickDatePreset || req.query.dateFilter;
             const now = new Date();
@@ -2466,11 +2235,17 @@ export const getValues = async (req, res) => {
                     filterEndDate = now;
             }
         } else {
+            // Default to today if no date filter specified
             const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+            const todayStart = new Date(now);
+            todayStart.setHours(0, 0, 0, 0);
+            const todayEnd = new Date(now);
+            todayEnd.setHours(23, 59, 59, 999);
+            filterStartDate = todayStart;
+            filterEndDate = todayEnd;
         }
 
+        // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
             queryFilters[dateField] = {};
@@ -2478,21 +2253,28 @@ export const getValues = async (req, res) => {
             if (filterEndDate) queryFilters[dateField].$lte = filterEndDate;
         }
 
+        // Apply same filters as getAllStudiesForLab
         if (req.query.search) {
             queryFilters.$or = [
                 { accessionNumber: { $regex: req.query.search, $options: 'i' } },
                 { studyInstanceUID: { $regex: req.query.search, $options: 'i' } }
             ];
         }
+
         if (req.query.modality) {
-            queryFilters.$or = [{ modality: req.query.modality }, { modalitiesInStudy: req.query.modality }];
+            queryFilters.$or = [
+                { modality: req.query.modality },
+                { modalitiesInStudy: req.query.modality }
+            ];
         }
+
         if (req.query.priority) {
             queryFilters.caseType = req.query.priority;
         }
 
         console.log(`🔍 LAB VALUES: Dashboard query filters:`, JSON.stringify(queryFilters, null, 2));
 
+        // Status mapping for lab
         const statusCategories = {
             pending: ['new_study_received', 'pending_assignment'],
             inprogress: [
@@ -2503,12 +2285,20 @@ export const getValues = async (req, res) => {
             completed: ['final_report_downloaded']
         };
 
+        // 🔥 STEP 2: Optimized aggregation pipeline with filters
         const pipeline = [
-            { $match: queryFilters },
-            { $addFields: { safeWorkflowStatus: { $ifNull: ['$workflowStatus', 'unknown'] } } },
-            { $group: { _id: '$safeWorkflowStatus', count: { $sum: 1 } } }
+            {
+                $match: queryFilters
+            },
+            {
+                $group: {
+                    _id: '$workflowStatus',
+                    count: { $sum: 1 }
+                }
+            }
         ];
 
+        // Execute queries with same filters
         const [statusCountsResult, totalFilteredResult] = await Promise.allSettled([
             DicomStudy.aggregate(pipeline).allowDiskUse(false),
             DicomStudy.countDocuments(queryFilters)
@@ -2521,72 +2311,81 @@ export const getValues = async (req, res) => {
         const statusCounts = statusCountsResult.value;
         const totalFiltered = totalFilteredResult.status === 'fulfilled' ? totalFilteredResult.value : 0;
 
-        console.log(`📊 LAB VALUES: Raw status counts:`, statusCounts);
-
-        // ✨ RENAMED: 'processing' variable is now correctly named 'inprogress'
+        // Calculate category totals with filtered data
         let pending = 0;
-        let inprogress = 0;
+        let processing = 0;
         let completed = 0;
-        let unknown = 0;
 
         statusCounts.forEach(({ _id: status, count }) => {
-            if (!status || status === 'unknown') {
-                unknown += count;
-                return;
-            }
-            
-            if (statusCategories.completed && statusCategories.completed.includes(status)) {
-                completed += count;
-            } else if (statusCategories.inprogress && statusCategories.inprogress.includes(status)) {
-                // ✨ RENAMED: Incrementing the correct variable
-                inprogress += count;
-            } else if (statusCategories.pending && statusCategories.pending.includes(status)) {
+            if (statusCategories.pending.includes(status)) {
                 pending += count;
-            } else {
-                unknown += count;
+            } else if (statusCategories.processing.includes(status)) {
+                processing += count;
+            } else if (statusCategories.completed.includes(status)) {
+                completed += count;
             }
         });
 
+        // 🔥 STEP 3: If category filter is applied, adjust the totals accordingly
         if (req.query.category && req.query.category !== 'all') {
             const categoryFilter = req.query.category;
             
-            pending = 0;
-            inprogress = 0; // ✨ RENAMED: Resetting the correct variable
-            completed = 0;
+            // Reset all counts to 0 first
+            let filteredPending = 0;
+            let filteredProcessing = 0;
+            let filteredCompleted = 0;
             
+            // Set only the filtered category to the total count
             switch (categoryFilter) {
                 case 'pending':
-                    pending = totalFiltered;
+                    filteredPending = totalFiltered;
                     break;
-                case 'inprogress':
-                     // ✨ RENAMED: Updating the correct variable
-                    inprogress = totalFiltered;
+                case 'processing':
+                    filteredProcessing = totalFiltered;
                     break;
                 case 'completed':
-                    completed = totalFiltered;
+                    filteredCompleted = totalFiltered;
                     break;
             }
+            
+            // Override the calculated values with filtered values
+            pending = filteredPending;
+            processing = filteredProcessing;
+            completed = filteredCompleted;
         }
 
         const processingTime = Date.now() - startTime;
-        console.log(`🎯 LAB VALUES: Dashboard values fetched in ${processingTime}ms`);
+        console.log(`🎯 LAB VALUES: Dashboard values fetched in ${processingTime}ms with filters applied`);
 
+        // Enhanced response with filter information
         const response = {
             success: true,
-            total: totalFiltered,
+            total: totalFiltered, // Total matching the applied filters
             pending: pending,
-            inprogress: inprogress, // ✨ RENAMED: Using the correct variable for the response key
+            inprogress: processing, // Keep same naming as admin for consistency
             completed: completed,
             performance: {
                 queryTime: processingTime,
                 fromCache: false,
                 filtersApplied: Object.keys(queryFilters).length > 0
-            },
-            debug: process.env.NODE_ENV === 'development' ? {
-                filtersApplied: queryFilters,
-                rawStatusCounts: statusCounts,
-            } : undefined
+            }
         };
+
+        // Add filter summary for debugging/transparency
+        if (process.env.NODE_ENV === 'development') {
+            response.debug = {
+                filtersApplied: queryFilters,
+                dateRange: {
+                    start: filterStartDate?.toISOString(),
+                    end: filterEndDate?.toISOString()
+                },
+                rawStatusCounts: statusCounts,
+                labSpecific: {
+                    labId: req.user.lab?._id,
+                    labName: req.user.lab?.name
+                }
+            };
+        }
 
         res.status(200).json(response);
 
@@ -2599,6 +2398,7 @@ export const getValues = async (req, res) => {
         });
     }
 };
+
 
 
 
