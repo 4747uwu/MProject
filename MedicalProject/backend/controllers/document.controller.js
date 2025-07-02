@@ -13,7 +13,7 @@ import { updateWorkflowStatus } from '../utils/workflowStatusManger.js';
 import WasabiService from '../services/wasabi.service.js';
 
 import Document from '../models/documentModal.js';
-import { calculateStudyTAT, getLegacyTATFields } from '../utils/TATutility.js';
+import { calculateStudyTAT, getLegacyTATFields, updateStudyTAT } from '../utils/TATutility.js';
 
 
 
@@ -774,8 +774,7 @@ static async getStudyReport(req, res) {
       });
     }
   }
-  // List reports for a study (only uploaded reports)
-// 🔧 FIXED: Upload study report function
+
 static async uploadStudyReport(req, res) {
   console.log(req.body)
   console.log('🔧 Uploading study report with Wasabi integration...'); 
@@ -783,8 +782,9 @@ static async uploadStudyReport(req, res) {
       const { studyId } = req.params;
       const { doctorId, reportStatus } = req.body;
       
-      // Check if file exists in the request
+      
       if (!req.file) {
+        console.log("nofile")
           return res.status(400).json({ 
               success: false, 
               message: 'No file uploaded' 
@@ -979,6 +979,219 @@ static async uploadStudyReport(req, res) {
       });
   }
 }
+
+// static async uploadStudyReport(req, res) {
+//   console.log('🔧 Uploading study report with Wasabi integration...'); 
+//   try {
+//       const { studyId } = req.params;
+//       const { doctorId, reportStatus } = req.body;
+      
+//       // Check if file exists in the request
+//       if (!req.file) {
+//           return res.status(400).json({ 
+//               success: false, 
+//               message: 'No file uploaded' 
+//           });
+//       }
+      
+//       // 🔧 FIX: Check if WasabiService is properly loaded
+//       if (!WasabiService) {
+//           console.error('❌ WasabiService is not properly imported');
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Storage service not available',
+//               error: 'WasabiService not loaded'
+//           });
+//       }
+      
+//       // 🔧 FIX: Check if WasabiService has required methods
+//       if (typeof WasabiService.uploadDocument !== 'function') {
+//           console.error('❌ WasabiService.uploadDocument method not found');
+//           console.log('Available WasabiService methods:', Object.getOwnPropertyNames(WasabiService));
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Storage service method not available',
+//               error: 'uploadDocument method not found'
+//           });
+//       }
+      
+//       const study = await DicomStudy.findById(studyId)
+//           .populate('patient', 'patientID firstName lastName')
+//           .populate('assignment.assignedTo');
+      
+//       if (!study) {
+//           return res.status(404).json({ 
+//               success: false, 
+//               message: 'Study not found' 
+//           });
+//       }
+      
+//       // 🔧 FIXED: Use assigned doctor from study if no doctorId provided
+//       let doctor = null;
+//       let effectiveDoctorId = doctorId;
+      
+//       if (doctorId) {
+//           doctor = await Doctor.findById(doctorId).populate('userAccount', 'fullName');
+//           if (!doctor) {
+//               return res.status(404).json({
+//                   success: false,
+//                   message: 'Doctor not found'
+//               });
+//           }
+//       } else if (study.assignment?.assignedTo) {
+//           // Use the already assigned doctor
+//           effectiveDoctorId = study.assignment.assignedTo;
+//           doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+//       }
+      
+//       // Get the file from multer
+//       const file = req.file;
+//       const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Unknown';
+      
+//       console.log(`📤 Uploading ${file.originalname} to Wasabi...`);
+      
+//       // 🔧 ENHANCED: Upload to Wasabi with better error handling
+//       let wasabiResult;
+//       try {
+//           wasabiResult = await WasabiService.uploadDocument(
+//               file.buffer,
+//               file.originalname,
+//               'clinical', // documentType
+//               {
+//                   patientId: study.patientId,
+//                   studyId: study.studyInstanceUID,
+//                   uploadedBy: uploaderName,
+//                   doctorId: effectiveDoctorId
+//               }
+//           );
+//       } catch (wasabiError) {
+//           console.error('❌ WasabiService.uploadDocument threw error:', wasabiError);
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Failed to upload to storage service',
+//               error: wasabiError.message
+//           });
+//       }
+      
+//       if (!wasabiResult || !wasabiResult.success) {
+//           console.error('❌ Wasabi upload failed:', wasabiResult?.error);
+//           return res.status(500).json({
+//               success: false,
+//               message: 'Failed to upload file to storage',
+//               error: wasabiResult?.error || 'Unknown storage error'
+//           });
+//       }
+      
+//       console.log('✅ File uploaded to Wasabi:', wasabiResult.key);
+      
+//       // 🔧 NEW: Create Document record
+//       const documentRecord = new Document({
+//           fileName: file.originalname,
+//           fileSize: file.size,
+//           contentType: file.mimetype,
+//           documentType: 'clinical',
+//           wasabiKey: wasabiResult.key,
+//           wasabiBucket: wasabiResult.bucket,
+//           patientId: study.patientId,
+//           studyId: study._id,
+//           uploadedBy: req.user.id
+//       });
+      
+//       await documentRecord.save();
+//       console.log('✅ Document record created:', documentRecord._id);
+      
+//       // 🔧 ENHANCED: Create doctor report object for DicomStudy.doctorReports
+//       const doctorReportDocument = {
+//           _id: documentRecord._id, // Link to Document collection
+//           filename: file.originalname,
+//           contentType: file.mimetype,
+//           size: file.size,
+//           reportType: doctor ? 'doctor-report' : 'radiologist-report',
+//           uploadedAt: new Date(),
+//           uploadedBy: uploaderName,
+//           reportStatus: reportStatus || 'finalized',
+//           doctorId: effectiveDoctorId,
+//           // 🔧 NEW: Wasabi storage info (for quick access)
+//           wasabiKey: wasabiResult.key,
+//           wasabiBucket: wasabiResult.bucket,
+//           storageType: 'wasabi'
+//       };
+      
+//       // 🔧 FIXED: Initialize doctorReports array if it doesn't exist
+//       if (!study.doctorReports) {
+//           study.doctorReports = [];
+//       }
+      
+//       // Add to doctorReports array
+//       study.doctorReports.push(doctorReportDocument);
+      
+//       // 🔧 CRITICAL: Set ReportAvailable to true
+//       study.ReportAvailable = true;
+      
+//       // 🔧 FIXED: Update report-related fields
+//       study.reportInfo = study.reportInfo || {};
+//       study.reportInfo.finalizedAt = new Date();
+//       study.reportInfo.reporterName = uploaderName;
+      
+//       // 🔧 FIXED: Update timing info
+//       if (study.assignment?.assignedAt) {
+//           const assignmentToReport = (new Date() - new Date(study.assignment.assignedAt)) / (1000 * 60);
+//           study.timingInfo = study.timingInfo || {};
+//           study.timingInfo.assignmentToReportMinutes = Math.round(assignmentToReport);
+//       }
+      
+//       // 🔧 FIXED: UPDATE WORKFLOW STATUS with proper error handling
+//       try {
+//           await updateWorkflowStatus({
+//               studyId: studyId,
+//               status: 'report_finalized',
+//               doctorId: effectiveDoctorId,
+//               note: `Report uploaded by ${uploaderName} (Wasabi: ${wasabiResult.key})`,
+//               user: req.user
+//           });
+//       } catch (workflowError) {
+//           console.warn('Workflow status update failed:', workflowError.message);
+//           // Continue with save even if workflow update fails
+//       }
+      
+//       await study.save();
+      
+//       console.log('✅ Study updated with doctor report');
+      
+//       res.json({
+//           success: true,
+//           message: 'Report uploaded successfully to Wasabi storage',
+//           report: {
+//               _id: documentRecord._id,
+//               filename: doctorReportDocument.filename,
+//               size: doctorReportDocument.size,
+//               reportType: doctorReportDocument.reportType,
+//               reportStatus: doctorReportDocument.reportStatus,
+//               uploadedBy: doctorReportDocument.uploadedBy,
+//               uploadedAt: doctorReportDocument.uploadedAt,
+//               wasabiKey: wasabiResult.key,
+//               storageType: 'wasabi'
+//           },
+//           workflowStatus: 'report_finalized',
+//           totalReports: study.doctorReports.length,
+//           reportAvailable: study.ReportAvailable,
+//           study: {
+//               _id: study._id,
+//               patientName: study.patientInfo?.patientName || `${study.patient?.firstName || ''} ${study.patient?.lastName || ''}`.trim(),
+//               patientId: study.patientInfo?.patientID || study.patient?.patientID
+//           }
+//       });
+      
+//   } catch (error) {
+//       console.error('❌ Error uploading study report:', error);
+//       res.status(500).json({ 
+//           success: false, 
+//           message: 'Error uploading report',
+//           error: error.message 
+//       });
+//   }
+// }
+
 
 static async getStudyReports(req, res) {
   console.log('📋 Fetching study reports from doctorReports...');

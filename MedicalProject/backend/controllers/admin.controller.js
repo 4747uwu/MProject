@@ -15,6 +15,31 @@ import { calculateStudyTAT, getLegacyTATFields,updateStudyTAT } from '../utils/T
 
 // import websocketService from '../config/webSocket.js'; // 🆕 ADD: Import WebSocket service
 const storage = multer.memoryStorage();
+const formatDicomDateTime = (studyDate, studyTime) => {
+    if (!studyDate) return 'N/A';
+    
+    let dateTime = new Date(studyDate);
+    
+    if (studyTime && studyTime.length >= 6) {
+      // Parse DICOM time format: "152054" = 15:20:54
+      const hours = parseInt(studyTime.substring(0, 2));
+      const minutes = parseInt(studyTime.substring(2, 4));
+      const seconds = parseInt(studyTime.substring(4, 6));
+      
+      // Set the time components (this keeps it in the same date, just adds time)
+      dateTime.setUTCHours(hours, minutes, seconds, 0);
+    }
+    
+    return dateTime.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'short', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC' // Keep as UTC since DICOM times are typically in local hospital time
+    }).replace(',', '');
+  };
 
 const signatureUpload = multer({
     storage: storage,
@@ -285,6 +310,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
+                    doctorReports: 1,
                     reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
@@ -519,16 +545,14 @@ export const getAllStudiesForAdmin = async (req, res) => {
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate
-                ? new Date(study.studyDate).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 studyDate: study.studyDate,
                 uploadDateTime: study.createdAt
                 ? new Date(study.createdAt).toLocaleString('en-GB', {
@@ -546,17 +570,25 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',
-                reportedDate: study.reportInfo?.finalizedAt
-                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
                 : null,
-
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -3981,6 +4013,7 @@ export const getPendingStudies = async (req, res) => {
                     ReportAvailable: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
+                    doctorReports: 1,
                     lastAssignedDoctor: 1,
                     reportInfo: 1,
                     reportFinalizedAt: 1,
@@ -4187,45 +4220,38 @@ export const getPendingStudies = async (req, res) => {
                 description: study.examDescription || study.studyDescription || 'N/A',
                 series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate && study.studyTime ? 
-                              `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                              (study.studyDate || 'N/A'),
-                              studyDateTime: study.studyDate
-                              ? new Date(study.studyDate).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
-                              studyDate: study.studyDate,
-                              uploadDateTime: study.createdAt
-                              ? new Date(study.createdAt).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'pending', // All results will be pending
                 createdAt: study.createdAt,
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',
-                reportedDate: study.reportInfo?.finalizedAt
-                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
                 : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
@@ -4491,6 +4517,7 @@ export const getInProgressStudies = async (req, res) => {
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
+                    doctorReports: 1,
                     reportInfo: 1,
                     reportFinalizedAt: 1,
                     clinicalHistory: 1,
@@ -4692,45 +4719,38 @@ export const getInProgressStudies = async (req, res) => {
                 description: study.examDescription || study.studyDescription || 'N/A',
                 series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate && study.studyTime ? 
-                              `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                              (study.studyDate || 'N/A'),
-                              studyDateTime: study.studyDate
-                              ? new Date(study.studyDate).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
-                              studyDate: study.studyDate,
-                              uploadDateTime: study.createdAt
-                              ? new Date(study.createdAt).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'inprogress',
                 createdAt: study.createdAt,
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',
-                reportedDate: study.reportInfo?.finalizedAt
-                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
                 : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
@@ -4977,6 +4997,7 @@ export const getCompletedStudies = async (req, res) => {
                     ReportAvailable: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
+                    doctorReports: 1,
                     lastAssignedDoctor: 1,
                     reportInfo: 1,
                     reportFinalizedAt: 1,
@@ -5190,45 +5211,38 @@ export const getCompletedStudies = async (req, res) => {
                 description: study.examDescription || study.studyDescription || 'N/A',
                 series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDateTime: study.studyDate && study.studyTime ? 
-                              `${study.studyDate} ${study.studyTime.substring(0,6)}` : 
-                              (study.studyDate || 'N/A'),
-                              studyDateTime: study.studyDate
-                              ? new Date(study.studyDate).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
-                              studyDate: study.studyDate,
-                              uploadDateTime: study.createdAt
-                              ? new Date(study.createdAt).toLocaleString('en-GB', {
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false
-                              }).replace(',', '')
-                              : 'N/A',
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',
-                reportedDate: study.reportInfo?.finalizedAt
-                ? new Date(study.reportInfo.finalizedAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
                 : null,
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',

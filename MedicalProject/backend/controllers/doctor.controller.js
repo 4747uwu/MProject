@@ -25,6 +25,31 @@ const DOCTOR_STATUS_CATEGORIES = {
         'final_report_downloaded'
     ]
 };
+const formatDicomDateTime = (studyDate, studyTime) => {
+    if (!studyDate) return 'N/A';
+    
+    let dateTime = new Date(studyDate);
+    
+    if (studyTime && studyTime.length >= 6) {
+      // Parse DICOM time format: "152054" = 15:20:54
+      const hours = parseInt(studyTime.substring(0, 2));
+      const minutes = parseInt(studyTime.substring(2, 4));
+      const seconds = parseInt(studyTime.substring(4, 6));
+      
+      // Set the time components (this keeps it in the same date, just adds time)
+      dateTime.setUTCHours(hours, minutes, seconds, 0);
+    }
+    
+    return dateTime.toLocaleString('en-GB', {
+      year: 'numeric',
+      month: 'short', 
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'UTC' // Keep as UTC since DICOM times are typically in local hospital time
+    }).replace(',', '');
+  };
 
 // 🔧 HELPER: Get all statuses for a category
 const getAllStatusesForCategory = (category) => {
@@ -206,9 +231,11 @@ export const getAssignedStudies = async (req, res) => {
                     seriesCount: 1,
                     instanceCount: 1,
                     studyDate: 1,
+                    studyTime: 1,
                     createdAt: 1,
                     ReportAvailable: 1,
                     clinicalHistory: 1,
+                    doctorReports: 1,
                     caseType: 1,
                     assignment: 1,
                     lastAssignedDoctor: 1,
@@ -330,7 +357,14 @@ export const getAssignedStudies = async (req, res) => {
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
                 // studyDate: study.studyDate,
-                studyDate: study.studyDate,
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 uploadDateTime: study.createdAt
                 ? new Date(study.createdAt).toLocaleString('en-GB', {
                     year: 'numeric',
@@ -341,6 +375,25 @@ export const getAssignedStudies = async (req, res) => {
                     hour12: false
                 }).replace(',', '')
                 : 'N/A',
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
+                : null,
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
@@ -978,6 +1031,7 @@ export const getPendingStudies = async (req, res) => {
                     instanceCount: 1,
                     seriesImages: 1,
                     studyDate: 1,
+                    doctorReports: 1,
                     studyTime: 1,
                     createdAt: 1,
                     caseType: 1,
@@ -1156,7 +1210,14 @@ export const getPendingStudies = async (req, res) => {
                 modality: study.modality || 'N/A',
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDate: study.studyDate,
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 uploadDateTime: study.createdAt
                 ? new Date(study.createdAt).toLocaleString('en-GB', {
                     year: 'numeric',
@@ -1167,6 +1228,25 @@ export const getPendingStudies = async (req, res) => {
                     hour12: false
                 }).replace(',', '')
                 : 'N/A',
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
+                : null,
                 workflowStatus: study.workflowStatus,
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
@@ -1228,6 +1308,8 @@ export const getPendingStudies = async (req, res) => {
 };
 
 // 🆕 NEW: Get in-progress studies for doctor (studies being worked on)
+
+
 export const getInProgressStudies = async (req, res) => {
     try {
         const startTime = Date.now();
@@ -1240,73 +1322,81 @@ export const getInProgressStudies = async (req, res) => {
 
         console.log(`🔍 DOCTOR IN-PROGRESS: Fetching in-progress studies for doctor: ${doctor._id}`);
 
-        const { 
-            search, modality, labId, priority, patientName, 
+        const {
+            search, modality, labId, priority, patientName,
             quickDatePreset, customDateFrom, customDateTo
         } = req.query;
 
-        // 🔧 STEP 1: Build optimized query filters with pre-calculated timestamps
+        // 🔧 STEP 1: Build the BASE query filter
         let queryFilters = {
-            $or: [
-                { 'lastAssignedDoctor.doctorId': doctor._id },
-                { 'assignment.assignedTo': doctor._id }
-            ],
             workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.inprogress }
         };
 
-        // 🔥 STEP 2: Optimized date filtering with pre-calculated timestamps
+        // 🔥 STEP 2: Calculate date range (This logic was already correct)
         let filterStartDate = null;
         let filterEndDate = null;
         const now = new Date();
         if (quickDatePreset) {
-        switch (quickDatePreset) {
-        case '24h':
-        case 'last24h':
-        // Rolling 24-hour window from the current moment.
-        filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-        filterEndDate = now;
-        break;
-        
-        case 'today':
-        case 'assignedToday':
-        // Precisely the start and end of the current calendar day.
-        const today = new Date();
-        filterStartDate = new Date(today.setHours(0, 0, 0, 0));
-        filterEndDate = new Date(today.setHours(23, 59, 59, 999));
-        break;
-        
-        case 'yesterday':
-        // Precisely the start and end of yesterday's calendar day.
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1); // Go back one day
-        filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
-        filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
-        break;
-        
-        case 'week':
-        case 'thisWeek':
-        // Rolling 7-day window from the current moment.
-        filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        filterEndDate = now;
-        break;
-        
-        case 'month':
-        case 'thisMonth':
-        // Rolling 30-day window from the current moment.
-        filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-        filterEndDate = now;
-        break;
-        
-        case 'custom':
-        // Custom range, interpreted as UTC to avoid timezone issues.
-        filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
-        filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
-        break;
+            switch (quickDatePreset) {
+                case '24h':
+                case 'last24h':
+                    filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+                    filterEndDate = now;
+                    break;
+                case 'today':
+                case 'assignedToday':
+                    const today = new Date();
+                    filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+                    filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+                    break;
+                case 'yesterday':
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+                    filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+                    break;
+                case 'week':
+                case 'thisWeek':
+                    filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+                    filterEndDate = now;
+                    break;
+                case 'month':
+                case 'thisMonth':
+                    filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+                    filterEndDate = now;
+                    break;
+                case 'custom':
+                    filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+                    filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+                    break;
+            }
         }
-        }
-        
 
-        // 🔧 STEP 3: Optimized filter application
+        // 🔥 FIX: STEP 3: Conditionally build the assignment query based on date filters
+        let assignmentQuery;
+        if (filterStartDate && filterEndDate) {
+            console.log(`📅 Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            // Use $elemMatch to ensure doctorId and assignedAt match in the SAME array element
+            assignmentQuery = {
+                $or: [
+                    { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+                    { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+                ]
+            };
+        } else {
+            // If no date filter, just match the doctorId
+            assignmentQuery = {
+                $or: [
+                    { 'lastAssignedDoctor.doctorId': doctor._id },
+                    { 'assignment.assignedTo': doctor._id }
+                ]
+            };
+        }
+
+        // 🔥 FIX: Combine the base filter with the dynamic assignment query
+        queryFilters = { ...queryFilters, ...assignmentQuery };
+
+        // 🔧 STEP 4: Apply all other filters
         if (search) {
             queryFilters.$text = { $search: search };
         }
@@ -1320,70 +1410,40 @@ export const getInProgressStudies = async (req, res) => {
             queryFilters['assignment.priority'] = priority;
         }
 
-        console.log(`🔍 DOCTOR IN-PROGRESS: Query filters:`, JSON.stringify(queryFilters, null, 2));
+        console.log(`🔍 DOCTOR IN-PROGRESS: Final query filters:`, JSON.stringify(queryFilters, null, 2));
 
-        // 🔥 STEP 4: Ultra-optimized aggregation pipeline
+        // 🔥 STEP 5: Ultra-optimized aggregation pipeline (No changes needed here)
         const pipeline = [
-            // 🔥 CRITICAL: Start with most selective match first
             { $match: queryFilters },
-            
-            // 🔥 PERFORMANCE: Sort before project to use index efficiently
             { $sort: { 'reportInfo.startedAt': -1, createdAt: -1 } },
-            
-            // 🔥 CRITICAL: Limit early to reduce pipeline processing
             { $limit: limit },
-            
-            // 🔥 PERFORMANCE: Project only essential fields early
             {
                 $project: {
-                    _id: 1,
-                    orthancStudyID: 1,
-                    studyInstanceUID: 1,
-                    accessionNumber: 1,
-                    workflowStatus: 1,
-                    modality: 1,
-                    examDescription: 1,
-                    studyDescription: 1,
-                    seriesCount: 1,
-                    instanceCount: 1,
-                    seriesImages: 1,
-                    studyDate: 1,
-                    studyTime: 1,
-                    createdAt: 1,
-                    caseType: 1,
-                    'assignment.priority': 1,
-                    'assignment.assignedAt': 1,
-                    lastAssignedDoctor: 1,
-                    'reportInfo.startedAt': 1,
-                    patient: 1,
-                    sourceLab: 1,
-                    patientInfo: 1 // Keep for fallback
+                    _id: 1, orthancStudyID: 1, studyInstanceUID: 1, accessionNumber: 1,
+                    workflowStatus: 1, modality: 1, examDescription: 1, studyDescription: 1,
+                    seriesCount: 1, instanceCount: 1, seriesImages: 1, studyDate: 1,
+                    studyTime: 1, createdAt: 1, caseType: 1, 'assignment.priority': 1,
+                    doctorReports: 1, ReportAvailable: 1, 
+                    'assignment.assignedAt': 1, lastAssignedDoctor: 1, 'reportInfo.startedAt': 1,
+                    patient: 1, sourceLab: 1, patientInfo: 1 // Keep for fallback
                 }
             },
-            
-            // 🔥 PERFORMANCE: Add category field after projection
             { $addFields: { currentCategory: 'inprogress' } }
         ];
 
-        // 🔥 STEP 5: Execute optimized parallel queries
+        // 🔥 STEP 6: Execute parallel queries
         console.log(`🚀 Executing optimized query...`);
         const queryStart = Date.now();
-        
-        // Build count pipeline without patient name filter for accurate count
-        const countPipeline = [
-            { $match: queryFilters },
-            { $count: "total" }
-        ];
 
-        // Use Promise.allSettled for better error handling
+        const countPipeline = [{ $match: queryFilters }, { $count: "total" }];
+
         const [studiesResult, totalCountResult] = await Promise.allSettled([
             DicomStudy.aggregate(pipeline).allowDiskUse(false),
-            patientName ? 
-                DicomStudy.aggregate(countPipeline).allowDiskUse(false) : 
-                DicomStudy.countDocuments(queryFilters)
+            patientName
+                ? DicomStudy.aggregate(countPipeline).allowDiskUse(false)
+                : DicomStudy.countDocuments(queryFilters)
         ]);
 
-        // Handle potential errors
         if (studiesResult.status === 'rejected') {
             throw new Error(`Studies query failed: ${studiesResult.reason.message}`);
         }
@@ -1392,46 +1452,37 @@ export const getInProgressStudies = async (req, res) => {
         }
 
         let studies = studiesResult.value;
-        const totalStudies = totalCountResult.status === 'fulfilled' ? 
-            (patientName ? (totalCountResult.value[0]?.total || 0) : totalCountResult.value) : 
-            studies.length;
+        const totalStudies = totalCountResult.status === 'fulfilled'
+            ? (patientName ? (totalCountResult.value[0]?.total || 0) : totalCountResult.value)
+            : studies.length;
 
         const queryTime = Date.now() - queryStart;
         console.log(`⚡ Core query completed in ${queryTime}ms - found ${studies.length} studies`);
 
-        // 🔥 STEP 6: Apply patient name filter after main query if needed (more efficient for small result sets)
+        // 🔥 STEP 7: Apply post-query patient name filter (more efficient for small result sets)
         if (patientName && studies.length > 0) {
             const patientFilterStart = Date.now();
             studies = studies.filter(study => {
                 const patientInfo = study.patientInfo;
                 if (!patientInfo) return false;
-                
-                const nameMatch = patientInfo.patientName && 
-                    patientInfo.patientName.toLowerCase().includes(patientName.toLowerCase());
-                const idMatch = patientInfo.patientID && 
-                    patientInfo.patientID.toLowerCase().includes(patientName.toLowerCase());
-                
+                const nameMatch = patientInfo.patientName?.toLowerCase().includes(patientName.toLowerCase());
+                const idMatch = patientInfo.patientID?.toLowerCase().includes(patientName.toLowerCase());
                 return nameMatch || idMatch;
             });
             console.log(`🔍 Patient name filter applied in ${Date.now() - patientFilterStart}ms`);
         }
 
-        // 🔥 STEP 7: Optimized batch lookups
-        const lookupMaps = {
-            patients: new Map(),
-            labs: new Map()
-        };
+        // 🔥 STEP 8: Optimized batch lookups
+        const lookupMaps = { patients: new Map(), labs: new Map() };
+        let lookupTime = 0;
 
         if (studies.length > 0) {
             const lookupStart = Date.now();
-            
-            // Extract unique IDs with Set for deduplication
             const uniqueIds = {
                 patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
                 labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))]
             };
 
-            // 🔥 PARALLEL: Optimized batch lookups with lean queries
             const lookupPromises = [];
 
             if (uniqueIds.patients.length > 0) {
@@ -1454,64 +1505,43 @@ export const getInProgressStudies = async (req, res) => {
                 );
             }
 
-            // Execute all lookups in parallel
             const lookupResults = await Promise.allSettled(lookupPromises);
-            
-            // Process results and build maps
             lookupResults.forEach(result => {
                 if (result.status === 'fulfilled') {
                     const { type, data } = result.value;
-                    data.forEach(item => {
-                        lookupMaps[type].set(item._id.toString(), item);
-                    });
+                    data.forEach(item => lookupMaps[type].set(item._id.toString(), item));
                 } else {
                     console.warn(`Lookup failed for ${result.reason}`);
                 }
             });
-            
-            const lookupTime = Date.now() - lookupStart;
+            lookupTime = Date.now() - lookupStart;
             console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
         }
 
-        // 🔥 STEP 8: Optimized formatting with pre-compiled maps
+        // 🔥 STEP 9: Optimized formatting with pre-compiled maps
         const formatStart = Date.now();
-        
         const formattedStudies = studies.map(study => {
-            // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
-            
-            // Handle assignment data (both legacy and new formats)
-            const assignmentData = (study.assignment && study.assignment.length > 0) ? 
-                study.assignment[study.assignment.length - 1] : 
-                (study.lastAssignedDoctor && study.lastAssignedDoctor.length > 0) ? 
-                study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1] : null;
 
-            // Optimized patient display building
+            const assignmentData = (study.assignment?.length > 0)
+                ? study.assignment[study.assignment.length - 1]
+                : (study.lastAssignedDoctor?.length > 0)
+                    ? study.lastAssignedDoctor[study.lastAssignedDoctor.length - 1]
+                    : null;
+
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
             let patientAgeGenderDisplay = "N/A";
 
             if (patient) {
-                patientDisplay = patient.computed?.fullName || 
-                                patient.patientNameRaw || 
-                                "N/A";
+                patientDisplay = patient.computed?.fullName || patient.patientNameRaw || "N/A";
                 patientIdForDisplay = patient.patientID || "N/A";
-
-                // Optimized age/gender display
                 const agePart = patient.ageString || "";
                 const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : "N/A";
+                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : (agePart || genderPart || "N/A");
             }
-
-            // Optimized date formatting
-            let studyDateTimeDisplay = "N/A";
-            if (study.studyDate && study.studyTime) {
-                studyDateTimeDisplay = `${new Date(study.studyDate).toLocaleDateString()} ${study.studyTime.substring(0, 6)}`;
-            } else if (study.studyDate) {
-                studyDateTimeDisplay = new Date(study.studyDate).toLocaleDateString();
-            }
-
+            
             return {
                 _id: study._id,
                 orthancStudyID: study.orthancStudyID,
@@ -1525,28 +1555,43 @@ export const getInProgressStudies = async (req, res) => {
                 modality: study.modality || 'N/A',
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDate: study.studyDate,
+                studyDateTime: study.studyDate && study.studyTime
+                    ? formatDicomDateTime(study.studyDate, study.studyTime)
+                    : study.studyDate
+                        ? new Date(study.studyDate).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' })
+                        : 'N/A',
                 uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+                    ? new Date(study.createdAt).toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
+                    : 'N/A',
                 workflowStatus: study.workflowStatus,
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
+                : null,
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
                 assignedDate: assignmentData?.assignedAt,
                 reportStartedAt: study.reportInfo?.startedAt,
-                ReportAvailable: false // A report in progress is not yet available
+                ReportAvailable: study.ReportAvailable
             };
         });
-
         const formatTime = Date.now() - formatStart;
         const processingTime = Date.now() - startTime;
 
@@ -1582,8 +1627,8 @@ export const getInProgressStudies = async (req, res) => {
                 actualReturned: formattedStudies.length,
                 breakdown: {
                     coreQuery: queryTime,
-                    lookups: studies.length > 0 ? `${Date.now() - formatStart}ms` : 0,
-                    formatting: formatTime
+                    lookups: `${lookupTime}ms`,
+                    formatting: `${formatTime}ms`
                 }
             }
         });
@@ -1741,6 +1786,7 @@ break;
                     createdAt: 1,
                     caseType: 1,
                     ReportAvailable: 1,
+                    doctorReports: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
                     lastAssignedDoctor: 1,
@@ -1922,7 +1968,14 @@ break;
                 modality: study.modality || 'N/A',
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
-                studyDate: study.studyDate,
+                studyDateTime: study.studyDate && study.studyTime 
+                ? formatDicomDateTime(study.studyDate, study.studyTime)
+                : study.studyDate 
+                    ? new Date(study.studyDate).toLocaleDateString('en-GB', {
+                        year: 'numeric', month: 'short', day: '2-digit'
+                    })
+                    : 'N/A',
+                
                 uploadDateTime: study.createdAt
                 ? new Date(study.createdAt).toLocaleString('en-GB', {
                     year: 'numeric',
@@ -1933,6 +1986,25 @@ break;
                     hour12: false
                 }).replace(',', '')
                 : 'N/A',
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-GB', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+                })()
+                : null,
                 workflowStatus: study.workflowStatus,
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
