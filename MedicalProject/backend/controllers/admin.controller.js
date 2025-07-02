@@ -555,15 +555,16 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 
                 studyDate: study.studyDate,
                 uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+    ? new Date(study.createdAt).toLocaleString('en-GB', {
+        timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).replace(',', '')
+    : 'N/A',
                 workflowStatus: study.workflowStatus,
                 currentCategory: currentCategory,
                 createdAt: study.createdAt,
@@ -3780,7 +3781,7 @@ export const registerLabAndStaff = async (req, res) => {
                 throw new Error('Staff username, email, and full name are required.');
             }
 
-            const staffPassword = "starRadiology"; // Temporary password for staff
+            const staffPassword = generateRandomPassword();
 
             // Check for existing records
             const [labExists, staffUserExists] = await Promise.all([
@@ -4253,6 +4254,17 @@ export const getPendingStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 assignedDoctorName: latestAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
                 priority: study.assignment?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -4730,6 +4742,17 @@ export const getInProgressStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'inprogress',
                 createdAt: study.createdAt,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',
@@ -5222,6 +5245,17 @@ export const getCompletedStudies = async (req, res) => {
                 workflowStatus: study.workflowStatus,
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
+                uploadDateTime: study.createdAt
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 reportedBy: study.reportInfo?.reporterName 
                 
                 || 'N/A',

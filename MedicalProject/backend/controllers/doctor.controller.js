@@ -365,16 +365,17 @@ export const getAssignedStudies = async (req, res) => {
                     })
                     : 'N/A',
                 
-                uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+                    uploadDateTime: study.createdAt
+                    ? new Date(study.createdAt).toLocaleString('en-GB', {
+                        timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '')
+                    : 'N/A',
                 reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
                 ? (() => {
                     // Use the latest uploadedAt if multiple reports
@@ -1218,16 +1219,17 @@ export const getPendingStudies = async (req, res) => {
                     })
                     : 'N/A',
                 
-                uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+                    uploadDateTime: study.createdAt
+                    ? new Date(study.createdAt).toLocaleString('en-GB', {
+                        timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '')
+                    : 'N/A',
                 reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
                 ? (() => {
                     // Use the latest uploadedAt if multiple reports
@@ -1561,8 +1563,16 @@ export const getInProgressStudies = async (req, res) => {
                         ? new Date(study.studyDate).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: '2-digit' })
                         : 'N/A',
                 uploadDateTime: study.createdAt
-                    ? new Date(study.createdAt).toLocaleString('en-GB', { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '')
-                    : 'N/A',
+                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                    timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                    year: 'numeric',
+                    month: 'short',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                }).replace(',', '')
+                : 'N/A',
                 workflowStatus: study.workflowStatus,
                 reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
                 ? (() => {
@@ -1976,16 +1986,17 @@ break;
                     })
                     : 'N/A',
                 
-                uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                }).replace(',', '')
-                : 'N/A',
+                    uploadDateTime: study.createdAt
+                    ? new Date(study.createdAt).toLocaleString('en-GB', {
+                        timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    }).replace(',', '')
+                    : 'N/A',
                 reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
                 ? (() => {
                     // Use the latest uploadedAt if multiple reports
