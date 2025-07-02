@@ -11,7 +11,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   const [selectedDoctorIds, setSelectedDoctorIds] = useState([]);
   const [currentlyAssignedDoctorIds, setCurrentlyAssignedDoctorIds] = useState([]);
 
-  // 🔧 FIXED: Reset selection based on the study's doctorAssignments array
+  // Reset selection based on the study's doctorAssignments array
   useEffect(() => {
     console.log('🔄 Study changed:', study?.studyInstanceUID);
     console.log('📋 Doctor assignments:', study?.doctorAssignments);
@@ -54,7 +54,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       });
     }
 
-    // 🔧 FIXED: Filter logic based on currentlyAssignedDoctorIds
     if (assignmentFilter === 'assigned') {
       filteredDoctors = filteredDoctors.filter(doc => {
         const docId = doc._id || doc.id;
@@ -84,12 +83,10 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       if (response.data.success) {
         let fetchedDoctorsList = response.data.doctors || [];
 
-        // 🔧 FIXED: Get currently assigned doctor IDs from study.doctorAssignments
         const currentStudyAssignedIds = study?.doctorAssignments?.map(assignment => 
           assignment.doctorId || assignment.doctorDetails?._id
         ).filter(Boolean) || [];
 
-        // If currently assigned doctors are not in the fetched list, fetch them individually
         const doctorsToFetchDetails = currentStudyAssignedIds.filter(
           assignedId => !fetchedDoctorsList.some(doc => (doc._id === assignedId || doc.id === assignedId))
         );
@@ -110,7 +107,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
           });
         }
 
-        // Remove duplicates that might have been added
         const uniqueDoctorList = Array.from(new Map(fetchedDoctorsList.map(doc => [doc._id || doc.id, doc])).values());
         setAllDoctors(uniqueDoctorList);
         console.log('👥 Total doctors loaded:', uniqueDoctorList.length);
@@ -137,12 +133,10 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
       return;
     }
 
-    // Identify doctors to actually assign (newly selected ones not already assigned)
     const doctorsToAssign = selectedDoctorIds.filter(
       id => !currentlyAssignedDoctorIds.includes(id)
     );
 
-    // Identify doctors to unassign (previously assigned but now unselected)
     const doctorsToUnassign = currentlyAssignedDoctorIds.filter(
       id => !selectedDoctorIds.includes(id)
     );
@@ -158,7 +152,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
     let successfulAssignments = 0;
     const assignedDoctors = [];
 
-    // Handle assignments
     for (const doctorId of doctorsToAssign) {
       try {
         const response = await api.post(`/admin/studies/${study._id}/assign`, {
@@ -169,7 +162,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
         if (response.data.success) {
           successfulAssignments++;
           
-          // 🆕 SIMPLE: Just collect the assigned doctor info
           const doctorInfo = allDoctors.find(doc => (doc._id || doc.id) === doctorId);
           assignedDoctors.push({
             id: doctorId,
@@ -185,7 +177,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
     toast.dismiss(loadingToast);
 
     if (successfulAssignments > 0) {
-      // 🆕 SIMPLE: Just return the success data to parent
       if (onAssignComplete) {
         onAssignComplete({
           success: true,
@@ -209,7 +200,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   const patientName = study?.patientName || study?.patientInfo?.patientName || 'Unknown Patient';
   const doctorsToShow = assignmentFilter || searchTerm ? doctors : allDoctors;
 
-  // 🔧 ADDED: Count assigned/unassigned doctors for display
   const assignedCount = currentlyAssignedDoctorIds.length;
   const unassignedCount = allDoctors.length - assignedCount;
 
@@ -228,7 +218,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
           </button>
         </div>
 
-        {/* 🔧 ENHANCED: Study assignment info */}
         {assignedCount > 0 && (
           <div className="p-3 bg-amber-50 border-b border-amber-200">
             <div className="flex items-center text-sm text-amber-800">
@@ -332,9 +321,13 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                               }}
                               className="mr-3 h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                             />
-                            <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
-                              Dr. {displayName}
-                            </span>
+                            {/* ✨ MODIFIED: Wrapped name and email in a div for better layout */}
+                            <div>
+                              <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
+                                Dr. {displayName}
+                              </span>
+                              <div className="text-xs text-gray-500">{doctor.email}</div>
+                            </div>
                           </div>
                         </td>
                         <td className="p-3 text-center text-gray-700">{doctor.specialization || 'Radiology'}</td>
