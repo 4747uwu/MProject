@@ -307,6 +307,7 @@ async function findOrCreateSourceLab(tags) {
     for (const tag of privateTags) {
       const tagValue = tags[tag];
       
+      // 🔧 FIX: Check for "SRJ" or any valid lab identifier (not default values)
       if (tagValue && tagValue.trim() !== '' && tagValue !== 'xcenticlab') {
         const labIdentifier = tagValue.trim();
         console.log(`[StableStudy] ✅ Found lab identifier in tag [${tag}]: ${labIdentifier}`);
@@ -323,6 +324,18 @@ async function findOrCreateSourceLab(tags) {
             return labByIdentifier;
           } else {
             console.warn(`[StableStudy] ⚠️ No lab found with identifier: ${labIdentifier}`);
+            
+            // 🔧 CREATE LAB: Auto-create lab if identifier is found but lab doesn't exist
+            console.log(`[StableStudy] 🆕 Creating new lab with identifier: ${labIdentifier}`);
+            const newLab = new Lab({
+              name: `${labIdentifier} Laboratory`,
+              identifier: labIdentifier.toUpperCase(),
+              isActive: true,
+              notes: `Auto-created from private DICOM tag [${tag}] with value "${labIdentifier}" on ${new Date().toISOString()}`
+            });
+            await newLab.save();
+            console.log(`[StableStudy] ✅ Created new lab: ${newLab.name} (${newLab.identifier})`);
+            return newLab;
           }
           
         } catch (labLookupError) {
@@ -521,22 +534,65 @@ async function processStableStudy(job) {
       console.log(`[StableStudy] 🔍 Getting metadata from instance: ${firstInstanceId}`);
       
       try {
-        const metadataUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
+        // 🔧 FIX: Use /tags endpoint instead of /simplified-tags to get full tag structure
+        const metadataUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/tags`;
         const metadataResponse = await axios.get(metadataUrl, {
           headers: { 'Authorization': orthancAuth },
           timeout: 8000
         });
         
-        tags = { ...tags, ...metadataResponse.data };
+        const rawTags = metadataResponse.data;
+        
+        // 🔧 FIX: Extract Value field from each tag
+        tags = {};
+        for (const [tagKey, tagData] of Object.entries(rawTags)) {
+          if (tagData && typeof tagData === 'object' && tagData.Value !== undefined) {
+            tags[tagKey] = tagData.Value;
+          } else if (typeof tagData === 'string') {
+            tags[tagKey] = tagData;
+          }
+        }
+        
+        // 🔧 FIX: Also extract common DICOM fields with proper names
+        tags.PatientName = rawTags["0010,0010"]?.Value || tags.PatientName;
+        tags.PatientID = rawTags["0010,0020"]?.Value || tags.PatientID;
+        tags.StudyDescription = rawTags["0008,1030"]?.Value || tags.StudyDescription;
+        tags.Modality = rawTags["0008,0060"]?.Value || tags.Modality;
+        tags.StudyDate = rawTags["0008,0020"]?.Value || tags.StudyDate;
+        tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
+        tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
+        tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
+        
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
-          Modality: tags.Modality
+          Modality: tags.Modality,
+          // 🔧 FIX: Log the private tag values
+          PrivateTags: {
+            "0013,0010": tags["0013,0010"],
+            "0015,0010": tags["0015,0010"],
+            "0021,0010": tags["0021,0010"],
+            "0043,0010": tags["0043,0010"]
+          }
         });
         
       } catch (metadataError) {
         console.warn(`[StableStudy] ⚠️ Could not get instance metadata:`, metadataError.message);
+        
+        // 🔧 FALLBACK: Try simplified-tags if /tags fails
+        try {
+          const simplifiedUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
+          const simplifiedResponse = await axios.get(simplifiedUrl, {
+            headers: { 'Authorization': orthancAuth },
+            timeout: 8000
+          });
+          
+          tags = { ...tags, ...simplifiedResponse.data };
+          console.log(`[StableStudy] ✅ Got simplified metadata as fallback`);
+        } catch (simplifiedError) {
+          console.warn(`[StableStudy] ⚠️ Simplified tags also failed:`, simplifiedError.message);
+        }
       }
     }
     
