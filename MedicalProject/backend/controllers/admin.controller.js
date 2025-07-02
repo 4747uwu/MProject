@@ -3780,7 +3780,7 @@ export const registerLabAndStaff = async (req, res) => {
                 throw new Error('Staff username, email, and full name are required.');
             }
 
-            const staffPassword = generateRandomPassword();
+            const staffPassword = "starRadiology"; // Temporary password for staff
 
             // Check for existing records
             const [labExists, staffUserExists] = await Promise.all([
