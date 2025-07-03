@@ -69,7 +69,9 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://localhost',             // ✅ Local testing
         'https://localhost',   
         'http://portal.xcentic.in',     // ✅ ADD THIS
-        'https://portal.xcentic.in'         // ✅ Local HTTPS testing
+        'https://portal.xcentic.in',
+        'http://ai.starradiology.com'
+               // ✅ Local HTTPS testing
       ]
     : [
         'http://localhost:3000',
@@ -80,7 +82,8 @@ const allowedOrigins = process.env.NODE_ENV === 'production'
         'http://64.227.187.164',        // ✅ CHANGE from 157.245.86.199
         'https://64.227.187.164',
         'http://portal.xcentic.in',     // ✅ ADD THIS
-        'https://portal.xcentic.in'
+        'https://portal.xcentic.in',
+        'http://ai.starradiology.com'
       ];
 
 app.use(cors({
