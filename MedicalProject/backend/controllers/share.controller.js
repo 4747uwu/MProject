@@ -158,8 +158,8 @@ export const accessSharedStudy = async (req, res) => {
 
     // Generate viewer URL based on viewer type
     let viewerUrl;
-    const orthancBaseURL = process.env.ORTHANC_URL || 'http://localhost:8042';
-    const ohifLocalURL = process.env.OHIF_LOCAL_URL || 'http://localhost:4000';
+    const orthancBaseURL = 'http://64.227.187.164:8042';
+    const ohifLocalURL = 'http://64.227.187.164:4000';
 
     switch (shareToken.viewerType) {
       case 'ohif-local':
