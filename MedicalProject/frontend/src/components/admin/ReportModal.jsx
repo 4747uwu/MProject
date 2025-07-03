@@ -357,7 +357,7 @@ const ReportModal = ({ isOpen, onClose, studyData }) => {
     setUploading(true);
     try {
       const formData = new FormData();
-      formData.append('report', selectedFile);
+      formData.append('file', selectedFile);
       if (studyData.lastAssignedDoctor?._id) {
         formData.append('doctorId', studyData.lastAssignedDoctor._id);
       }
