@@ -260,7 +260,7 @@ export const getAssignedStudies = async (req, res) => {
                             ageString: 1, 
                             gender: 1, 
                             'computed.fullName': 1, 
-                            'clinicalInfo.clinicalHistory': 1 
+                            'medicalHistory.clinicalHistory': 1 
                         } 
                     }] 
                 } 
@@ -405,7 +405,7 @@ export const getAssignedStudies = async (req, res) => {
                 priority: assignmentData?.priority || study.caseType?.toUpperCase() || 'NORMAL',
                 assignedDate: assignmentData?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 
@@ -1122,7 +1122,7 @@ export const getPendingStudies = async (req, res) => {
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -1250,7 +1250,6 @@ export const getPendingStudies = async (req, res) => {
                 })()
                 : null,
                 workflowStatus: study.workflowStatus,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
@@ -1492,7 +1491,7 @@ export const getInProgressStudies = async (req, res) => {
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -1595,7 +1594,6 @@ export const getInProgressStudies = async (req, res) => {
                 })()
                 : null,
                 currentCategory: study.currentCategory,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -1882,7 +1880,7 @@ break;
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
+                        .select('patientID patientNameRaw gender ageString computed.fullName')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -2019,7 +2017,6 @@ break;
                 })()
                 : null,
                 workflowStatus: study.workflowStatus,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',

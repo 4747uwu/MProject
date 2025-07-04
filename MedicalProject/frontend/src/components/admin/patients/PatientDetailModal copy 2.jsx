@@ -75,34 +75,23 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   const canUpload = hasUploadPermission('clinical_documents');
   const canDownload = hasDownloadPermission('clinical_documents');
 
-  // Add this near the top with other state declarations
-  const [currentPatientId, setCurrentPatientId] = useState(patientId);
-
-  // Update the useEffect to use currentPatientId
   useEffect(() => {
-    if (isOpen && currentPatientId) {
+    if (isOpen && patientId) {
       fetchPatientDetails();
     }
-  }, [isOpen, currentPatientId]);
+  }, [isOpen, patientId]);
 
-  const fetchPatientDetails = async (fetchPatientId = null) => {
-    const idToUse = fetchPatientId || currentPatientId;
+  const fetchPatientDetails = async () => {
     setLoading(true);
     setError('');
     
     try {
-      console.log(`🔍 Fetching patient details for ID: ${idToUse}`);
-      let response = await api.get(`/labEdit/patients/${idToUse}`);
+      let response = await api.get(`/labEdit/patients/${patientId}`);
       
       console.log('🔍 Patient Details Response:', response.data);
       
       const data = response.data.data;
       setPatientDetails(data);
-      
-      // Update currentPatientId if we fetched with a different ID
-      if (fetchPatientId && fetchPatientId !== currentPatientId) {
-        setCurrentPatientId(fetchPatientId);
-      }
       
       // 🔧 ENHANCED: Map all new API fields to component state
       const fullName = data.patientInfo?.fullName || '';
@@ -177,13 +166,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       
     } catch (error) {
       console.error('Error fetching patient details:', error);
-      
-      // Better error handling for 404
-      if (error.response?.status === 404) {
-        setError(`Patient with ID "${idToUse}" not found. The patient ID may have been changed or the patient may not exist.`);
-      } else {
-        setError('An error occurred while fetching patient details');
-      }
+      setError('An error occurred while fetching patient details');
       setLoading(false);
     }
   };
@@ -235,7 +218,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
         formData.append('studyId', currentStudyId);
       }
 
-      const response = await api.post(`/labEdit/patients/${currentPatientId}/documents`, formData, {
+      const response = await api.post(`/labEdit/patients/${patientId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000
       });
@@ -272,8 +255,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
           gender: editedData.patientInfo.gender,
           dateOfBirth: editedData.patientInfo.dateOfBirth,
           contactNumber: editedData.patientInfo.contactNumber,
-          contactEmail: editedData.patientInfo.contactEmail,
-          patientId: editedData.patientInfo.patientId
+          contactEmail: editedData.patientInfo.contactEmail
         },
         clinicalInfo: {
           clinicalHistory: clinicalHistoryChecked ? editedData.clinicalInfo.clinicalHistory : '',
@@ -317,84 +299,67 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
           reportTime: editedData.timeInfo.reportTime
         },
         referralInfo: editedData.referralInfo,
-        studyInfo: {
-          ...editedData.studyInfo,
-          // 🆕 NEW: Include exam description
-          examDescription: editedData.studyInfo.examDescription
-        }
+        studyInfo: editedData.studyInfo
       };
 
       console.log('📤 Sending COMPLETE update data with all new fields:', JSON.stringify(updateData, null, 2));
 
-      const endpoint = isLabStaff ? `/labEdit/patients/${currentPatientId}` : `/admin/patients/${currentPatientId}`;
+      const endpoint = isLabStaff ? `/labEdit/patients/${patientId}` : `/admin/patients/${patientId}`;
       const response = await api.put(endpoint, updateData);
       
       console.log('✅ Update response:', response.data);
-
-      // 🆕 ENHANCED: Handle patient ID change
-      const newPatientId = response.data?.newPatientId;
-      if (newPatientId && newPatientId !== currentPatientId) {
+      
+      // 🆕 NEW: Handle TAT reset response
+      if (response.data.data?.tatResetInfo?.wasReset) {
+        const tatInfo = response.data.data.tatResetInfo;
+        
         toast.success(
-          `✅ Patient updated successfully!\n🆔 Patient ID changed from ${currentPatientId} to ${newPatientId}\n🔄 Refreshing data...`,
+          `✅ Patient updated successfully!\n🔄 TAT Reset: ${tatInfo.affectedStudiesCount} studies reset due to clinical history change.`,
           {
-            duration: 4000,
+            duration: 6000,
             style: {
               background: '#10B981',
               color: 'white',
             },
-            icon: '🆔',
+            icon: '🔄',
           }
         );
         
-        // Update the current patient ID
-        setCurrentPatientId(newPatientId);
+        // 🆕 NEW: If TAT was reset, refresh the patient details to show updated values
+        if (tatInfo.shouldRefreshTAT) {
+          console.log('🔄 TAT was reset, refreshing patient details...');
+          setTimeout(() => {
+            fetchPatientDetails(); // Refresh to get updated TAT values
+          }, 1000);
+        }
+      } else {
+        // Regular success message
+        let successMessage = 'Patient information updated successfully';
+        const updatedFields = [];
         
-        // Update the URL if you're using React Router
-        if (window.history && window.history.replaceState) {
-          const newUrl = window.location.pathname.replace(currentPatientId, newPatientId);
-          window.history.replaceState({}, '', newUrl);
+        if (response.data.data?.updateSummary?.technologistUpdated) updatedFields.push('technologist');
+        if (response.data.data?.updateSummary?.priorityInfoUpdated) updatedFields.push('priority settings');
+        if (response.data.data?.updateSummary?.referringPhysicianUpdated) updatedFields.push('referring physician');
+        if (response.data.data?.updateSummary?.requestingPhysicianUpdated) updatedFields.push('requesting physician');
+        
+        if (updatedFields.length > 0) {
+          successMessage += ` (including ${updatedFields.join(', ')})`;
         }
         
-        // Call parent component's callback if provided
-        if (typeof onPatientIdChange === 'function') {
-          onPatientIdChange(newPatientId);
-        }
-        
-        // Refresh with new patient ID
-        setTimeout(() => {
-          fetchPatientDetails(newPatientId);
-        }, 1000);
-        
-        return;
+        toast.success(successMessage);
+        fetchPatientDetails(); // Refresh data
       }
-
-      // Regular success message
-      let successMessage = 'Patient information updated successfully';
-      const updatedFields = [];
-      
-      if (response.data.data?.updateSummary?.technologistUpdated) updatedFields.push('technologist');
-      if (response.data.data?.updateSummary?.priorityInfoUpdated) updatedFields.push('priority settings');
-      if (response.data.data?.updateSummary?.referringPhysicianUpdated) updatedFields.push('referring physician');
-      if (response.data.data?.updateSummary?.requestingPhysicianUpdated) updatedFields.push('requesting physician');
-      
-      if (updatedFields.length > 0) {
-        successMessage += ` (including ${updatedFields.join(', ')})`;
-      }
-      
-      toast.success(successMessage);
-      fetchPatientDetails(); // Refresh data
       
     } catch (error) {
       console.error('Error saving patient data:', error);
       
+      // 🆕 ENHANCED: Better error handling
       if (error.response?.data?.message) {
         toast.error(`Failed to save: ${error.response.data.message}`);
       } else if (error.response?.status === 403) {
-        toast.error('Access denied: You do not have permission to perform this action');
-      } else if (error.response?.status === 404) {
-        toast.error(`Patient with ID "${currentPatientId}" not found. Please refresh and try again.`);
+        toast.error('Access denied. Please check your permissions.');
       } else {
-        toast.error('Failed to save patient information');
+        toast.error('Failed to save patient data');
       }
     } finally {
       setSaving(false);
@@ -453,7 +418,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
           toast.error('❌ Document not found in patient records');
           return;
         }
-        downloadUrl = `/labEdit/patients/${currentPatientId}/documents/${patientDocIndex}/download`;
+        downloadUrl = `/labEdit/patients/${patientId}/documents/${patientDocIndex}/download`;
         console.log(`📄 Patient document download URL: ${downloadUrl}`);
       }
       
@@ -749,7 +714,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
               {patientDetails?.patientInfo?.fullName?.trim() || 'Unknown Patient'} - Patient Details
             </h3>
             <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">
-              ID: {currentPatientId}
+              ID: {patientDetails?.patientInfo?.patientId}
             </span>
             {canEdit && (
               <span className="bg-green-500 text-white text-xs px-2 py-1 rounded">
@@ -853,19 +818,15 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                       readOnly={!canEdit}
                     />
                   </div>
-
                   <div>
                     <label className="block text-xs mb-1">Patient ID</label>
                     <input 
                       type="text" 
-                      className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                      value={editedData.patientInfo.patientId || patientDetails?.patientInfo?.patientId || ''}
-                      onChange={(e) => handleInputChange('patientInfo', 'patientId', e.target.value)}
-                      readOnly={!canEdit}
-                      placeholder="Patient ID"
+                      className="w-full border p-1 text-sm bg-gray-100" 
+                      value={patientDetails?.patientInfo?.patientId || ''}
+                      readOnly
                     />
                   </div>
-
                   <div>
                     <label className="block text-xs mb-1">Age</label>
                     <input 
@@ -930,20 +891,15 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                       readOnly
                     />
                   </div>
-
                   <div>
-                      <label className="block text-xs mb-1">Exam Description</label>
-                      <input
-                        type="text"
-                        className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
-                        value={editedData.studyInfo.examDescription ?? patientDetails?.studyInfo?.examDescription ?? ''}
-                        onChange={e => canEdit && handleInputChange('studyInfo', 'examDescription', e.target.value)}
-                        readOnly={!canEdit}
-                        placeholder="Exam Description"
-                      />
-                    </div>
-
-
+                    <label className="block text-xs mb-1">Exam Description</label>
+                    <input 
+                      type="text" 
+                      className="w-full border p-1 text-sm bg-gray-100"
+                      value={patientDetails?.studyInfo?.examDescription || 'N/A'}
+                      readOnly
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs mb-1">Code</label>
                     <input 
@@ -1619,7 +1575,6 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
             </svg>
             Print
           </button>
-          
           
           {canEdit && (
             <button 

@@ -955,7 +955,7 @@ const formatTAT = (minutes) => {
     }
 };
 
-
+// 🔧 OPTIMIZED: updatePatientDetails (same name, enhanced performance)
 export const updatePatientDetails = async (req, res) => {
   try {
       const { patientId } = req.params;
@@ -991,15 +991,6 @@ export const updatePatientDetails = async (req, res) => {
       let newLastName = patient.lastName || '';
       let nameChanged = false;
 
-      let patientIdChanged = false;
-      let newPatientId = patient.patientID;
-
-      let examDescriptionChanged = false;
-      let newExamDescription = '';
-
-      
-
-
       const oldClinicalHistory = patient.clinicalInfo?.clinicalHistory || '';
       const newClinicalHistory = updateData.clinicalInfo?.clinicalHistory || '';
       const isClinicalInfoChanged = oldClinicalHistory !== newClinicalHistory;
@@ -1008,51 +999,19 @@ export const updatePatientDetails = async (req, res) => {
       console.log(`[Patient Update] Old clinical history: "${oldClinicalHistory}"`);
       console.log(`[Patient Update] New clinical history: "${newClinicalHistory}"`);
 
-      if (updateData.patientInfo && updateData.patientInfo.patientId !== undefined && 
-        updateData.patientInfo.patientId !== patient.patientID) {
-        
-        // Validate new patient ID doesn't already exist
-        const existingPatient = await Patient.findOne({ 
-            patientID: updateData.patientInfo.patientId,
-            _id: { $ne: patient._id }
-        });
-        
-        if (existingPatient) {
-            return res.status(400).json({
-                success: false,
-                message: `Patient ID "${updateData.patientInfo.patientId}" already exists`
-            });
-        }
-        
-        newPatientId = sanitizeInput(updateData.patientInfo.patientId);
-        patientIdChanged = true;
-        console.log(`[Patient Update] 🆔 Patient ID changing from "${patient.patientID}" to "${newPatientId}"`);
-    }
-
-    if (updateData.studyInfo && updateData.studyInfo.examDescription !== undefined) {
-      newExamDescription = sanitizeInput(updateData.studyInfo.examDescription);
-      examDescriptionChanged = true;
-      console.log(`[Patient Update] 📋 Exam description updating to: "${newExamDescription}"`);
-  }
-
-  if (updateData.patientInfo) {
-      if (updateData.patientInfo.firstName !== undefined) {
-          newFirstName = sanitizeInput(updateData.patientInfo.firstName);
-          nameChanged = true;
+      if (updateData.patientInfo) {
+          if (updateData.patientInfo.firstName !== undefined) {
+              newFirstName = sanitizeInput(updateData.patientInfo.firstName);
+              nameChanged = true;
+          }
+          if (updateData.patientInfo.lastName !== undefined) {
+              newLastName = sanitizeInput(updateData.patientInfo.lastName);
+              nameChanged = true;
+          }
       }
-      if (updateData.patientInfo.lastName !== undefined) {
-          newLastName = sanitizeInput(updateData.patientInfo.lastName);
-          nameChanged = true;
-      }
-  }
 
       // 🔧 STEP 2: Build complete update object
       const patientUpdateData = {};
-
-      if (patientIdChanged) {
-        patientUpdateData.patientID = newPatientId;
-        console.log(`[Patient Update] ✅ Setting new patientID: ${newPatientId}`);
-    }
 
       if (nameChanged) {
           patientUpdateData.firstName = newFirstName;
@@ -1061,14 +1020,8 @@ export const updatePatientDetails = async (req, res) => {
           
           // Update computed fields
           patientUpdateData['computed.fullName'] = `${newFirstName} ${newLastName}`.trim();
-          patientUpdateData.searchName = `${newFirstName} ${newLastName} ${newPatientId}`.toLowerCase();
+          patientUpdateData.searchName = `${newFirstName} ${newLastName} ${patientId}`.toLowerCase();
       }
-
-      if (patientIdChanged && !nameChanged) {
-        const currentFirstName = patient.firstName || '';
-        const currentLastName = patient.lastName || '';
-        patientUpdateData.searchName = `${currentFirstName} ${currentLastName} ${newPatientId}`.toLowerCase();
-    }
 
       // Handle other patient info fields
       if (updateData.patientInfo) {
@@ -1291,18 +1244,6 @@ if (patientUpdateData._clinicalHistoryChanged) {
           
           studyUpdateRequired = true;
           const studyUpdateData = {};
-
-          if (patientIdChanged) {
-            studyUpdateData.patientId = newPatientId;
-            studyUpdateData['patientInfo.patientID'] = newPatientId;
-            console.log(`[Study Update] 🆔 Updating patientId in studies to: ${newPatientId}`);
-        }
-
-        // 🆕 NEW: Update exam description in studies
-        if (examDescriptionChanged) {
-            studyUpdateData.examDescription = newExamDescription;
-            console.log(`[Study Update] 📋 Updating examDescription in studies to: ${newExamDescription}`);
-        }
           
           // 🔧 EXISTING: Name changes
           if (nameChanged) {
@@ -1558,12 +1499,6 @@ if (patientUpdateData._clinicalHistoryChanged) {
               reportTime: updateData.timeInfo?.reportTime || ''
           },
 
-          studyInfo: {
-            examDescription: newExamDescription || updateData.studyInfo?.examDescription || '',
-            workflowStatus: updateData.studyInfo?.workflowStatus || '',
-            caseType: updateData.studyInfo?.caseType || ''
-        },
-
           tatResetInfo: tatResetInfo ? {
             wasReset: tatResetInfo.success,
             affectedStudiesCount: tatResetInfo.affectedStudiesCount,
@@ -1594,8 +1529,6 @@ if (patientUpdateData._clinicalHistoryChanged) {
               priorityInfoUpdated: priorityInfoUpdated,
               timeInfoUpdated: timeInfoUpdated,
               studiesUpdated: studyUpdateRequired,
-              patientIdUpdated: patientIdChanged, // 🆕 NEW
-              examDescriptionUpdated: examDescriptionChanged,
               processingTimeMs: processingTime
           }
       };
@@ -1620,8 +1553,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
       res.json({
           success: true,
           message: successMessage,
-          data: responseData,
-          newPatientId: patientIdChanged ? newPatientId : null
+          data: responseData
       });
 
   } catch (error) {

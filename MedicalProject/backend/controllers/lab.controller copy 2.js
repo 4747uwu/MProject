@@ -545,8 +545,6 @@ export const getAllStudiesForLab = async (req, res) => {
                                 lastName: 1,
                                 patientNameRaw: 1,
                                 gender: 1,
-                                clinicalInfo: 1,
-
                                 ageString: 1,
                                 dateOfBirth: 1,
                                 salutation: 1,
@@ -765,7 +763,7 @@ export const getAllStudiesForLab = async (req, res) => {
                 // Add all other necessary fields for table display
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 
@@ -1071,7 +1069,6 @@ export const getPendingStudies = async (req, res) => {
                                 ageString: 1,
                                 dateOfBirth: 1,
                                 salutation: 1,
-                                clinicalInfo: 1,
                                 currentWorkflowStatus: 1,
                                 'contactInformation.phone': 1,
                                 'contactInformation.email': 1,
@@ -1265,7 +1262,7 @@ export const getPendingStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 
@@ -1477,7 +1474,6 @@ export const getProcessingStudies = async (req, res) => {
                                 ageString: 1,
                                 dateOfBirth: 1,
                                 salutation: 1,
-                                clinicalInfo: 1,
                                 currentWorkflowStatus: 1,
                                 'contactInformation.phone': 1,
                                 'contactInformation.email': 1,
@@ -1668,7 +1664,7 @@ export const getProcessingStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 
@@ -1871,7 +1867,6 @@ export const getCompletedStudies = async (req, res) => {
                                 firstName: 1,
                                 lastName: 1,
                                 patientNameRaw: 1,
-                                clinicalInfo: 1,
                                 gender: 1,
                                 ageString: 1,
                                 dateOfBirth: 1,
@@ -2068,7 +2063,7 @@ export const getCompletedStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
             };
         });
 

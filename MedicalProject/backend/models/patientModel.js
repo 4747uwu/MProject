@@ -25,7 +25,7 @@ const PatientSchema = new mongoose.Schema({
     salutation: {
         type: String,
         trim: true,
-        enum: ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Master', 'Miss', ''],
+        enum: ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Master', 'Miss', 'n/a', 'N/A', '']
     },
     firstName: {
         type: String,
