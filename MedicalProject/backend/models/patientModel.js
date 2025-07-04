@@ -47,7 +47,8 @@ const PatientSchema = new mongoose.Schema({
         type: String,
         trim: true,
         uppercase: true,
-        enum: ['M', 'F', 'O', ''],
+        enum: ['M', 'F', 'O', 'N/A', ''],
+
         index: true // Filter index
     },
     ageString: { // e.g., "065Y"
