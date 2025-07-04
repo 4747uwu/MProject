@@ -335,8 +335,10 @@ static async getInitialReportData(req, res) {
   try {
       const { studyId } = req.params;
       const doctorId = req.user.id;
-    // Find the doctor whose userAccount is the current user's id
-      const requestingDoctor = await Doctor.findOne({ userAccount: doctorId });
+    
+      // Find the doctor whose userAccount is the current user's id
+      const requestingDoctor = await Doctor.findOne({ userAccount: doctorId })
+          .populate('userAccount', 'fullName');
       console.log('🔍 Requesting doctor:', requestingDoctor);
 
       if (!requestingDoctor) {
@@ -346,8 +348,9 @@ static async getInitialReportData(req, res) {
            });
       }
 
+      // 🔧 ENHANCED: Get more study data including fields needed for the Word document
       const study = await DicomStudy.findById(studyId)
-          .select('patientInfo patient')
+          .select('patientInfo patient studyDate studyTime accessionNumber examDescription studyDescription modality referringPhysicianName institutionName')
           .populate('patient', 'firstName lastName patientNameRaw patientID computed ageString gender dateOfBirth');
 
       if (!study) {
@@ -359,15 +362,23 @@ static async getInitialReportData(req, res) {
 
       console.log('🔍 Study data:', {
           patientInfo: study.patientInfo,
-          patient: study.patient
+          patient: study.patient,
+          studyDate: study.studyDate,
+          accessionNumber: study.accessionNumber,
+          examDescription: study.examDescription,
+          referringPhysicianName: study.referringPhysicianName
       });
 
       // 🔧 EXTRACT PATIENT DATA WITH PROPER LOGIC
       let patientName = 'Unknown Patient';
       let patientAge = 'Unknown';
       let patientGender = 'Unknown';
+      let patientID = 'N/A';
       
       if (study.patient) {
+          // Handle patient ID
+          patientID = study.patient.patientID || study.patientInfo?.patientID || 'N/A';
+          
           // Handle patient name
           if (study.patient.computed?.fullName) {
               patientName = study.patient.computed.fullName;
@@ -436,16 +447,15 @@ static async getInitialReportData(req, res) {
       if (patientName === 'Unknown Patient' && study.patientInfo?.patientName) {
           patientName = study.patientInfo.patientName;
       }
+      
+      if (patientID === 'N/A' && study.patientInfo?.patientID) {
+          patientID = study.patientInfo.patientID;
+      }
 
-      console.log('📋 Extracted patient data:', {
-          patientName,
-          patientAge,
-          patientGender,
-          patientID: study.patient?.patientID || study.patientInfo?.patientID
-      });
-
-      // 🔧 EXTRACT DOCTOR NAME PROPERLY
+      // 🔧 EXTRACT DOCTOR NAME AND INFO PROPERLY
       let doctorName = 'Unknown Doctor';
+      let doctorSpecialization = '';
+      let doctorLicenseNumber = '';
       
       // Try from the requesting doctor's user account first
       if (requestingDoctor.userAccount?.fullName) {
@@ -455,29 +465,91 @@ static async getInitialReportData(req, res) {
       } else if (req.user?.username) {
           doctorName = req.user.username;
       }
+      
+      // Get doctor's professional info
+      if (requestingDoctor.specialization) {
+          doctorSpecialization = requestingDoctor.specialization;
+      }
+      
+      if (requestingDoctor.licenseNumber) {
+          doctorLicenseNumber = requestingDoctor.licenseNumber;
+      }
+
+      // 🔧 FORMAT EXAM DATE
+      let examDate = 'N/A';
+      if (study.studyDate) {
+          try {
+              const date = new Date(study.studyDate);
+              examDate = date.toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric'
+              });
+          } catch (error) {
+              console.warn('Error formatting study date:', error);
+              examDate = study.studyDate.toString();
+          }
+      }
+
+      // 🔧 GET EXAM DESCRIPTION
+      let examDescription = study.examDescription || study.studyDescription || '';
+      if (!examDescription && study.modality) {
+          examDescription = `${study.modality} Examination`;
+      }
+
+      // 🔧 GET REFERRING PHYSICIAN
+      let referredBy = study.referringPhysicianName || 'Dr. -';
+      if (referredBy && !referredBy.startsWith('Dr.') && !referredBy.startsWith('DR.')) {
+          referredBy = `Dr. ${referredBy}`;
+      }
+
+      console.log('📋 Extracted patient data:', {
+          patientName,
+          patientAge,
+          patientGender,
+          patientID,
+          examDate,
+          examDescription,
+          referredBy
+      });
 
       console.log('👨‍⚕️ Doctor info:', {
           doctorName,
+          doctorSpecialization,
+          doctorLicenseNumber,
           hasSignature: !!requestingDoctor.signature,
           signatureLength: requestingDoctor.signature ? requestingDoctor.signature.length : 0,
           signatureMimeType: requestingDoctor.signatureMetadata?.mimeType
       });
       
-      // Prepare the clean object for the C# launcher
+      // 🔧 COMPLETE: Prepare the complete object for the C# launcher
       const initialData = {
           studyId: study._id.toString(),
           patientName: patientName,
           age: patientAge,
           sex: patientGender,
-          patientID: study.patient?.patientID || study.patientInfo?.patientID || 'N/A',
+          patientID: patientID,
+          
+          // 🔧 NEW: Additional required fields for C# application
+          accessionNumber: study.accessionNumber || 'N/A',
+          referredBy: referredBy,
+          examDate: examDate,
+          examDescription: examDescription,
           
           // 🔧 DOCTOR INFO AND BASE64 SIGNATURE
           doctorName: doctorName,
+          doctorDegree: '', // Add if you have this field in your doctor model
+          doctorSpecialization: doctorSpecialization,
+          doctorLicenseNumber: doctorLicenseNumber,
           doctorSignatureBase64: requestingDoctor.signature || null, // Base64 string from MongoDB
-          doctorSignatureMimeType: requestingDoctor.signatureMetadata?.mimeType || 'image/jpeg' // Default to jpeg based on your data
+          doctorSignatureMimeType: requestingDoctor.signatureMetadata?.mimeType || 'image/jpeg',
+          
+          // 🔧 OPTIONAL: Add disclaimer if needed
+          // disclaimer: 'This is a computer-generated report. Please verify all information before use.'
+          disclaimer: "It is an online interpretation of medical imaging based on clinical data. All modern machines/procedures have their own limitation. If there is any clinical discrepancy, this investigation may be repeated or reassessed by other tests. Patients identification in online reporting is not established, so in no way can this report be utilized for any medico legal purpose. In case of any discrepancy due to typing error or machinery error please get it rectified immediately",
       };
 
-      console.log("✅ Sending initial data (signature redacted):", { 
+      console.log("✅ Sending complete initial data (signature redacted):", { 
           ...initialData, 
           doctorSignatureBase64: initialData.doctorSignatureBase64 ? 
               `[BASE64_DATA_${initialData.doctorSignatureBase64.length}_CHARS]` : null 
