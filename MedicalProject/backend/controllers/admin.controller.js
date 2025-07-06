@@ -1949,7 +1949,7 @@ export const getAllDoctors = async (req, res) => {
         };
 
         // Cache the result
-        cache.set(cacheKey, responseData, 180);
+        // cache.set(cacheKey, responseData, 180);
 
         const processingTime = Date.now() - startTime;
 

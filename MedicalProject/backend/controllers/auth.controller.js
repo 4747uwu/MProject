@@ -30,6 +30,10 @@ export const loginUser = async (req, res) => {
             return res.status(403).json({ success: false, message: 'Your account has been deactivated.' });
         }
 
+        if (!user.isLoggedIn) {
+            user.isLoggedIn = true;
+            await user.save();
+        }
         // ✅ UPDATE: Track login but don't set global isLoggedIn to true
         // Instead, we'll track active sessions separately
         const token = generateToken(user._id, user.role);
@@ -94,6 +98,8 @@ export const logoutUser = async (req, res) => {
     try {
         // Optional: Track logout in database if needed
         // Note: We don't set isLoggedIn to false globally since other tabs might be active
+        await User.findByIdAndUpdate(req.user._id, { isLoggedIn: false });
+
         
         res.status(200).json({ 
             success: true, 
