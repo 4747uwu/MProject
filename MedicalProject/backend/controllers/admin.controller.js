@@ -3221,7 +3221,7 @@ export const registerDoctor = async (req, res) => {
                 throw new Error('Username, email, fullName, specialization, and licenseNumber are required.');
             }
 
-            const password = "starRadiology";
+            const password = "star@star";
 
             // Validation queries
             const [userExists, doctorWithLicenseExists] = await Promise.all([
@@ -3435,7 +3435,7 @@ export const registerLabAndStaff = async (req, res) => {
                 throw new Error('Staff username, email, and full name are required.');
             }
 
-            const staffPassword = "starRadiology";
+            const staffPassword = "star@star";
 
             // Check for existing records
             const [labExists, staffUserExists] = await Promise.all([
