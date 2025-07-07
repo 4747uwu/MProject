@@ -18,8 +18,8 @@ const DoctorSchema = new mongoose.Schema({
     licenseNumber: {
         type: String,
         trim: true,
-        unique: true,
-        index: true,
+        // unique: true,
+        // index: true,
     },
     department: {
         type: String,

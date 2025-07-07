@@ -3224,23 +3224,16 @@ export const registerDoctor = async (req, res) => {
             const password = "star@star";
 
             // Validation queries
-            // const [userExists, doctorWithLicenseExists] = await Promise.all([
-            //     User.findOne({ $or: [{ email }, { username }] }).session(session),
-            //     Doctor.findOne({ licenseNumber }).session(session)
-            // ]);
+            const [userExists, doctorWithLicenseExists] = await Promise.all([
+                User.findOne({ $or: [{ email }, { username }] }).session(session),
+                Doctor.findOne({ licenseNumber }).session(session)
+            ]);
 
-            // if (userExists) {
-            //     throw new Error('User with this email or username already exists.');
-            // }
-            // if (doctorWithLicenseExists) {
-            //     throw new Error('A doctor with this license number already exists.');
-            // }
-
-            
-            const userWithUsername = await User.findOne({ username }).session(session);
-            
-            if (userWithUsername) {
-                throw new Error('User with this username already exists.');
+            if (userExists) {
+                throw new Error('User with this email or username already exists.');
+            }
+            if (doctorWithLicenseExists) {
+                throw new Error('A doctor with this license number already exists.');
             }
 
             // Create user
