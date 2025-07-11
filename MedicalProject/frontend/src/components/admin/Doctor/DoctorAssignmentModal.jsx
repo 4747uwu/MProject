@@ -325,7 +325,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                             <div>
                               <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
                                 {/* Dr. {displayName} */}
-                                Dr. {displayName}
+                                 {displayName}
 
                               </span>
                               <div className="text-xs text-gray-500">{doctor.email}</div>
@@ -392,7 +392,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                           <div>
                             <div className={`font-medium text-sm break-words ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
                               {/* Dr. {displayName} */}
-                              Dr. {displayName}
+                               {displayName}
 
                             </div>
                             <div className="text-xs text-gray-500 break-all">{doctor.email}</div>
