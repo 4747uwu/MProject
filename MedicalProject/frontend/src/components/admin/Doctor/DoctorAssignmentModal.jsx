@@ -228,7 +228,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
               <div className="ml-2 flex flex-wrap gap-1">
                 {study?.doctorAssignments?.map((assignment, index) => (
                   <span key={assignment.doctorId} className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-amber-100 text-amber-800">
-                    Dr. {assignment.doctorDetails?.fullName || 'Unknown'}
+                     {assignment.doctorDetails?.fullName || 'Unknown'}
                   </span>
                 ))}
               </div>
@@ -324,7 +324,9 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                             {/* ✨ MODIFIED: Wrapped name and email in a div for better layout */}
                             <div>
                               <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
+                                {/* Dr. {displayName} */}
                                 Dr. {displayName}
+
                               </span>
                               <div className="text-xs text-gray-500">{doctor.email}</div>
                             </div>
@@ -389,7 +391,9 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                           />
                           <div>
                             <div className={`font-medium text-sm break-words ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
+                              {/* Dr. {displayName} */}
                               Dr. {displayName}
+
                             </div>
                             <div className="text-xs text-gray-500 break-all">{doctor.email}</div>
                             <div className="text-xs text-gray-600">{doctor.specialization || 'Radiology'}</div>

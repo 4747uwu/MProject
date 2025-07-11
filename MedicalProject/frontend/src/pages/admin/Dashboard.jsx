@@ -14,10 +14,10 @@ const AdminDashboard = React.memo(() => {
 
   const [allStudies, setAllStudies] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState('all');
+  const [activeCategory, setActiveCategory] = useState('pending');
   
   // Single page mode state management
-  const [recordsPerPage, setRecordsPerPage] = useState(20);
+  const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [totalRecords, setTotalRecords] = useState(0);
   
   // Date filter state for backend integration
