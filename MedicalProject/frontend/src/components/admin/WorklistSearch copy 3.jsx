@@ -369,7 +369,7 @@ const WorklistSearch = React.memo(({
   }, [connectionStatus]);
 
   return (
-    <div className="h-full w-full flex flex-col">
+    <div className="space-y-1 flex flex-col flex-1 min-h-0">
       {/* 🎯 SINGLE LINE: Compact Search-First Design */}
       <div className="relative">
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm">

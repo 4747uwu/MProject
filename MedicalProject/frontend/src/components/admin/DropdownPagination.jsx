@@ -23,7 +23,7 @@ const DropdownPagination = ({
           value={recordsPerPage}
           onChange={(e) => handleRecordsChange(parseInt(e.target.value))}
           disabled={loading}
-          className="border border-gray-300 rounded-md px-3 py-1 text-sm bg-white hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 disabled:opacity-50"
+          className="border border-gray-300 rounded-md px-3 py-0 text-sm bg-white hover:border-blue-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-200 disabled:opacity-50"
         >
           {recordOptions.map(option => (
             <option key={option} value={option}>

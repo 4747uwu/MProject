@@ -241,11 +241,7 @@ html::-webkit-scrollbar {
 }
 
 /* Ensure the worklist container doesn't have height restrictions */
-.worklist-container {
-  height: auto !important;
-  min-height: 600px;
-  max-height: 90vh;
-}
+
 
 @media (max-width: 1024px) {
 
