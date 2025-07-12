@@ -520,12 +520,36 @@ const WorklistTable = React.memo(({
                                   {visibleColumns.series && (<div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.seriesImages || study.numberOfSeries || 'N/A'}</div></div>)}
                                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 flex items-center justify-center border-r border-gray-300 h-full"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${isEmergency ? 'bg-red-600 text-white' : 'text-black'}`}>{study.modality || 'N/A'}</span></div>}
                                   {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
-                                  {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs text-center ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDate ? formatMonthDay(study.studyDate) : 'N/A'}</div><div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}>{study.studyTime || 'N/A'}</div></div></div>}
-                                  {visibleColumns.uploadDate && (<div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex"><div className={`text-xs text-center ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.uploadDateTime ? <>{study.uploadDateTime.split(' ')[0]}<br/>{study.uploadDateTime.split(' ')[1]}</> : 'N/A'}</div></div>)}
+                                  {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDateTime
+                            }</div>
+                            
+                            <div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}></div></div></div>}
+
+                                  {visibleColumns.uploadDate && (
+                                  <div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex">
+                                    <div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>
+                                      {study.uploadDateTime ? (() => {
+                                        const [date, time] = study.uploadDateTime.split(/ (?=\d{2}:\d{2}$)/); // splits at last space before time
+                                        return (
+                                          <>
+                                            <div className="font-medium">{date}</div>
+                                            <div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}>{time}</div>
+                                          </>
+                                        );
+                                      })() : <div className="font-medium">N/A</div>}
+                                    </div>
+                                  </div>
+                                )}
+
+
                                   {visibleColumns.reportedDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs text-center ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.reportedDate ? (<><div className="font-medium">{formatAbbrevMonthDay(study.reportedDate)}</div><div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}>{formatTime(study.reportedDate)}</div></>) : (<div className="text-gray-400">Not reported</div>)}</div></div>}
                                   {visibleColumns.reportedBy && <div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex"><div className={`text-xs truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.reportedBy || 'N/A'}>{study.reportedBy || 'N/A'}</div></div>}
+
+
                                   {visibleColumns.accession && <div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex"><div className={`text-xs truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.accessionNumber || 'N/A'}>{study.accessionNumber || 'N/A'}</div></div>}
                                   {visibleColumns.seenBy && <div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex"><div className={`text-xs truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.seenBy || 'Not Assigned'}>{study.seenBy || 'Not Assigned'}</div></div>}
+
+
                                   {visibleColumns.actions && <div className="flex-1 min-w-[80px] px-2 flex items-center justify-center space-x-2 border-r border-gray-300 h-full"><EyeIconDropdown studyInstanceUID={study.studyInstanceUID} /><div className="flex-shrink-0"><DownloadDropdown study={study} /></div></div>}
                                   {visibleColumns.report && <div className="flex-shrink-0 w-12 px-2 flex items-center justify-center border-r border-gray-300 h-full"><ReportButton study={study} /></div>}
                                   {visibleColumns.assignDoctor && canAssignDoctors && <div className="flex-shrink-0 w-24 px-2 flex items-center justify-center h-full"><button onClick={() => callbacks.onAssignDoctor(study)} className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${study.workflowStatus === 'report_finalized' ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : (study.workflowStatus === 'assigned_to_doctor' || study.workflowStatus === 'report_in_progress') ? (isEmergency ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-orange-500 text-white hover:bg-orange-600') : (isEmergency ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' : 'bg-blue-500 text-white hover:bg-blue-600')}`} disabled={study.workflowStatus === 'final_report_downloaded'}>{study.workflowStatus === 'final_report_downloaded' ? 'Done' : (study.workflowStatus === 'assigned_to_doctor' || study.workflowStatus === 'report_in_progress') ? 'Reassign' : (isEmergency ? '🚨 Assign' : 'Assign')}</button></div>}

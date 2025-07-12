@@ -768,7 +768,9 @@ const buttonProps = getAssignButtonProps(study);
                             {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 flex items-center justify-center border-r border-gray-300 h-full"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${isEmergency ? 'bg-red-600 text-white' : 'text-black'}`}>{study.modality || 'N/A'}</span></div>}
                             {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
                             {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDateTime
-                            }</div><div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}></div></div></div>}
+                            }</div>
+                            
+                            <div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}></div></div></div>}
                             
                             {/* 💡 REASON: These columns in the virtualized row are now hidden on smaller laptops to match the header. */}
                             {visibleColumns.uploadDate && (
