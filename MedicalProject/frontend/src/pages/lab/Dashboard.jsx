@@ -268,7 +268,7 @@ const LabDashboard = React.memo(() => {
   }, [lastRefresh]);
 
   return (
-    <div className="h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
 
       <div className="min-w-full mx-auto p-1 sm:p-2 lg:p-0 flex-1 flex flex-col">
