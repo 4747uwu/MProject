@@ -1,5 +1,5 @@
 // Virtual Row Height Configuration
-export const ROW_HEIGHT = 50; // Height of each row in pixels
+export const ROW_HEIGHT = 44; // Height of each row in pixels
 export const HEADER_HEIGHT = 40; // Height of table header
 
 // Tab Configuration
