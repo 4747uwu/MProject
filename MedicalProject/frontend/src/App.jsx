@@ -16,6 +16,8 @@ import ForgotPasswordPage from './pages/ForgotPassword';
 import ManageDoctorsPage from './pages/ManageDoctorsPage';
 import TATReportPage from './pages/TATReport';
 import { WebSocketProvider } from './contexts/webSocketContext';
+import AdminRegistrationForm from './components/admin/AdminRegistrationForm';
+
 import ShareStudy from './pages/ShareStudy';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -87,6 +89,15 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <NewDoctorPage />
+                </ProtectedRoute>
+              } 
+            />
+
+            <Route 
+              path="/admin/new-admin" 
+              element={
+                <ProtectedRoute requiredRole="admin">
+                  <AdminRegistrationForm />
                 </ProtectedRoute>
               } 
             />

@@ -354,7 +354,7 @@ const UniversalNavbar = () => {
               {/* Greeting (Desktop) */}
               <div className="hidden md:block text-right">
                 <p className="text-sm font-medium text-gray-900">
-                  {greeting}, {currentUser?.firstName}
+                  {greeting}, {currentUser?.fullName}
                 </p>
                 <p className="text-xs text-gray-500 capitalize">
                   {currentUser?.role?.replace('_', ' ')}

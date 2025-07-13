@@ -5052,3 +5052,94 @@ export const getCompletedStudies = async (req, res) => {
         });
     }
 };
+
+export const registerAdmin = async (req, res) => {
+    console.log('🔍 ===== REGISTER ADMIN CALLED =====');
+    console.log('📝 req.body:', req.body);
+    
+    const session = await mongoose.startSession();
+    
+    try {
+        const result = await session.withTransaction(async () => {
+            const { fullName, email, password } = req.body;
+
+            // Validation
+            if (!fullName || !email || !password) {
+                throw new Error('Full name, email, and password are required.');
+            }
+
+            // Email validation
+            const emailRegex = /\S+@\S+\.\S+/;
+            if (!emailRegex.test(email)) {
+                throw new Error('Please provide a valid email address.');
+            }
+
+            // Password validation
+            if (password.length < 6) {
+                throw new Error('Password must be at least 6 characters long.');
+            }
+
+            // Generate username from email (part before @)
+            const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            // Check if user already exists
+            const existingUser = await User.findOne({
+                $or: [{ email }, { username }]
+            }).session(session);
+
+            if (existingUser) {
+                throw new Error('A user with this email or generated username already exists.');
+            }
+
+            // Create admin user
+            const adminUser = await User.create([{
+                username,
+                email,
+                password,
+                fullName,
+                role: 'admin',
+                isActive: true
+            }], { session });
+
+            console.log('✅ Admin user created:', adminUser[0]._id);
+
+            // Prepare response (exclude password)
+            const adminUserResponse = adminUser[0].toObject();
+            delete adminUserResponse.password;
+
+            return {
+                admin: adminUserResponse,
+                generatedUsername: username
+            };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Admin account created successfully.',
+            data: {
+                adminId: result.admin._id,
+                username: result.generatedUsername,
+                email: result.admin.email,
+                fullName: result.admin.fullName
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error registering admin:', error);
+        
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({ 
+                success: false, 
+                message: messages.join(', ') 
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Server error during admin registration.' 
+        });
+    } finally {
+        await session.endSession();
+    }
+};

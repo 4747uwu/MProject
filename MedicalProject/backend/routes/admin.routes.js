@@ -19,7 +19,8 @@ import {
     getValues,
     getPendingStudies,
     getInProgressStudies,
-    getCompletedStudies
+    getCompletedStudies,
+    registerAdmin
 } from '../controllers/admin.controller.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -42,6 +43,8 @@ router.post('/studies/:studyId/assign', protect, authorize('admin'), assignDocto
 router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
 router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);
 router.get('/studies/completed', protect, authorize('admin'), getCompletedStudies);
+router.post('/admins/register', protect, authorize('admin'), registerAdmin);
+
 
 
 // Route that allows multiple roles (admin, lab_staff, doctor_account)

@@ -20,7 +20,7 @@ const LabDashboard = React.memo(() => {
   const [totalRecords, setTotalRecords] = useState(0);
   
   // 🆕 NEW: Date filter state for backend integration (matching admin/doctor)
-  const [dateFilter, setDateFilter] = useState('last24h'); // Default to 24 hours
+  const [dateFilter, setDateFilter] = useState('today'); // Default to 24 hours
   const [customDateFrom, setCustomDateFrom] = useState('');
   const [customDateTo, setCustomDateTo] = useState('');
   const [dateType, setDateType] = useState('UploadDate'); // StudyDate, UploadDate
@@ -268,13 +268,13 @@ const LabDashboard = React.memo(() => {
   }, [lastRefresh]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50">
       <UniversalNavbar />
 
-      <div className="max-w-full mx-auto p-1 sm:p-2 lg:p-3 flex-1 flex flex-col">
+      <div className="min-w-full mx-auto p-1 sm:p-2 lg:p-0 flex-1 flex flex-col">
         {/* 🔧 CLEAN: Main Content - Now WorklistSearch handles all controls (matching admin) */}
         <div className="bg-white flex-1 min-h-0 rounded border border-gray-200 overflow-hidden flex flex-col">
-          <div className="p-1 sm:p-2 lg:p-3 flex-1 min-h-0 flex flex-col">
+          <div className="flex-1 flex flex-col min-h-0 p-0 sm:p-2 lg:px-1 lg:pb-0 pb-0">
             <WorklistSearch 
               allStudies={allStudies}
               loading={loading}
