@@ -3883,7 +3883,7 @@ export const getPendingStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4393,7 +4393,7 @@ export const getInProgressStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4896,7 +4896,7 @@ export const getCompletedStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
