@@ -5143,3 +5143,124 @@ export const registerAdmin = async (req, res) => {
         await session.endSession();
     }
 };
+
+export const updateStudyInteractionStatus = async (req, res) => {
+    try {
+        const { studyId } = req.params;
+        const { action } = req.body; // 'ohif_opened', 'study_downloaded', 'radiant_opened'
+        
+        console.log(`🔄 Updating study interaction status: ${studyId}, action: ${action}, user: ${req.user.role}`);
+        console.log(req.user);
+        
+        // Find the study
+        const study = await DicomStudy.findOne({
+            $or: [
+                // { _id: studyId },
+                { studyInstanceUID: studyId },
+                { orthancStudyID: studyId }
+            ]
+        });
+        console.log('🔄 Found study:', study ? study._id : 'Not found');
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+        
+        // Only doctors can trigger these status changes
+        if (req.user.role !== 'doctor_account') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only doctors can trigger study interaction status updates'
+            });
+        }
+        console.log(req.user.id);
+        
+        // Check if doctor is assigned to this study
+        // const isAssigned = Array.isArray(study.lastAssignedDoctor)
+        //     ? study.lastAssignedDoctor.some(
+        //         entry => entry.doctorId?.toString() === req.user.id?.toString()
+        //     )
+        //     : study.lastAssignedDoctor?.doctorId?.toString() === req.user.id?.toString();
+
+        // if (!isAssigned) {
+        //     console.log(isAssigned)
+        //     return res.status(403).json({
+        //         success: false,
+        //         message: 'You are not assigned to this study'
+        //     });
+        // }
+        
+        let newStatus;
+        let statusNote;
+        
+        // Determine the new status based on action
+        switch (action) {
+            case 'ohif_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in OHIF viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'radiant_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in Radiant viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'study_downloaded':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study downloaded by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            default:
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid action specified'
+                });
+        }
+        
+        // Only update if current status allows it (don't go backwards)
+        const statusHierarchy = [
+            'new_study_received',
+            'pending_assignment',
+            'assigned_to_doctor',
+            'doctor_opened_report',
+            'report_in_progress',
+            'report_uploaded',
+            'report_finalized',
+            'report_downloaded_radiologist',
+            'report_downloaded',
+            'final_report_downloaded'
+        ];
+        
+        const currentStatusIndex = statusHierarchy.indexOf(study.workflowStatus);
+        const newStatusIndex = statusHierarchy.indexOf(newStatus);
+        
+        // Only update if we're moving forward or staying at the same level
+        if (newStatusIndex >= currentStatusIndex) {
+            await updateWorkflowStatus({
+                studyId: study._id,
+                status: newStatus,
+                note: statusNote,
+                user: req.user
+            });
+            
+            console.log(`✅ Study status updated to ${newStatus} for study ${studyId}`);
+        } else {
+            console.log(`⚠️ Status not updated - would be moving backwards from ${study.workflowStatus} to ${newStatus}`);
+        }
+        
+        res.json({
+            success: true,
+            message: 'Study interaction recorded successfully',
+            currentStatus: newStatus,
+            action: action
+        });
+        
+    } catch (error) {
+        console.error('❌ Error updating study interaction status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update study interaction status',
+            error: error.message
+        });
+    }
+};

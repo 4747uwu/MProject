@@ -19,11 +19,12 @@ export const STATUS_CONFIG = {
   pending_assignment: { color: 'bg-red-500', tooltip: 'Pending Assignment', category: 'pending' },
   
   // 🟡 CATEGORY 2: IN PROGRESS (Orange/Yellow) - Studies being worked on
-  assigned_to_doctor: { color: 'bg-yellow-500', tooltip: 'Assigned to Doctor', category: 'inprogress' },
+  assigned_to_doctor: { color: 'bg-red-500', tooltip: 'Assigned to Doctor', category: 'inprogress' },
   doctor_opened_report: { color: 'bg-yellow-500', tooltip: 'Doctor Opened Report', category: 'inprogress' },
   report_in_progress: { color: 'bg-yellow-500', tooltip: 'Report in Progress', category: 'inprogress' },
   
   // 🔵 CATEGORY 3: COMPLETED/DOWNLOADED (Blue) - Reports finished but being reviewed/downloaded
+  report_drafted: { color: 'bg-blue-500', tooltip: 'Report Drafted', category: 'completed' },
   report_finalized: { color: 'bg-blue-500', tooltip: 'Report Finalized', category: 'completed' },
   report_uploaded: { color: 'bg-blue-500', tooltip: 'Report Uploaded', category: 'completed' },
   report_downloaded_radiologist: { color: 'bg-blue-500', tooltip: 'Report Downloaded by Radiologist', category: 'completed' },

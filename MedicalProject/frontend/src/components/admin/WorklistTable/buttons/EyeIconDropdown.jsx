@@ -1,61 +1,87 @@
 import { useCallback } from 'react';
 import React from 'react';
+import api from '../../../../services/api'; // <-- Use your api service
+import { toast } from 'react-hot-toast';
 
-const EyeIconDropdown = React.memo(({ studyInstanceUID }) => {
-  console.log('EyeIconDropdown received studyInstanceUID:', studyInstanceUID);
-  console.log('Type:', typeof studyInstanceUID);
-  console.log('Is truthy:', !!studyInstanceUID);
+const EyeIconDropdown = React.memo(({ studyInstanceUID, userRole }) => {
+  // console.log(studyInstanceUID, userRole);
 
-  const openOHIFLocal = useCallback((studyInstanceUID) => {
-    const ohifBaseURL = import.meta.env.VITE_OHIF_LOCAL_URL || 'http://localhost:4000';
-    const orthancBaseURL = import.meta.env.VITE_ORTHANC_URL || 'http://localhost:8042';
-    
-    // 🔐 Orthanc credentials
-    const orthancUsername = 'alice';
-    const orthancPassword = 'alicePassword';
-    
-    const ohifUrl = new URL(`${ohifBaseURL}/viewer`);
-    ohifUrl.searchParams.set('StudyInstanceUIDs', studyInstanceUID);
-    
-    const dataSourceConfig = {
-      namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
-      sourceName: 'dicomweb',
-      configuration: {
-        friendlyName: 'Local Orthanc Server',
-        name: 'orthanc',
-        wadoUriRoot: `${orthancBaseURL}/wado`,
-        qidoRoot: `${orthancBaseURL}/dicom-web`,
-        wadoRoot: `${orthancBaseURL}/dicom-web`,
-        qidoSupportsIncludeField: true,
-        supportsReject: false,
-        imageRendering: 'wadors',
-        thumbnailRendering: 'wadors',
-        enableStudyLazyLoad: true,
-        supportsFuzzyMatching: false,
-        supportsWildcard: true,
-        // 🔐 Authentication headers
-        headers: {
-          'Authorization': `Basic ${btoa(`${orthancUsername}:${orthancPassword}`)}`
-        },
-        // 🔐 Request options for authentication
-        requestOptions: {
-          auth: `${orthancUsername}:${orthancPassword}`,
+  const updateStudyInteractionStatus = useCallback(async (action) => {
+    try {
+      // Only update status for doctors
+      if (userRole === 'doctor') {
+        const response = await api.put(
+          `/admin/studies/${studyInstanceUID}/interaction`,
+          { action }
+        );
+        console.log(`✅ Study interaction recorded: ${action}`, response.data);
+      }
+    } catch (error) {
+      console.error('Error updating study interaction status:', error);
+      // Continue with viewer opening even if status update fails
+    }
+  }, [studyInstanceUID, userRole]);
+
+  const openOHIFLocal = useCallback(async (studyInstanceUID) => {
+    try {
+      // 🟡 Update status to YELLOW (doctor_opened_report) if user is doctor
+      await updateStudyInteractionStatus('ohif_opened');
+      
+      const ohifBaseURL = import.meta.env.VITE_OHIF_LOCAL_URL || 'http://localhost:4000';
+      const orthancBaseURL = import.meta.env.VITE_ORTHANC_URL || 'http://localhost:8042';
+      
+      // 🔐 Orthanc credentials
+      const orthancUsername = 'alice';
+      const orthancPassword = 'alicePassword';
+      
+      const ohifUrl = new URL(`${ohifBaseURL}/viewer`);
+      ohifUrl.searchParams.set('StudyInstanceUIDs', studyInstanceUID);
+      
+      const dataSourceConfig = {
+        namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+        sourceName: 'dicomweb',
+        configuration: {
+          friendlyName: 'Local Orthanc Server',
+          name: 'orthanc',
+          wadoUriRoot: `${orthancBaseURL}/wado`,
+          qidoRoot: `${orthancBaseURL}/dicom-web`,
+          wadoRoot: `${orthancBaseURL}/dicom-web`,
+          qidoSupportsIncludeField: true,
+          supportsReject: false,
+          imageRendering: 'wadors',
+          thumbnailRendering: 'wadors',
+          enableStudyLazyLoad: true,
+          supportsFuzzyMatching: false,
+          supportsWildcard: true,
+          // 🔐 Authentication headers
           headers: {
             'Authorization': `Basic ${btoa(`${orthancUsername}:${orthancPassword}`)}`
+          },
+          // 🔐 Request options for authentication
+          requestOptions: {
+            auth: `${orthancUsername}:${orthancPassword}`,
+            headers: {
+              'Authorization': `Basic ${btoa(`${orthancUsername}:${orthancPassword}`)}`
+            }
           }
         }
-      }
-    };
-    
-    ohifUrl.searchParams.set('dataSources', JSON.stringify([dataSourceConfig]));
-    
-    console.log('🏠 Opening local OHIF Viewer:', ohifUrl.toString());
-    window.open(ohifUrl.toString(), '_blank');
-  }, []);
+      };
+      
+      ohifUrl.searchParams.set('dataSources', JSON.stringify([dataSourceConfig]));
+      
+      console.log('🏠 Opening local OHIF Viewer:', ohifUrl.toString());
+      window.open(ohifUrl.toString(), '_blank');
+      
+    } catch (error) {
+      console.error('Error opening OHIF viewer:', error);
+      toast.error('Failed to open OHIF viewer');
+    }
+  }, [updateStudyInteractionStatus]);
 
   const handleDirectClick = useCallback(() => {
     if (!studyInstanceUID) {
       console.error('Study Instance UID is required');
+      toast.error('Study Instance UID is required');
       return;
     }
     openOHIFLocal(studyInstanceUID);

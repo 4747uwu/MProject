@@ -20,6 +20,7 @@ import {
     getPendingStudies,
     getInProgressStudies,
     getCompletedStudies,
+    updateStudyInteractionStatus,
     registerAdmin
 } from '../controllers/admin.controller.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -39,6 +40,8 @@ router.get('/studies', protect, authorize('admin'), getAllStudiesForAdmin);
 router.get('/values', protect, getValues)
 router.get('/doctors', protect, authorize('admin', 'lab_staff'), getAllDoctors); 
 router.post('/studies/:studyId/assign', protect, authorize('admin'), assignDoctorToStudy); 
+router.put('/studies/:studyId/interaction', protect, authorize('doctor_account'), updateStudyInteractionStatus);
+
 
 router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
 router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);

@@ -550,7 +550,12 @@ const WorklistTable = React.memo(({
                                   {visibleColumns.seenBy && <div className="flex-1 min-w-[100px] items-center justify-center border-r border-gray-300 h-full hidden xl:flex"><div className={`text-xs truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.seenBy || 'Not Assigned'}>{study.seenBy || 'Not Assigned'}</div></div>}
 
 
-                                  {visibleColumns.actions && <div className="flex-1 min-w-[80px] px-2 flex items-center justify-center space-x-2 border-r border-gray-300 h-full"><EyeIconDropdown studyInstanceUID={study.studyInstanceUID} /><div className="flex-shrink-0"><DownloadDropdown study={study} /></div></div>}
+                                  {visibleColumns.actions && <div className="flex-1 min-w-[80px] px-2 flex items-center justify-center space-x-2 border-r border-gray-300 h-full">
+                                    <EyeIconDropdown 
+                                  studyInstanceUID={study.studyInstanceUID}
+                                  userRole={userRole}/>
+                                    
+                                    <div className="flex-shrink-0"><DownloadDropdown study={study} /></div></div>}
                                   {visibleColumns.report && <div className="flex-shrink-0 w-12 px-2 flex items-center justify-center border-r border-gray-300 h-full"><ReportButton study={study} /></div>}
                                   {visibleColumns.assignDoctor && canAssignDoctors && <div className="flex-shrink-0 w-24 px-2 flex items-center justify-center h-full"><button onClick={() => callbacks.onAssignDoctor(study)} className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${study.workflowStatus === 'report_finalized' ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : (study.workflowStatus === 'assigned_to_doctor' || study.workflowStatus === 'report_in_progress') ? (isEmergency ? 'bg-orange-500 text-white hover:bg-orange-600' : 'bg-orange-500 text-white hover:bg-orange-600') : (isEmergency ? 'bg-red-600 text-white hover:bg-red-700 animate-pulse' : 'bg-blue-500 text-white hover:bg-blue-600')}`} disabled={study.workflowStatus === 'final_report_downloaded'}>{study.workflowStatus === 'final_report_downloaded' ? 'Done' : (study.workflowStatus === 'assigned_to_doctor' || study.workflowStatus === 'report_in_progress') ? 'Reassign' : (isEmergency ? '🚨 Assign' : 'Assign')}</button></div>}
                                 </div>
