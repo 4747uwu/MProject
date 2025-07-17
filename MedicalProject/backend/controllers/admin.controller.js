@@ -5222,12 +5222,14 @@ export const updateStudyInteractionStatus = async (req, res) => {
             'new_study_received',
             'pending_assignment',
             'assigned_to_doctor',
+                        'report_downloaded_radiologist',
+                                    'report_downloaded',
+
+
             'doctor_opened_report',
             'report_in_progress',
             'report_uploaded',
             'report_finalized',
-            'report_downloaded_radiologist',
-            'report_downloaded',
             'final_report_downloaded'
         ];
         

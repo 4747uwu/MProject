@@ -27,8 +27,8 @@ export const STATUS_CONFIG = {
   report_drafted: { color: 'bg-blue-500', tooltip: 'Report Drafted', category: 'completed' },
   report_finalized: { color: 'bg-blue-500', tooltip: 'Report Finalized', category: 'completed' },
   report_uploaded: { color: 'bg-blue-500', tooltip: 'Report Uploaded', category: 'completed' },
-  report_downloaded_radiologist: { color: 'bg-blue-500', tooltip: 'Report Downloaded by Radiologist', category: 'completed' },
-  report_downloaded: { color: 'bg-blue-500', tooltip: 'Report Downloaded', category: 'completed' },
+  report_downloaded_radiologist: { color: 'bg-yellow-500', tooltip: 'Report Downloaded by Radiologist', category: 'completed' },
+  report_downloaded: { color: 'bg-yellow-500', tooltip: 'Report Downloaded', category: 'completed' },
   
   // 🟢 CATEGORY 4: FINAL/ARCHIVED (Green) - Completely finished
   final_report_downloaded: { color: 'bg-green-500', tooltip: 'Final Report Downloaded', category: 'final' },
