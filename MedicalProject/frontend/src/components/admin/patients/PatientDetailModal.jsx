@@ -326,7 +326,7 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
 
       console.log('📤 Sending COMPLETE update data with all new fields:', JSON.stringify(updateData, null, 2));
 
-      const endpoint = isLabStaff ? `/labEdit/patients/${currentPatientId}` : `/admin/patients/${currentPatientId}`;
+      const endpoint = isLabStaff ? `/labEdit/patients/${currentPatientId}` : `/labEdit/patients/${currentPatientId}`;
       const response = await api.put(endpoint, updateData);
       
       console.log('✅ Update response:', response.data);
