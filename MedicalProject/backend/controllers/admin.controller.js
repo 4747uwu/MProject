@@ -3556,7 +3556,9 @@ export const getPendingStudies = async (req, res) => {
         // 🔧 STEP 1: Build lean query filters with PENDING status priority
         const queryFilters = {
             workflowStatus: { 
-                $in: ['new_study_received', 'pending_assignment'] 
+                $in: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ] 
             }
         };
         
@@ -4061,9 +4063,9 @@ export const getInProgressStudies = async (req, res) => {
         const queryFilters = {
             workflowStatus: { 
                 $in: [
-                    'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                    'report_finalized', 'report_drafted', 'report_uploaded', 
-                    'report_downloaded_radiologist', 'report_downloaded'
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
                 ] 
             }
         };
