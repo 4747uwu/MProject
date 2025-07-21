@@ -47,6 +47,8 @@ const UniversalNavbar = () => {
           activeColor: 'text-blue-600 bg-blue-50',
           links: [
             { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' }, // 🆕 NEW
+                    { to: '/admin/labs', label: 'Labs', icon: 'labs' }, // 🆕 NEW
             // { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
             { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
           ]

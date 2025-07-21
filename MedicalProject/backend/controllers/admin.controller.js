@@ -3913,13 +3913,15 @@ export const getPendingStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -4434,13 +4436,15 @@ export const getInProgressStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -4915,14 +4919,16 @@ export const getCompletedStudies = async (req, res) => {
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
                 uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                ? new Date(study.createdAt).toLocaleString('en-IN', {
                     timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
                     year: 'numeric',
                     month: 'short',
                     day: '2-digit',
                     hour: '2-digit',
                     minute: '2-digit',
-                    hour12: false
+                    hour12: false,
+                                timeZone: 'Asia/Kolkata'
+
                 }).replace(',', '')
                 : 'N/A',
                 reportedBy: study.reportInfo?.reporterName 

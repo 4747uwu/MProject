@@ -13,12 +13,13 @@ import DoctorDashboard from './pages/doctor/Dashboard';
 import NewLabPage from './pages/admin/NewLabPage';
 import NewDoctorPage from './pages/admin/NewDoctorPage';
 import ForgotPasswordPage from './pages/ForgotPassword';
-import ManageDoctorsPage from './pages/ManageDoctorsPage';
+// import ManageDoctorsPage from './pages/ManageDoctorsPage';
 import TATReportPage from './pages/TATReport';
-import { WebSocketProvider } from './contexts/webSocketContext';
 import AdminRegistrationForm from './components/admin/AdminRegistrationForm';
-
+import { WebSocketProvider } from './contexts/webSocketContext';
 import ShareStudy from './pages/ShareStudy';
+import LabsManagement from './pages/LabsManagement'; // 🆕 NEW
+import DoctorsManagement from './pages/DoctorsManagement'; // 🆕 NEW
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
@@ -59,7 +60,6 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-      
 
         <div className="min-h-screen bg-gray-50">
           <Routes>
@@ -101,6 +101,25 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+
+            <Route 
+              path="/admin/doctors" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <DoctorsManagement />
+                </ProtectedRoute>
+              } 
+            />
+
+            {/* 🆕 NEW: Labs Management Route */}
+            <Route 
+              path="/admin/labs" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <LabsManagement />
+                </ProtectedRoute>
+              } 
+            />
             
             {/* Lab Routes */}
             <Route 
@@ -130,14 +149,14 @@ function App() {
                 </ProtectedRoute>
               } 
             />
-            <Route 
+            {/* <Route 
               path="/admin/doctors" 
               element={
                 <ProtectedRoute allowedRoles={['admin']}>
                   <ManageDoctorsPage />
                 </ProtectedRoute>
               } 
-            />
+            /> */}
 
             <Route 
               path="/reports/tat" 
@@ -305,7 +324,6 @@ function App() {
             </div>
           )}
         />
-              
 
       </AuthProvider>
     </BrowserRouter>

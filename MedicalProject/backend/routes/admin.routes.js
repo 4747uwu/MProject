@@ -23,9 +23,44 @@ import {
     updateStudyInteractionStatus,
     registerAdmin
 } from '../controllers/admin.controller.js';
+
+import {
+    getAllDoctorsForAdmin,
+    getDoctorForAdmin,
+    updateDoctorForAdmin,
+    deleteDoctorForAdmin,
+    getAllLabsForAdmin,
+    getLabForAdmin,
+    updateLabForAdmin,
+    deleteLabForAdmin,
+    uploadDoctorSignature as uploadSignature
+} from '../controllers/adminCRUD.controller.js';
+
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
+
+// ===============================
+// 🆕 DOCTORS MANAGEMENT ROUTES
+// ===============================
+router.get('/doctors/list', protect, authorize('admin'), getAllDoctorsForAdmin);
+router.get('/doctors/details/:doctorId', protect, authorize('admin'), getDoctorForAdmin);
+router.put('/doctors/update/:doctorId', 
+    protect, 
+    authorize('admin'), 
+    uploadSignature,  // Handle signature upload
+    updateDoctorForAdmin
+);
+router.delete('/doctors/delete/:doctorId', protect, authorize('admin'), deleteDoctorForAdmin);
+
+// ===============================
+// 🆕 LABS MANAGEMENT ROUTES  
+// ===============================
+router.get('/labs/list', protect, authorize('admin'), getAllLabsForAdmin);
+router.get('/labs/details/:labId', protect, authorize('admin'), getLabForAdmin);
+router.put('/labs/update/:labId', protect, authorize('admin'), updateLabForAdmin);
+router.delete('/labs/delete/:labId', protect, authorize('admin'), deleteLabForAdmin);
+
 
 // Routes that require admin only
 router.post('/labs/register', protect, authorize('admin'), registerLabAndStaff);
