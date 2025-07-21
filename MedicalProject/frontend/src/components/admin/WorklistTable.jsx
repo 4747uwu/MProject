@@ -184,12 +184,12 @@ const WorklistTable = React.memo(({
     setActiveTab(activeCategory);
   }, [activeCategory]);
   
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 1024);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  // useEffect(() => {
+  //   const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+  //   checkMobile();
+  //   window.addEventListener('resize', checkMobile);
+  //   return () => window.removeEventListener('resize', checkMobile);
+  // }, []);
 
   const getDefaultColumnVisibility = () => ({
       checkbox: true, status: true, randomEmoji: true, user: true, downloadBtn: true,
@@ -379,25 +379,25 @@ const WorklistTable = React.memo(({
     }
   }), [enhancedStudies, visibleColumns, selectedStudies, userRole, canAssignDoctors, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor]);
 
-  const cardGrid = useMemo(() => (
-    <div className="block lg:hidden h-full overflow-y-auto">
-      <div className="p-4 pb-20">
-        {filteredStudies.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <svg className="mx-auto h-20 w-20 text-gray-400 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            <h3 className="text-xl font-medium text-gray-900 mb-2">No studies found</h3>
-            <p className="text-gray-500">Try adjusting your search or filter criteria</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredStudies.map((study, index) => (
-              <StudyCard key={study._id} study={study} index={index} visibleColumns={visibleColumns} selectedStudies={selectedStudies} onSelectStudy={handleSelectStudy} onPatientClick={handlePatientClick} onPatienIdClick={handlePatienIdClick} onAssignDoctor={handleAssignDoctor} canAssignDoctors={canAssignDoctors} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  ), [filteredStudies, visibleColumns, selectedStudies, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor, canAssignDoctors]);
+  // const cardGrid = useMemo(() => (
+  //   <div className="block lg:hidden h-full overflow-y-auto">
+  //     <div className="p-4 pb-20">
+  //       {filteredStudies.length === 0 ? (
+  //         <div className="flex flex-col items-center justify-center py-16 text-center">
+  //           <svg className="mx-auto h-20 w-20 text-gray-400 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+  //           <h3 className="text-xl font-medium text-gray-900 mb-2">No studies found</h3>
+  //           <p className="text-gray-500">Try adjusting your search or filter criteria</p>
+  //         </div>
+  //       ) : (
+  //         <div className="space-y-3">
+  //           {filteredStudies.map((study, index) => (
+  //             <StudyCard key={study._id} study={study} index={index} visibleColumns={visibleColumns} selectedStudies={selectedStudies} onSelectStudy={handleSelectStudy} onPatientClick={handlePatientClick} onPatienIdClick={handlePatienIdClick} onAssignDoctor={handleAssignDoctor} canAssignDoctors={canAssignDoctors} />
+  //           ))}
+  //         </div>
+  //       )}
+  //     </div>
+  //   </div>
+  // ), [filteredStudies, visibleColumns, selectedStudies, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor, canAssignDoctors]);
   
   return (
     <>
@@ -408,14 +408,14 @@ const WorklistTable = React.memo(({
             <div className="flex items-center justify-between">
               <h1 className="text-sm text-black font-bold tracking-wide flex-shrink-0">WORKLIST</h1>
               <div className="flex items-center space-x-2 min-w-0">
-                <div className="hidden lg:flex items-center h-[30px] bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <div className="flex items-center h-[30px] bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
                   {['all', 'pending', 'inprogress', 'completed'].map(tab => (
                     <button key={tab} className={`px-3 py-1 whitespace-nowrap ${tab === 'all' ? 'rounded-l' : ''} ${tab === 'completed' ? 'rounded-r' : ''} ${activeTab === tab ? 'bg-teal-500 text-white' : 'bg-gray-200 text-gray-700'}`} onClick={() => handleTabChange(tab)}>
                       {tab === 'inprogress' ? 'In Progress' : tab.charAt(0).toUpperCase() + tab.slice(1)} ({statusCounts[tab]})
                     </button>
                   ))}
                 </div>
-                <div className="lg:hidden relative">
+                {/* <div className="lg:hidden relative">
                   <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="h-[30px] px-2 bg-white rounded-lg shadow-md border border-gray-200 flex items-center text-gray-700 hover:bg-gray-50">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
                   </button>
@@ -433,8 +433,8 @@ const WorklistTable = React.memo(({
                       </div>
                     </>
                   )}
-                </div>
-                <div className="hidden lg:flex items-center space-x-2 h-[30px]">
+                </div> */}
+                <div className="flex items-center space-x-2 h-[30px]">
                   <StatusLegend />
                   <ColumnConfigurator visibleColumns={visibleColumns} onColumnChange={handleColumnChange} onResetToDefault={handleResetColumnsToDefault} />
                   <div className="px-2 py-1 bg-purple-500 text-white text-xs rounded-lg font-medium shadow-sm">🎯 Responsive ({filteredStudies.length})</div>
@@ -449,8 +449,8 @@ const WorklistTable = React.memo(({
             <div className="flex justify-center items-center h-full bg-gray-50"><div className="text-center"><div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div><p className="text-gray-600 font-medium">Loading studies...</p></div></div>
           ) : (
             <>
-              {cardGrid}
-              <div className="hidden lg:flex flex-col w-full h-full">
+              {/* {cardGrid} */}
+              <div className="flex flex-col w-full h-full">
                 <div className="flex items-center bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-300 w-full text-xs font-bold text-gray-700 uppercase tracking-wider sticky top-0 z-10 flex-shrink-0">
                   {visibleColumns.checkbox && <div className="flex-shrink-0 w-8 px-2 py-2 text-center border-r border-gray-300"><input type="checkbox" className="rounded border-gray-300 w-4 h-4" checked={selectedStudies.length === filteredStudies.length && filteredStudies.length > 0} onChange={(e) => handleSelectAll(e.target.checked)}/></div>}
                   {visibleColumns.status && <div className="flex-shrink-0 w-16 px-2 py-2 text-center border-r border-gray-300">Status</div>}

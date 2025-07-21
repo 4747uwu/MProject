@@ -580,13 +580,14 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -804,12 +805,14 @@ export const getValues = async (req, res) => {
 
         // Status mapping
         const statusCategories = {
-            pending: ['new_study_received', 'pending_assignment'],
+            pending: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ],
             inprogress: [
-                'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                'report_finalized', 'report_drafted', 'report_uploaded', 
-                'report_downloaded_radiologist', 'report_downloaded'
-            ],
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
+                ],
             completed: ['final_report_downloaded']
         };
 
