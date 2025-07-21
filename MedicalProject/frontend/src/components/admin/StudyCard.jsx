@@ -26,9 +26,9 @@ const StatusIndicator = React.memo(({ status, priority, isEmergency }) => {
   return (
     <div className="flex items-center gap-1">
       <div className={`w-2 h-2 rounded-full ${statusConfig.color}`} />
-      <span className="text-xs font-medium text-gray-600">
+      {/* <span className="text-xs font-medium text-gray-600">
         {getStatusDisplayText(status)}
-      </span>
+      </span> */}
     </div>
   );
 });
