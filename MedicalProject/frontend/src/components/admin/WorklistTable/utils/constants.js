@@ -24,7 +24,7 @@ export const STATUS_CONFIG = {
   report_in_progress: { color: 'bg-yellow-500', tooltip: 'Report in Progress', category: 'inprogress' },
   
   // 🔵 CATEGORY 3: COMPLETED/DOWNLOADED (Blue) - Reports finished but being reviewed/downloaded
-  report_drafted: { color: 'bg-blue-500', tooltip: 'Report Drafted', category: 'completed' },
+  report_drafted: { color: 'bg-purple-500', tooltip: 'Report Drafted', category: 'completed' },
   report_finalized: { color: 'bg-blue-500', tooltip: 'Report Finalized', category: 'completed' },
   report_uploaded: { color: 'bg-blue-500', tooltip: 'Report Uploaded', category: 'completed' },
   report_downloaded_radiologist: { color: 'bg-yellow-500', tooltip: 'Report Downloaded by Radiologist', category: 'completed' },

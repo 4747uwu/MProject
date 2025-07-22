@@ -25,7 +25,7 @@ import DiscussionButton from './patients/DiscussionButton';
 import ReportButton from './ReportButton';
 import StudySeries from './patients/StudySeries';
 import LaunchButton from './LaunchButton';
-import StudyCard from './StudyCard';
+import StudyTable from './StudyCard';
 import { 
   formatDate, formatTime, formatMonthDay, formatMonthDayYear, 
   formatAbbrevMonthDay, formatRelativeDate, formatMonthDayTime, formatMonthDayShort
@@ -379,62 +379,60 @@ const WorklistTable = React.memo(({
     }
   }), [enhancedStudies, visibleColumns, selectedStudies, userRole, canAssignDoctors, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor]);
 
-   const cardGrid = useMemo(() => (
-    <div className="block lg:hidden h-full overflow-y-auto">
-      {/* MOBILE TAB NAVIGATION - Fixed here */}
-      <div className="bg-white border-b border-gray-200 px-3 py-2 sticky top-0 z-10">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-800">WORKLIST</h2>
-          <div className="flex items-center gap-1 overflow-x-auto">
-            {['all', 'pending', 'inprogress', 'completed'].map(tab => (
-              <button 
-                key={tab}
-                onClick={() => handleTabChange(tab)}
-                className={`px-2 py-1 rounded text-xs font-medium transition-colors whitespace-nowrap ${
-                  activeTab === tab 
-                    ? 'bg-blue-500 text-white' 
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {tab === 'inprogress' ? 'In Progress' : tab.charAt(0).toUpperCase() + tab.slice(1)} ({statusCounts[tab] || 0})
-              </button>
-            ))}
-          </div>
-        </div>
+   
+const cardGrid = useMemo(() => (
+  <div className="block lg:hidden h-full flex flex-col max-h-full overflow-hidden">
+    {/* MOBILE TAB NAVIGATION - Fixed */}
+    <div className="bg-white border-b border-gray-200 px-4 py-3 flex-shrink-0 sticky top-0 z-10">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-semibold text-gray-800">WORKLIST</h2>
       </div>
-
-      <div className="p-4 pb-20">
-        {filteredStudies.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <svg className="mx-auto h-20 w-20 text-gray-400 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            <h3 className="text-xl font-medium text-gray-900 mb-2">No studies found</h3>
-            <p className="text-gray-500">Try adjusting your search or filter criteria</p>
-          </div>
-        ) : (
-          <div classname = 'w-full max-w-full overflow-hidden'>
-          <div className="space-y-3 w-full">
-            {filteredStudies.map((study, index) => (
-              <div classname = "w-full max-w-full overflow-hidden">
-              <StudyCard 
-                key={study._id} 
-                study={study} 
-                index={index} 
-                visibleColumns={visibleColumns} 
-                selectedStudies={selectedStudies} 
-                onSelectStudy={handleSelectStudy} 
-                onPatientClick={handlePatientClick} 
-                onPatienIdClick={handlePatienIdClick} 
-                onAssignDoctor={handleAssignDoctor} 
-                canAssignDoctors={canAssignDoctors} 
-              />
-              </div>
-            ))}
-          </div>
-          </div>
-        )}
+      
+      {/* Tab Navigation */}
+      <div className="flex items-center gap-1 overflow-x-auto pb-1">
+        {['all', 'pending', 'inprogress', 'completed'].map(tab => (
+          <button 
+            key={tab}
+            onClick={() => handleTabChange(tab)}
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+              activeTab === tab 
+                ? 'bg-blue-500 text-white shadow-sm' 
+                : 'text-gray-600 hover:bg-gray-100 bg-gray-50'
+            }`}
+          >
+            {tab === 'inprogress' ? 'In Progress' : tab.charAt(0).toUpperCase() + tab.slice(1)} 
+            <span className="ml-1 text-xs">({statusCounts[tab] || 0})</span>
+          </button>
+        ))}
       </div>
     </div>
-  ), [filteredStudies, visibleColumns, selectedStudies, handleSelectStudy, handlePatientClick, handlePatienIdClick, handleAssignDoctor, canAssignDoctors, activeTab, statusCounts, handleTabChange]);
+
+    {/* CONTENT AREA - Fixed scrolling container */}
+    <div className="flex-1 overflow-hidden min-h-0">
+      {filteredStudies.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-full text-center p-4">
+          <svg className="mx-auto h-20 w-20 text-gray-400 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          <h3 className="text-xl font-medium text-gray-900 mb-2">No studies found</h3>
+          <p className="text-gray-500 mb-2">Try adjusting your search or filter criteria</p>
+          <p className="text-sm text-gray-400">Current tab: <span className="font-medium capitalize">{activeTab === 'inprogress' ? 'In Progress' : activeTab}</span></p>
+        </div>
+      ) : (
+        <StudyTable 
+          studies={filteredStudies}
+          selectedStudies={selectedStudies}
+          onSelectStudy={handleSelectStudy}
+          onPatienIdClick={handlePatienIdClick}
+          onAssignDoctor={handleAssignDoctor}
+          canAssignDoctors={canAssignDoctors}
+          userRole={userRole}
+          visibleColumns={visibleColumns}
+        />
+      )}
+    </div>
+  </div>
+), [filteredStudies, visibleColumns, selectedStudies, handleSelectStudy, handlePatienIdClick, handleAssignDoctor, canAssignDoctors, activeTab, statusCounts, handleTabChange, userRole]);
   
   return (
     <>
