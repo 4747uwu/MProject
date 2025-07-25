@@ -39,11 +39,12 @@ const sanitizeInput = (input) => {
     return input;
 };
 
-// 🔧 OPTIMIZED: getPatientDetailedView (same name, enhanced performance)
 export const getPatientDetailedView = async (req, res) => {
   try {
       const { patientId } = req.params;
       const userId = req.user.id;
+
+      const originalPatientId = patientId.replace(/_SLASH_/g, '/');
 
       console.log(`🔍 Fetching detailed view for patient: ${patientId} by user: ${userId}`);
 
@@ -60,10 +61,10 @@ export const getPatientDetailedView = async (req, res) => {
 
       // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS  
       const [patient, allStudies] = await Promise.all([
-          Patient.findOne({ patientID: patientId })
+          Patient.findOne({ patientID: originalPatientId })
               .populate('clinicalInfo.lastModifiedBy', 'fullName email')
               .lean(),
-          DicomStudy.find({ patientId: patientId })
+          DicomStudy.find({ patientId: originalPatientId })
               .select(`
                   studyInstanceUID studyDate studyTime modality modalitiesInStudy 
                   accessionNumber workflowStatus caseType examDescription examType 
@@ -963,6 +964,8 @@ export const updatePatientDetails = async (req, res) => {
       const updateData = req.body;
       const startTime = Date.now();
 
+      const originalPatientId = req.params.patientId.replace(/_SLASH_/g, '/');
+
       console.log(`=== PATIENT UPDATE REQUEST ===`);
       console.log(`👤 Patient ID: ${patientId}`);
       console.log(`🔧 Updated by: ${userId}`);
@@ -978,7 +981,7 @@ export const updatePatientDetails = async (req, res) => {
       }
 
       // 🔧 OPTIMIZED: Find patient with lean query
-      const patient = await Patient.findOne({ patientID: patientId }).lean();
+      const patient = await Patient.findOne({ patientID: originalPatientId }).lean();
       if (!patient) {
           return res.status(404).json({
               success: false,
@@ -1205,7 +1208,7 @@ if (updateData.clinicalInfo) {
       console.log('💾 Executing patient update...');
 
       const updatedPatient = await Patient.findOneAndUpdate(
-          { patientID: patientId },
+          { patientID: originalPatientId },
           { $set: patientUpdateData },
           { new: true, lean: true }
       );

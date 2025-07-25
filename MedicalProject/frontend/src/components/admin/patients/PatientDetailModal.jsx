@@ -78,6 +78,11 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
   // Add this near the top with other state declarations
   const [currentPatientId, setCurrentPatientId] = useState(patientId);
 
+  const makeUrlSafe = (patientId) => {
+  return patientId.replace(/\//g, '_SLASH_');
+};
+
+
   // Update the useEffect to use currentPatientId
   useEffect(() => {
     if (isOpen && currentPatientId) {
@@ -92,7 +97,9 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
     
     try {
       console.log(`🔍 Fetching patient details for ID: ${idToUse}`);
-      let response = await api.get(`/labEdit/patients/${idToUse}`);
+      const safeId = makeUrlSafe(idToUse);
+      
+      let response = await api.get(`/labEdit/patients/${safeId}`);
       
       console.log('🔍 Patient Details Response:', response.data);
       
@@ -233,9 +240,11 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       formData.append('type', uploadType);
       if (currentStudyId) {
         formData.append('studyId', currentStudyId);
+        
       }
+      const safeId = makeUrlSafe(currentPatientId);
 
-      const response = await api.post(`/labEdit/patients/${currentPatientId}/documents`, formData, {
+      const response = await api.post(`/labEdit/patients/${safeId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 60000
       });
@@ -325,8 +334,9 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       };
 
       console.log('📤 Sending COMPLETE update data with all new fields:', JSON.stringify(updateData, null, 2));
+      const safeId = makeUrlSafe(currentPatientId);
 
-      const endpoint = isLabStaff ? `/labEdit/patients/${currentPatientId}` : `/labEdit/patients/${currentPatientId}`;
+      const endpoint = isLabStaff ? `/labEdit/patients/${safeId}` : `/labEdit/patients/${safeId}`;
       const response = await api.put(endpoint, updateData);
       
       console.log('✅ Update response:', response.data);
@@ -447,13 +457,14 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
         console.log(`📋 Study report download URL: ${downloadUrl}`);
       } else {
         // For patient documents, find the actual index in patient.documents array
+        const safeId = makeUrlSafe(currentPatientId);
         const patientDocIndex = patientDetails.documents.findIndex(d => d._id === doc._id);
         if (patientDocIndex === -1) {
           toast.dismiss(downloadToast);
           toast.error('❌ Document not found in patient records');
           return;
         }
-        downloadUrl = `/labEdit/patients/${currentPatientId}/documents/${patientDocIndex}/download`;
+        downloadUrl = `/labEdit/patients/${safeId}/documents/${patientDocIndex}/download`;
         console.log(`📄 Patient document download URL: ${downloadUrl}`);
       }
       
@@ -681,18 +692,19 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
       return;
     }
   
-    try {
-      let deleteUrl = '';
-      if (doc.source === 'patient') {
-        // Patient document: use patient document delete route
-        deleteUrl = `/labEdit/patients/${patientId}/documents/${index}`;
-      } else if (doc.source === 'study') {
-        // Study report: use new study report delete route
-        deleteUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}`;
-      } else {
-        toast.error('Unknown document type');
-        return;
-      }
+      try {
+    let deleteUrl = '';
+    if (doc.source === 'patient') {
+      // 🔧 FIX: Use makeUrlSafe for patient document delete route
+      const safeId = makeUrlSafe(currentPatientId);
+      deleteUrl = `/labEdit/patients/${safeId}/documents/${index}`;
+    } else if (doc.source === 'study') {
+      // Study report: use new study report delete route
+      deleteUrl = `/labEdit/studies/${doc.studyId}/reports/${doc._id}`;
+    } else {
+      toast.error('Unknown document type');
+      return;
+    }
   
       const response = await api.delete(deleteUrl);
   
