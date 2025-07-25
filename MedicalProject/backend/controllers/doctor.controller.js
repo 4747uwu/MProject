@@ -9,21 +9,21 @@ const cache = new NodeCache({ stdTTL: 300 });
 
 // 🔧 STANDARDIZED: Status categories used across ALL doctor functions
 const DOCTOR_STATUS_CATEGORIES = {
-    pending: ['assigned_to_doctor', 'new_study_received'],
-    inprogress: [
-        'doctor_opened_report', 
-        'report_in_progress', 
-        'report_uploaded', 
-        'report_downloaded_radiologist', 
-        'report_downloaded',
-        'report_finalized', 
-        'report_drafted'
-
+    pending: [
+        'new_study_received', 
+        'pending_assignment',
+        'assigned_to_doctor',           // ✅ SAME AS ADMIN
+        'doctor_opened_report',         // ✅ SAME AS ADMIN  
+        'report_in_progress',          // ✅ SAME AS ADMIN
+        'report_downloaded_radiologist', // ✅ SAME AS ADMIN
+        'report_downloaded'            // ✅ SAME AS ADMIN
     ],
-    completed: [
-        
-        'final_report_downloaded'
-    ]
+    inprogress: [
+        'report_finalized', 
+        'report_drafted', 
+        'report_uploaded'
+    ],
+    completed: ['final_report_downloaded']
 };
 const formatDicomDateTime = (studyDate, studyTime) => {
     if (!studyDate) return 'N/A';
