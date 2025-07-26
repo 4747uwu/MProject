@@ -14,52 +14,21 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
   // Reset selection based on the study's doctorAssignments array
   useEffect(() => {
     console.log('🔄 Study changed:', study?.studyInstanceUID);
-    console.log('📋 Study data structure:', {
-        doctorAssignments: study?.doctorAssignments,
-        assignedDoctorName: study?.assignedDoctorName,
-        latestAssignedDoctorDetails: study?.latestAssignedDoctorDetails
-    });
+    console.log('📋 Doctor assignments:', study?.doctorAssignments);
     
-    let assignedIds = [];
-    
-    // ✅ METHOD 1: Try doctorAssignments array (your backend format)
-    if (study?.doctorAssignments && Array.isArray(study.doctorAssignments)) {
-        // Get unique doctor IDs from all assignments
-        const allAssignmentIds = study.doctorAssignments
-            .map(assignment => {
-                // Try multiple possible ID locations
-                return assignment.doctorId || 
-                       assignment.doctorDetails?._id || 
-                       assignment.assignedTo || 
-                       assignment._id;
-            })
-            .filter(Boolean);
-        
-        // Remove duplicates and get unique assigned doctor IDs
-        assignedIds = [...new Set(allAssignmentIds)];
-        console.log('🧑‍⚕️ Found IDs from doctorAssignments:', assignedIds);
-        console.log('🧑‍⚕️ Total assignments in array:', study.doctorAssignments.length);
+    if (study && study.doctorAssignments && Array.isArray(study.doctorAssignments)) {
+      // Extract doctor IDs from doctorAssignments array
+      const assignedIds = study.doctorAssignments
+        .map(assignment => assignment.doctorId || assignment.doctorDetails?._id)
+        .filter(Boolean);
+      
+      setSelectedDoctorIds(assignedIds); // Pre-select currently assigned
+      setCurrentlyAssignedDoctorIds(assignedIds);
+      console.log('🧑‍⚕️ Initial assigned IDs:', assignedIds);
+    } else {
+      setSelectedDoctorIds([]);
+      setCurrentlyAssignedDoctorIds([]);
     }
-    
-    // ✅ METHOD 2: Try latestAssignedDoctorDetails (fallback)
-    if (assignedIds.length === 0 && study?.latestAssignedDoctorDetails?._id) {
-        assignedIds = [study.latestAssignedDoctorDetails._id];
-        console.log('🧑‍⚕️ Found ID from latestAssignedDoctorDetails:', assignedIds);
-    }
-    
-    // ✅ METHOD 3: Try assignment array format (admin controller format)
-    if (assignedIds.length === 0 && study?.assignment?.assignedTo) {
-        assignedIds = [study.assignment.assignedTo];
-        console.log('🧑‍⚕️ Found ID from assignment.assignedTo:', assignedIds);
-    }
-    
-    // ✅ SET STATE: Always set the state
-    setSelectedDoctorIds(assignedIds);
-    setCurrentlyAssignedDoctorIds(assignedIds);
-    
-    console.log('🧑‍⚕️ Final assigned IDs:', assignedIds);
-    console.log('🧑‍⚕️ Current assignment count:', assignedIds.length);
-    
   }, [study]);
 
   useEffect(() => {
@@ -221,87 +190,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
     }
   };
 
-  // ✅ FIX: Add patientName calculation before handleUnassignAll function
-  const patientName = study?.patientName || study?.patientInfo?.patientName || 'Unknown Patient';
-
-  // ✅ UPDATED: Fixed handleUnassignAll function
-  const handleUnassignAll = async () => {
-    // Get only selected doctors that are currently assigned
-    const selectedAssignedDoctors = selectedDoctorIds.filter(id => currentlyAssignedDoctorIds.includes(id));
-    
-    if (selectedAssignedDoctors.length === 0) {
-        toast.info('No assigned doctors are selected for unassignment');
-        return;
-    }
-
-    const confirmUnassign = window.confirm(
-        `Are you sure you want to unassign ${selectedAssignedDoctors.length} selected doctor(s) from this study?\n\nStudy: ${patientName}\nStudy ID: ${study?.studyInstanceUID || 'N/A'}`
-    );
-
-    if (!confirmUnassign) return;
-
-    const loadingToast = toast.loading(`Unassigning ${selectedAssignedDoctors.length} selected doctors...`);
-    
-    try {
-        let successfulUnassignments = 0;
-        const unassignedDoctors = [];
-
-        // ✅ SAME PATTERN: Call backend for each selected assigned doctor (like assignment)
-        for (const doctorId of selectedAssignedDoctors) {
-            try {
-                const response = await api.post(`/admin/studies/${study._id}/unassign`, {
-                    doctorId
-                });
-                
-                if (response.data.success) {
-                    successfulUnassignments++;
-                    
-                    const doctorInfo = allDoctors.find(doc => (doc._id || doc.id) === doctorId);
-                    unassignedDoctors.push({
-                        id: doctorId,
-                        name: doctorInfo?.fullName || doctorInfo?.firstName + ' ' + doctorInfo?.lastName || 'Unknown Doctor'
-                    });
-                }
-            } catch (error) {
-                console.error('Unassignment error for doctor:', doctorId, error);
-                toast.error(`Failed to unassign doctor`);
-            }
-        }
-
-        toast.dismiss(loadingToast);
-
-        if (successfulUnassignments > 0) {
-            // ✅ UPDATE STATE: Remove unassigned doctors from current assignments and selections
-            const newCurrentlyAssigned = currentlyAssignedDoctorIds.filter(id => !selectedAssignedDoctors.includes(id));
-            const newSelected = selectedDoctorIds.filter(id => !selectedAssignedDoctors.includes(id));
-            
-            setCurrentlyAssignedDoctorIds(newCurrentlyAssigned);
-            setSelectedDoctorIds(newSelected);
-            
-            toast.success(`Successfully unassigned ${successfulUnassignments} selected doctor(s) from this study`);
-            
-            // ✅ FIX: Send assignedDoctors format for compatibility with WorklistTable callback
-            if (onAssignComplete) {
-                onAssignComplete({
-                    success: true,
-                    studyId: study._id,
-                    assignedDoctors: unassignedDoctors, // ✅ KEY FIX: Use assignedDoctors key
-                    action: 'unassign_selected',
-                    unassignedCount: successfulUnassignments
-                });
-            }
-            
-            onClose();
-        } else {
-            toast.error('No doctors were unassigned');
-        }
-    } catch (error) {
-        toast.dismiss(loadingToast);
-        console.error('❌ Error during selected doctors unassignment:', error);
-        toast.error('Failed to unassign selected doctors');
-    }
-  };
-
   const clearFilters = () => {
     setSearchTerm('');
     setAssignmentFilter('');
@@ -309,6 +197,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
 
   if (!isOpen) return null;
 
+  const patientName = study?.patientName || study?.patientInfo?.patientName || 'Unknown Patient';
   const doctorsToShow = assignmentFilter || searchTerm ? doctors : allDoctors;
 
   const assignedCount = currentlyAssignedDoctorIds.length;
@@ -328,8 +217,6 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
             ✕
           </button>
         </div>
-
-       
 
         {assignedCount > 0 && (
           <div className="p-3 bg-amber-50 border-b border-amber-200">
@@ -533,38 +420,19 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
         </div>
 
         {/* Footer */}
-        {/* ✅ SIMPLE: Footer with Unassign All button */}
         <div className="border-t border-gray-200 p-3 sm:p-4 bg-gray-50 rounded-b-lg">
-          <div className="flex flex-col gap-3">
-            {/* Status Info */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="text-xs sm:text-sm text-gray-600 text-center sm:text-left">
               {selectedDoctorIds.length > 0 ? (
                 <>
                   {selectedDoctorIds.filter(id => !currentlyAssignedDoctorIds.includes(id)).length} new assignments, 
-                  {selectedDoctorIds.filter(id => currentlyAssignedDoctorIds.includes(id)).length} will be unassigned
+                  {currentlyAssignedDoctorIds.filter(id => !selectedDoctorIds.includes(id)).length} will be unassigned
                 </>
               ) : (
-                'Select doctors to assign/unassign'
+                'Select doctors to assign to this study'
               )}
             </div>
-            
-            {/* Buttons */}
-            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center sm:justify-end">
-              {/* ✅ UNASSIGN SELECTED BUTTON - Show when selected doctors are currently assigned */}
-              {selectedDoctorIds.filter(id => currentlyAssignedDoctorIds.includes(id)).length > 0 && (
-                <button
-                  onClick={handleUnassignAll}
-                  disabled={loading}
-                  className="bg-orange-500 text-white px-4 sm:px-6 py-2 rounded hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center text-sm flex-1 sm:flex-none justify-center"
-                >
-                  <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  Unassign Selected ({selectedDoctorIds.filter(id => currentlyAssignedDoctorIds.includes(id)).length})
-                </button>
-              )}
-              
-              {/* ASSIGN SELECTED BUTTON */}
+            <div className="flex gap-2 sm:gap-3 justify-center sm:justify-end">
               <button
                 onClick={handleAssign}
                 disabled={selectedDoctorIds.length === 0 || loading}
@@ -573,10 +441,8 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                 <svg className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-                Assign Selected ({selectedDoctorIds.filter(id => !currentlyAssignedDoctorIds.includes(id)).length})
+                Update Assignments ({selectedDoctorIds.filter(id => !currentlyAssignedDoctorIds.includes(id)).length} new)
               </button>
-              
-              {/* CLOSE BUTTON */}
               <button
                 onClick={onClose}
                 className="bg-red-500 text-white px-4 sm:px-6 py-2 rounded hover:bg-red-600 flex items-center text-sm flex-1 sm:flex-none justify-center"

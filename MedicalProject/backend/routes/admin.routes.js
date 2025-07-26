@@ -21,7 +21,8 @@ import {
     getInProgressStudies,
     getCompletedStudies,
     updateStudyInteractionStatus,
-    registerAdmin
+    registerAdmin,
+    unassignDoctorFromStudy
 } from '../controllers/admin.controller.js';
 
 import {
@@ -60,6 +61,8 @@ router.get('/labs/list', protect, authorize('admin'), getAllLabsForAdmin);
 router.get('/labs/details/:labId', protect, authorize('admin'), getLabForAdmin);
 router.put('/labs/update/:labId', protect, authorize('admin'), updateLabForAdmin);
 router.delete('/labs/delete/:labId', protect, authorize('admin'), deleteLabForAdmin);
+router.post('/studies/:studyId/unassign', protect, authorize('admin'), unassignDoctorFromStudy);
+
 
 
 // Routes that require admin only

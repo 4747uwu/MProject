@@ -1110,8 +1110,6 @@ export const updatePatientDetails = async (req, res) => {
           }
       }
 
-      // Handle clinical information
-      // ...existing code...
 
 // 🔧 ENHANCED: Handle clinical information with TAT reset detection
 if (updateData.clinicalInfo) {
@@ -1196,10 +1194,10 @@ if (updateData.clinicalInfo) {
           patientUpdateData.referralInfo = sanitizeInput(updateData.referralInfo);
       }
 
-      if (updateData.studyInfo?.workflowStatus) {
-          const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-          patientUpdateData.currentWorkflowStatus = normalizedStatus;
-      }
+      // if (updateData.studyInfo?.workflowStatus) {
+      //     const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+      //     patientUpdateData.currentWorkflowStatus = normalizedStatus;
+      // }
 
       // Update computed fields
       patientUpdateData['computed.lastActivity'] = new Date();
@@ -1314,11 +1312,11 @@ if (patientUpdateData._clinicalHistoryChanged) {
           }
 
           // 🔧 EXISTING: Workflow status
-          if (updateData.studyInfo?.workflowStatus) {
-              const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-              studyUpdateData.workflowStatus = normalizedStatus;
-              studyUpdateData.currentCategory = normalizedStatus;
-          }
+          // if (updateData.studyInfo?.workflowStatus) {
+          //     const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+          //     studyUpdateData.workflowStatus = normalizedStatus;
+          //     studyUpdateData.currentCategory = normalizedStatus;
+          // }
 
           // 🔧 EXISTING: Case type
           if (updateData.studyInfo?.caseType) {
@@ -1563,7 +1561,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
 
           studyInfo: {
             examDescription: newExamDescription || updateData.studyInfo?.examDescription || '',
-            workflowStatus: updateData.studyInfo?.workflowStatus || '',
+            // workflowStatus: updateData.studyInfo?.workflowStatus || '',
             caseType: updateData.studyInfo?.caseType || ''
         },
 
@@ -1890,11 +1888,13 @@ export const uploadDocument = async (req, res) => {
   console.log('🔧 Uploading document to Wasabi storage...', req.params);
   try {
     const { patientId } = req.params;
+          const originalPatientId = req.params.patientId.replace(/_SLASH_/g, '/');
+
     const userId = req.user.id;
     const { type, studyId, documentType = 'clinical' } = req.body;
     const files = req.files;
 
-    console.log(`📤 Uploading document(s) for patient: ${patientId}`);
+    console.log(`📤 Uploading document(s) for patient: ${originalPatientId}`);
     console.log(`👤 User ID: ${userId}, Role: ${req.user.role}`);
 
     if (!files || files.length === 0) {
@@ -1922,7 +1922,7 @@ export const uploadDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -1957,7 +1957,7 @@ export const uploadDocument = async (req, res) => {
         file.originalname,
         documentType,
         {
-          patientId: patientId,
+          patientId: originalPatientId,
           studyId: studyId || 'general',
           uploadedBy: user.fullName,
           userId: userId
@@ -1976,7 +1976,7 @@ export const uploadDocument = async (req, res) => {
         documentType: documentType,
         wasabiKey: wasabiResult.key,
         wasabiBucket: wasabiResult.bucket,
-        patientId: patientId,
+        patientId: originalPatientId,
         studyId: study ? study._id : null,
         uploadedBy: userId
       });
@@ -2076,6 +2076,7 @@ export const uploadDocument = async (req, res) => {
 export const downloadDocument = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
     const userId = req.user.id;
 
     console.log(`⬇️ Downloading document ${docIndex} for patient: ${patientId}`);
@@ -2098,7 +2099,7 @@ export const downloadDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2183,7 +2184,8 @@ export const deleteDocument = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
     const userId = req.user.id;
-
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
+    
     console.log(`🗑️ Deleting document ${docIndex} for patient: ${patientId}`);
 
     // Validate user permissions
@@ -2196,7 +2198,7 @@ export const deleteDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2350,6 +2352,7 @@ export const deleteStudyReport = async (req, res) => {
 export const getDocumentDownloadUrl = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
     const userId = req.user.id;
     const { expiresIn = 3600 } = req.query; // Default 1 hour
 
@@ -2365,7 +2368,7 @@ export const getDocumentDownloadUrl = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2433,6 +2436,8 @@ export const getDocumentDownloadUrl = async (req, res) => {
 export const getPatientDocuments = async (req, res) => {
   try {
     const { patientId } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
+    
     const userId = req.user.id;
 
     console.log(`📋 Getting documents for patient: ${patientId}`);
@@ -2447,7 +2452,7 @@ export const getPatientDocuments = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,

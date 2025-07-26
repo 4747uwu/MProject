@@ -5277,3 +5277,126 @@ export const updateStudyInteractionStatus = async (req, res) => {
         });
     }
 };
+
+export const unassignDoctorFromStudy = async (req, res) => {
+  try {
+    const { studyId } = req.params;
+    const { doctorId } = req.body;
+
+    console.log(`🔄 Unassigning doctor ${doctorId} from study ${studyId}`);
+
+    // Find the study
+    const study = await DicomStudy.findById(studyId);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // 🔍 LOG: Initial workflow status
+    const initialStatus = study.workflowStatus;
+    console.log(`📊 INITIAL workflow status: ${initialStatus}`);
+
+    // Remove doctor from lastAssignedDoctor array
+    if (Array.isArray(study.lastAssignedDoctor)) {
+      const beforeLength = study.lastAssignedDoctor.length;
+      study.lastAssignedDoctor = study.lastAssignedDoctor.filter(
+        assignment => assignment.doctorId.toString() !== doctorId
+      );
+      console.log(`📊 lastAssignedDoctor array: ${beforeLength} → ${study.lastAssignedDoctor.length}`);
+    } else if (study.lastAssignedDoctor?.doctorId?.toString() === doctorId) {
+      console.log(`📊 Removing single lastAssignedDoctor`);
+      study.lastAssignedDoctor = null;
+    }
+
+    // 🔧 FIXED: Remove from assignment array - check both User._id and Doctor._id
+    if (Array.isArray(study.assignment)) {
+      const beforeLength = study.assignment.length;
+      
+      // 🔧 CRITICAL: Get the doctor's userAccount ID for proper filtering
+      const doctor = await Doctor.findById(doctorId).populate('userAccount');
+      const userAccountId = doctor?.userAccount?._id?.toString();
+      
+      console.log(`🔍 Doctor userAccount ID: ${userAccountId}`);
+      console.log(`🔍 Current assignment entries:`, study.assignment.map(a => ({
+        assignedTo: a.assignedTo?.toString(),
+        assignedAt: a.assignedAt
+      })));
+      
+      // Filter out assignments that match either the doctor ID or user account ID
+      study.assignment = study.assignment.filter(assignment => {
+        const assignedToId = assignment.assignedTo?.toString();
+        const matchesDoctorId = assignedToId === doctorId;
+        const matchesUserAccountId = assignedToId === userAccountId;
+        
+        console.log(`🔍 Assignment ${assignedToId}: doctorMatch=${matchesDoctorId}, userMatch=${matchesUserAccountId}`);
+        
+        return !matchesDoctorId && !matchesUserAccountId;
+      });
+      
+      console.log(`📊 assignment array: ${beforeLength} → ${study.assignment.length}`);
+    }
+
+    // 🔧 NEW: Update workflow status based on remaining assignments
+    const hasRemainingAssignments = (Array.isArray(study.lastAssignedDoctor) && study.lastAssignedDoctor.length > 0) ||
+                                   (Array.isArray(study.assignment) && study.assignment.length > 0) ||
+                                   study.lastAssignedDoctor;
+
+    if (!hasRemainingAssignments) {
+      console.log(`📊 No remaining assignments, setting status to pending_assignment`);
+      study.workflowStatus = 'pending_assignment';
+    } else {
+      console.log(`📊 ${study.assignment?.length || 0} assignments remaining, keeping current status`);
+    }
+
+    // 🔍 LOG: Status BEFORE save
+    console.log(`📊 Status BEFORE save: ${study.workflowStatus}`);
+    console.log(`📊 Modified fields:`, study.modifiedPaths());
+
+    // 🔍 CRITICAL: Save the changes
+    const savedStudy = await study.save();
+
+    // 🔍 LOG: Status AFTER save
+    console.log(`📊 Status AFTER save: ${savedStudy.workflowStatus}`);
+    
+    // Check if status changed as expected
+    if (savedStudy.workflowStatus !== initialStatus) {
+      console.log(`✅ STATUS UPDATED: ${initialStatus} → ${savedStudy.workflowStatus}`);
+    } else {
+      console.log(`ℹ️ STATUS UNCHANGED: ${savedStudy.workflowStatus} (other assignments remain)`);
+    }
+
+    // Also remove from doctor's assignedStudies
+    await Doctor.updateOne(
+      { _id: doctorId },
+      { 
+        $pull: { 
+          assignedStudies: { study: studyId } 
+        },
+        $set: { assigned: false }
+      }
+    );
+
+    console.log(`✅ Doctor ${doctorId} unassigned from study ${studyId}`);
+
+    res.json({
+      success: true,
+      message: 'Doctor unassigned successfully',
+      study: {
+        _id: savedStudy._id,
+        workflowStatus: savedStudy.workflowStatus,
+        assignedDoctors: savedStudy.lastAssignedDoctor || [],
+        remainingAssignments: savedStudy.assignment?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error unassigning doctor:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during doctor unassignment',
+      error: error.message
+    });
+  }
+};

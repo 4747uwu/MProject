@@ -323,17 +323,23 @@ const WorklistTable = React.memo(({
     }
   }, [selectedStudies, studies]);
 
-  const handleAssignmentSuccess = useCallback((studyId, assignedDoctors) => {
+  // ✅ FIXED: Add action parameter to function signature
+const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 'assign') => {
     setImmediateUpdates(prev => ({
-      ...prev,
-      [studyId]: {
-        workflowStatus: 'assigned_to_doctor',
-        assignedDoctors: assignedDoctors,
-        timestamp: Date.now()
-      }
+        ...prev,
+        [studyId]: {
+            workflowStatus: action === 'unassign_selected' ? 'pending_assignment' : 'assigned_to_doctor',
+            assignedDoctors: action === 'unassign_selected' ? [] : assignedDoctors,
+            timestamp: Date.now()
+        }
     }));
-    toast.success(`✅ Study assigned to ${assignedDoctors.map(d => `Dr. ${d.name}`).join(', ')}!`);
-  }, []);
+
+    // ✅ KEY FIX: Only show assignment toast for actual assignments
+    if (action !== 'unassign_selected') {
+        toast.success(`✅ Study Operation Successful`);
+    }
+    // ✅ For unassignments, don't show any toast (modal already shows success message)
+}, []);
 
   const enhancedStudies = useMemo(() => {
     return filteredStudies.map(study => {
@@ -353,10 +359,25 @@ const WorklistTable = React.memo(({
   const handleAssignmentModalComplete = (result) => {
     setAssignmentModalOpen(false);
     if (result?.success) {
-      // onAssignmentComplete?.();
-      handleAssignmentSuccess(result.studyId, result.assignedDoctors);
+        if (result.action === 'unassign_selected') {
+            // ✅ FOR UNASSIGNMENTS: Only update state, NO function call, NO toast
+            setImmediateUpdates(prev => ({
+                ...prev,
+                [result.studyId]: {
+                    workflowStatus: 'pending_assignment',
+                    assignedDoctors: [],
+                    timestamp: Date.now()
+                }
+            }));
+        } else {
+            // ✅ FOR ASSIGNMENTS: Call success handler which will show toast
+            handleAssignmentSuccess(result.studyId, result.assignedDoctors, result.action);
+        }
+        
+        // ✅ Call parent callback if needed
+        // onAssignmentComplete?.();
     }
-  };
+};
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
   const handleExportWorklist = useCallback(() => toast.success(`Exported ${filteredStudies.length} studies to CSV`), [filteredStudies]);
@@ -494,12 +515,12 @@ const cardGrid = useMemo(() => (
                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">🔗</div>}
                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">💬</div>}
                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 py-2 border-r border-gray-300">Patient ID</div>}
-                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
+                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[150px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Age/Sex</div>}
-                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Description</div>}
+                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Description</div>}
                   {visibleColumns.series && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Series</div>}
                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 py-2 text-center border-r border-gray-300">Modality</div>}
-                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 py-2 border-r border-gray-300">Location</div>}
+                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 py-2 border-r border-gray-300">Location</div>}
                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Study Date</div>}
                   {visibleColumns.uploadDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300 hidden xl:block">Upload Date</div>}
                   {visibleColumns.reportedDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Reported Date</div>}
@@ -549,12 +570,12 @@ const cardGrid = useMemo(() => (
                                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><ShareButton study={study} /></div>}
                                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><DiscussionButton study={study} /></div>}
                                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 flex items-center border-r border-gray-300 h-full"><button onClick={() => callbacks.onPatienIdClick(study.patientId, study)} className={`hover:underline text-sm font-medium truncate block w-full text-left ${isEmergency ? 'text-red-700 hover:text-red-900' : 'text-blue-600 hover:text-blue-800'}`}>{study.patientId}{isEmergency && (<span className="ml-1 inline-flex items-center px-1 py-0.5 rounded text-xs font-bold bg-red-600 text-white">EMERGENCY</span>)}</button></div>}
-                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
+                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
                                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.ageGender || study.patientAge || 'N/A'}</div></div>}
-                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
+                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
                                   {visibleColumns.series && (<div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.seriesImages || study.numberOfSeries || 'N/A'}</div></div>)}
                                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 flex items-center justify-center border-r border-gray-300 h-full"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${isEmergency ? 'bg-red-600 text-white' : 'text-black'}`}>{study.modality || 'N/A'}</span></div>}
-                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
+                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
                                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDateTime
                             }</div>
                             

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import api from '../services/api'; // ✅ Use the proper API service
 
 const ChangePasswordPage = () => {
   const [oldPassword, setOldPassword] = useState('');
@@ -46,27 +47,26 @@ const ChangePasswordPage = () => {
     fetchUserProfile();
   }, []);
 
+  // ✅ Updated to use proper API service
   const fetchUserProfile = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3000/api/auth/profile', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
+      console.log('🔍 Fetching user profile...');
+      
+      const response = await api.get('/auth/profile');
 
-      if (response.ok) {
-        const data = await response.json();
-        setUserProfile(data.data);
+      if (response.data.success) {
+        setUserProfile(response.data.data);
+        console.log('✅ User profile fetched successfully');
+      } else {
+        console.warn('⚠️ Profile fetch unsuccessful:', response.data.message);
       }
     } catch (error) {
-      console.error('Error fetching profile:', error);
+      console.error('❌ Error fetching profile:', error);
+      // Don't show error to user for profile fetch failure
     }
   };
 
+  // ✅ Updated to use proper API service
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -87,25 +87,18 @@ const ChangePasswordPage = () => {
     }
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3000/api/auth/change-password', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          oldPassword,
-          newPassword,
-          confirmPassword
-        })
+      console.log('🔄 Attempting to change password...');
+      
+      // ✅ Use the proper API service with automatic token handling
+      const response = await api.post('/auth/change-password', {
+        oldPassword,
+        newPassword,
+        confirmPassword
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (response.data.success) {
         setSuccess('Password changed successfully! Redirecting to login...');
+        console.log('✅ Password changed successfully');
         
         // Clear form
         setOldPassword('');
@@ -114,19 +107,42 @@ const ChangePasswordPage = () => {
 
         // Wait 2 seconds then logout and redirect
         setTimeout(async () => {
-          await logout();
-          navigate('/login', { 
-            state: { 
-              message: 'Password changed successfully! Please login with your new password.' 
-            }
-          });
+          try {
+            await logout();
+            navigate('/login', { 
+              state: { 
+                message: 'Password changed successfully! Please login with your new password.' 
+              }
+            });
+          } catch (logoutError) {
+            console.error('❌ Error during logout:', logoutError);
+            // Force redirect even if logout fails
+            navigate('/login', { 
+              state: { 
+                message: 'Password changed successfully! Please login with your new password.' 
+              }
+            });
+          }
         }, 2000);
       } else {
-        setError(data.message || 'Failed to change password');
+        setError(response.data.message || 'Failed to change password');
+        console.warn('⚠️ Password change failed:', response.data.message);
       }
     } catch (err) {
-      console.error("Change password error", err);
-      setError('Network error. Please try again.');
+      console.error("❌ Change password error:", err);
+      
+      // Handle different types of errors
+      if (err.response?.data?.message) {
+        setError(err.response.data.message);
+      } else if (err.response?.status === 401) {
+        setError('Current password is incorrect');
+      } else if (err.response?.status === 400) {
+        setError('Invalid password format. Please check your input.');
+      } else if (err.code === 'NETWORK_ERROR' || err.message === 'Network Error') {
+        setError('Network error. Please check your connection and try again.');
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -248,11 +264,13 @@ const ChangePasswordPage = () => {
                     className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 bg-gray-50 focus:bg-white"
                     placeholder="Enter your current password"
                     required
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowOldPassword(!showOldPassword)}
                     className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={isLoading}
                   >
                     {showOldPassword ? (
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -288,11 +306,13 @@ const ChangePasswordPage = () => {
                     placeholder="Enter your new password"
                     required
                     minLength={6}
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowNewPassword(!showNewPassword)}
                     className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={isLoading}
                   >
                     {showNewPassword ? (
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -328,11 +348,13 @@ const ChangePasswordPage = () => {
                     className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-gray-50 focus:bg-white"
                     placeholder="Confirm your new password"
                     required
+                    disabled={isLoading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                     className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-600 transition-colors"
+                    disabled={isLoading}
                   >
                     {showConfirmPassword ? (
                       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -353,7 +375,8 @@ const ChangePasswordPage = () => {
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-lg text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transform transition-all duration-200 hover:scale-105"
+                  disabled={isLoading}
+                  className="flex-1 py-3 px-4 border border-gray-300 rounded-xl shadow-lg text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transform transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   Cancel
                 </button>
