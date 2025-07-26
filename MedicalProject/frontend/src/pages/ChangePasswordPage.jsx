@@ -21,8 +21,8 @@ const ChangePasswordPage = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
 
-  // 🔧 FIXED: Use HTTPS for production (since your frontend is HTTPS)
-  const BACKEND_URL = 'https://64.227.187.164:3000/api';
+  // 🔧 FIXED: Use your domain with HTTPS (nginx will proxy to backend)
+  const BACKEND_URL = 'https://ai.starradiology.com/api';
 
   // Array of security emojis that will rotate
   const securityEmojis = [
@@ -63,9 +63,7 @@ const ChangePasswordPage = () => {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        },
-        // 🔧 ADD: Ignore SSL certificate issues for IP-based HTTPS
-        httpsAgent: false
+        }
       });
 
       if (response.data.success) {
@@ -114,9 +112,7 @@ const ChangePasswordPage = () => {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        },
-        // 🔧 ADD: Ignore SSL certificate issues for IP-based HTTPS
-        httpsAgent: false
+        }
       });
 
       if (response.data.success) {
