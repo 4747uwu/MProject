@@ -104,7 +104,7 @@ const ChangePasswordPage = () => {
       // Get token from session manager
       const token = sessionManager.getToken();
       
-      const response = await axios.post(`${BACKEND_URL}/account/change-password`, {
+      const response = await axios.post(`${BACKEND_URL}/auth/change-password`, {
         oldPassword,
         newPassword,
         confirmPassword
