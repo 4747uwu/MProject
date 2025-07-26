@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import api from '../services/api'; // ✅ Use the proper API service
+import axios from 'axios'; // ✅ Use axios directly for hardcoded calls
+import sessionManager from '../services/sessionManager'; // ✅ Import session manager
 
 const ChangePasswordPage = () => {
   const [oldPassword, setOldPassword] = useState('');
@@ -19,6 +20,9 @@ const ChangePasswordPage = () => {
   
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
+
+  // 🔧 HARDCODED: Your Digital Ocean backend URL
+  const BACKEND_URL = 'http://64.227.187.164:3000/api';
 
   // Array of security emojis that will rotate
   const securityEmojis = [
@@ -47,12 +51,20 @@ const ChangePasswordPage = () => {
     fetchUserProfile();
   }, []);
 
-  // ✅ Updated to use proper API service
+  // 🔧 HARDCODED: Direct API call with token from session manager
   const fetchUserProfile = async () => {
     try {
       console.log('🔍 Fetching user profile...');
       
-      const response = await api.get('/auth/profile');
+      // Get token from session manager
+      const token = sessionManager.getToken();
+      
+      const response = await axios.get(`${BACKEND_URL}/auth/profile`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
 
       if (response.data.success) {
         setUserProfile(response.data.data);
@@ -66,7 +78,7 @@ const ChangePasswordPage = () => {
     }
   };
 
-  // ✅ Updated to use proper API service
+  // 🔧 HARDCODED: Direct API call with token from session manager
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
@@ -89,11 +101,18 @@ const ChangePasswordPage = () => {
     try {
       console.log('🔄 Attempting to change password...');
       
-      // ✅ Use the proper API service with automatic token handling
-      const response = await api.post('/auth/change-password', {
+      // Get token from session manager
+      const token = sessionManager.getToken();
+      
+      const response = await axios.post(`${BACKEND_URL}/account/change-password`, {
         oldPassword,
         newPassword,
         confirmPassword
+      }, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
 
       if (response.data.success) {
