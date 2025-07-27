@@ -420,7 +420,10 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientId: 1
+                    patientId: 1,
+                    age:1,
+                    gender:1,
+                    preProcessedDownload: 1
                 }
             }
         ];
@@ -555,6 +558,11 @@ export const getAllStudiesForAdmin = async (req, res) => {
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
+             const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
+
             // 🔥 FIXED: Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
             let latestAssignmentEntry = null;
@@ -613,19 +621,16 @@ export const getAllStudiesForAdmin = async (req, res) => {
             // Optimized patient display building with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
-            let patientAgeGenderDisplay = "N/A";
-
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-                // Optimized age/gender display
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                
             }
 
             // Fast category lookup using pre-compiled map
@@ -700,15 +705,26 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
-                tat: tat,
-                ...legacyTATFields,
-                totalTATDays: tat.totalTATDays,
-                totalTATFormatted: tat.totalTATFormatted,
-                isOverdue: tat.isOverdue,
-                tatPhase: tat.phase,
+                // tat: tat,
+                // ...legacyTATFields,
+                // totalTATDays: tat.totalTATDays,
+                // totalTATFormatted: tat.totalTATFormatted,
+                // isOverdue: tat.isOverdue,
+                // tatPhase: tat.phase,
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 ADDED: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -2949,224 +2965,6 @@ export const updateDoctor = async (req, res) => {
 
 
 
-// export const registerDoctor = async (req, res) => {
-//     console.log('🔍 ===== REGISTER DOCTOR CALLED =====');
-//     console.log('📝 req.body:', req.body);
-//     console.log('📁 req.file:', req.file);
-    
-//     const session = await mongoose.startSession();
-    
-//     try {
-//         const result = await session.withTransaction(async () => {
-//             const {
-//                 username, email, fullName,
-//                 specialization, licenseNumber, department, qualifications, 
-//                 yearsOfExperience, contactPhoneOffice, isActiveProfile
-//             } = req.body;
-
-//             if (!username || !email || !fullName || !specialization || !licenseNumber) {
-//                 throw new Error('Username, email, fullName, specialization, and licenseNumber are required.');
-//             }
-
-//             const password = generateRandomPassword();
-
-//             // Validation queries
-//             const [userExists, doctorWithLicenseExists] = await Promise.all([
-//                 User.findOne({ $or: [{ email }, { username }] }).session(session),
-//                 Doctor.findOne({ licenseNumber }).session(session)
-//             ]);
-
-//             if (userExists) {
-//                 throw new Error('User with this email or username already exists.');
-//             }
-//             if (doctorWithLicenseExists) {
-//                 throw new Error('A doctor with this license number already exists.');
-//             }
-
-//             // Create user
-//             const userDocument = await User.create([{
-//                 username, email, password, fullName, role: 'doctor_account'
-//             }], { session });
-
-//             console.log('✅ User created:', userDocument[0]._id);
-
-//             // 🔧 FIXED: Declare variables outside the try block
-//             let signatureUrl = '';
-//             let signatureKey = '';
-//             let signatureUploadSuccess = false;
-//             let optimizedSignature = null; // 🔧 CRITICAL FIX: Declare here
-//             let signatureFileSize = 0;
-//             let signatureOriginalName = '';
-            
-//             if (req.file) {
-//                 try {
-//                     console.log('📝 Processing doctor signature upload...');
-//                     console.log('📁 File details:', {
-//                         originalname: req.file.originalname,
-//                         mimetype: req.file.mimetype,
-//                         size: req.file.size
-//                     });
-                    
-//                     // 🔧 OPTIMIZE: Process signature image
-//                     optimizedSignature = await sharp(req.file.buffer)
-//                         .resize(400, 200, {
-//                             fit: 'contain',
-//                             background: { r: 255, g: 255, b: 255, alpha: 1 }
-//                         })
-//                         .png({ quality: 90, compressionLevel: 6 })
-//                         .toBuffer();
-
-//                     console.log('✅ Image optimized, size:', optimizedSignature.length);
-
-//                     // 🔧 STORE: File metadata for later use
-//                     signatureFileSize = req.file.size;
-//                     signatureOriginalName = req.file.originalname;
-
-//                     // 🔧 CLEAN METADATA: Ensure all values are strings
-//                     const signatureMetadata = {
-//                         doctorId: String(userDocument[0]._id),
-//                         licenseNumber: String(licenseNumber),
-//                         uploadedBy: String(req.user?._id || 'admin'),
-//                         doctorName: String(fullName),
-//                         signatureType: 'medical_signature',
-//                         originalFilename: String(req.file.originalname || 'signature.png'),
-//                         originalSize: String(req.file.size || 0),
-//                         optimizedSize: String(optimizedSignature.length),
-//                         mimeType: String(req.file.mimetype || 'image/png'),
-//                         uploadTimestamp: String(Date.now())
-//                     };
-
-//                     const signatureFileName = `signature_${licenseNumber}_${Date.now()}.png`;
-                    
-//                     console.log('📤 Uploading to Wasabi with metadata:', signatureMetadata);
-                    
-//                     const uploadResult = await WasabiService.uploadDocument(
-//                         optimizedSignature,
-//                         signatureFileName,
-//                         'signature',
-//                         signatureMetadata
-//                     );
-
-//                     console.log('📤 Upload result:', uploadResult);
-
-//                     if (uploadResult.success) {
-//                         signatureUrl = uploadResult.location;
-//                         signatureKey = uploadResult.key;
-//                         signatureUploadSuccess = true;
-//                         console.log(`✅ Signature uploaded successfully: ${signatureKey}`);
-//                     } else {
-//                         console.error('❌ Signature upload failed:', uploadResult.error);
-//                         throw new Error(`Signature upload failed: ${uploadResult.error}`);
-//                     }
-                    
-//                 } catch (signatureError) {
-//                     console.error('❌ Error uploading signature:', signatureError);
-//                     console.warn('⚠️ Continuing registration without signature');
-//                     signatureUploadSuccess = false;
-//                     // Reset variables on error
-//                     optimizedSignature = null;
-//                     signatureFileSize = 0;
-//                     signatureOriginalName = '';
-//                 }
-//             } else {
-//                 console.log('ℹ️ No signature file provided');
-//             }
-
-//             // 🔧 BUILD: Doctor profile data
-//             const doctorProfileData = {
-//                 userAccount: userDocument[0]._id, 
-//                 specialization, 
-//                 licenseNumber, 
-//                 department: department || '',
-//                 qualifications: qualifications ? 
-//                     qualifications.split(',').map(q => q.trim()).filter(q => q) : [],
-//                 yearsOfExperience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
-//                 contactPhoneOffice: contactPhoneOffice || '',
-//                 isActiveProfile: isActiveProfile !== undefined ? isActiveProfile === 'true' : true
-//             };
-
-//             // 🔧 FIXED: Add signature fields with proper null checks
-//             if (signatureUploadSuccess && optimizedSignature) {
-//                 doctorProfileData.signature = signatureUrl;
-//                 doctorProfileData.signatureWasabiKey = signatureKey;
-//                 doctorProfileData.signatureMetadata = {
-//                     uploadedAt: new Date(),
-//                     fileSize: signatureFileSize || 0,
-//                     originalName: signatureOriginalName || '',
-//                     mimeType: 'image/png',
-//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
-//                 };
-//                 console.log('✅ Added signature fields to doctor profile');
-//             } else {
-//                 // 🔧 SAFE: Set default signature fields
-//                 doctorProfileData.signature = '';
-//                 doctorProfileData.signatureWasabiKey = '';
-//                 doctorProfileData.signatureMetadata = null;
-//                 console.log('ℹ️ No signature added to doctor profile');
-//             }
-
-//             console.log('📋 Doctor profile data:', JSON.stringify(doctorProfileData, null, 2));
-
-//             const doctorProfile = await Doctor.create([doctorProfileData], { session });
-//             console.log('✅ Doctor profile created:', doctorProfile[0]._id);
-
-//             // Send welcome email
-//             setImmediate(async () => {
-//                 await sendWelcomeEmail(email, fullName, username, password, 'doctor_account');
-//             });
-
-//             // Clear caches
-//             cache.del('doctors_list_*');
-
-//             return {
-//                 user: userDocument[0].toObject(),
-//                 doctorProfile: doctorProfile[0].toObject(),
-//                 signatureUploaded: signatureUploadSuccess,
-//                 signatureDetails: signatureUploadSuccess ? {
-//                     key: signatureKey,
-//                     url: signatureUrl,
-//                     originalSize: signatureFileSize,
-//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
-//                 } : null
-//             };
-//         });
-
-//         console.log('✅ Transaction completed successfully');
-
-//         const baseMessage = 'Doctor registered successfully. A welcome email with login credentials has been sent.';
-//         const signatureMessage = req.file ? 
-//             (result.signatureUploaded ? ' Signature uploaded successfully.' : ' Signature upload failed but registration completed.') : 
-//             '';
-
-//         res.status(201).json({
-//             success: true,
-//             message: baseMessage + signatureMessage,
-//             signatureUploaded: result.signatureUploaded,
-//             data: {
-//                 doctorId: result.doctorProfile._id,
-//                 doctorRegistered: true,
-//                 signatureProcessed: !!req.file,
-//                 signatureSuccess: result.signatureUploaded,
-//                 signatureDetails: result.signatureDetails
-//             }
-//         });
-
-//     } catch (error) {
-//         console.error('❌ Error registering doctor:', error);
-        
-//         if (error.name === 'ValidationError') {
-//             const messages = Object.values(error.errors).map(val => val.message);
-//             return res.status(400).json({ success: false, message: messages.join(', ') });
-//         }
-        
-//         res.status(500).json({ 
-//             success: false, 
-//             message: error.message || 'Server error during doctor registration.' 
-//         });
-//     } finally {
-//         await session.endSession();
-//     }
-// };
 
 
 export const uploadDoctorSignature = (req, res, next) => {
@@ -3929,7 +3727,11 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    patientId: 1
+                    patientId: 1,
+                    age:1,
+                    gender:1,
+                                        preProcessedDownload: 1
+
                 }
             }
         ];
@@ -4044,6 +3846,11 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
+    
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -4100,21 +3907,22 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Optimized patient display with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
-            let patientAgeGenderDisplay = "N/A";
-
+const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
-            console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
+            // console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
 
 
             return {
@@ -4186,6 +3994,17 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 
                 // 🔥 NEW: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -4517,7 +4336,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    lastAssignmentAt: 1
+                    lastAssignmentAt: 1,
+                    age: 1,
+                    gender: 1,
+                    preProcessedDownload: 1
                 }
             }
         ];
@@ -4631,6 +4453,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Get related data from maps
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -4685,7 +4511,9 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Optimized patient display building
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
@@ -4693,10 +4521,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || "N/A";
 
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
             return {
@@ -4768,6 +4596,17 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 
                 // 🔥 NEW: Doctor assignments array with full details
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -5082,7 +4921,11 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    timingInfo: 1
+                    timingInfo: 1,
+                    age: 1,
+                    gender: 1,
+                                        preProcessedDownload: 1
+
                 }
             }
         ];
@@ -5200,6 +5043,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -5259,7 +5106,9 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
             // Optimized patient display building with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
@@ -5268,10 +5117,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 patientIdForDisplay = patient.patientID || "N/A";
 
                 // Optimized age/gender display
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
             return {
@@ -5346,6 +5195,18 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 
                 // 🔥 NEW: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
+       
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
