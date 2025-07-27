@@ -25,6 +25,8 @@ import footer from './routes/footer.routes.js'
 import websocketService from './config/webSocket.js';
 // import radiantBridgeRoutes from './routes/radiantBridgeRoutes.js'; 
 import sharingRoutes from './routes/sharing.routes.js';
+import zipdownloadRoutes from './routes/zipdownload.route.js';
+
 // import orthancProaxyRoutes from './routes/orthanc.proxy.routes.js'
 
 
@@ -203,6 +205,8 @@ app.use('/api', discussionRoutes);
 app.use('/api/footer', footer);
 // app.use('/api/radiant', radiantBridgeRoutes); 
 app.use('/api/sharing', sharingRoutes);
+app.use('/api/download', zipdownloadRoutes)
+
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);
 
 

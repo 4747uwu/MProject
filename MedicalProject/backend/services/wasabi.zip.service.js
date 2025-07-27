@@ -3,27 +3,32 @@ import {
     HeadBucketCommand, 
     CreateBucketCommand, 
     PutObjectCommand, 
-    ListObjectsV2Command 
+    ListObjectsV2Command,
+    DeleteObjectCommand,
+    PutBucketCorsCommand,
+    PutBucketPolicyCommand
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { wasabiS3 } from '../config/wasabi.js';
+import { r2Client, r2Config, getR2PublicUrl, getCDNOptimizedUrl } from '../config/cloudflare-r2.js';
 import DicomStudy from '../models/dicomStudyModel.js';
-import crypto from 'crypto';
 
 const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
 const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
 
-class ZipCreationService {
+class CloudflareR2ZipService {
     constructor() {
-        this.s3 = wasabiS3; // Use the same S3 client from config
+        this.r2 = r2Client;
         this.zipJobs = new Map();
         this.processing = new Set();
         this.nextJobId = 1;
         this.isProcessing = false;
         this.concurrency = 3;
-        this.zipBucket = 'studyzip' || 'medical-dicom-zips';
+        this.zipBucket = r2Config.zipBucket; // 'studyzip'
+        
+        console.log(`📦 R2 ZIP Service initialized for bucket: ${this.zipBucket}`);
+        console.log(`🌐 Public URL: ${r2Config.publicUrlPattern}`);
     }
 
     // Add ZIP creation job to queue
@@ -31,7 +36,7 @@ class ZipCreationService {
         const jobId = this.nextJobId++;
         const job = {
             id: jobId,
-            type: 'create-study-zip',
+            type: 'create-study-zip-r2',
             data: studyData,
             status: 'waiting',
             createdAt: new Date(),
@@ -41,7 +46,7 @@ class ZipCreationService {
         };
         
         this.zipJobs.set(jobId, job);
-        console.log(`📦 ZIP Creation Job ${jobId} queued for study: ${studyData.orthancStudyId}`);
+        console.log(`📦 R2 ZIP Creation Job ${jobId} queued for study: ${studyData.orthancStudyId}`);
         
         if (!this.isProcessing) {
             this.startZipProcessing();
@@ -55,7 +60,7 @@ class ZipCreationService {
         if (this.isProcessing) return;
         this.isProcessing = true;
         
-        console.log('🚀 ZIP Creation Queue processor started');
+        console.log('🚀 Cloudflare R2 ZIP Creation Queue processor started');
         
         while (this.getWaitingZipJobs().length > 0 || this.processing.size > 0) {
             while (this.processing.size < this.concurrency && this.getWaitingZipJobs().length > 0) {
@@ -69,7 +74,7 @@ class ZipCreationService {
         }
         
         this.isProcessing = false;
-        console.log('⏹️ ZIP Creation Queue processor stopped');
+        console.log('⏹️ Cloudflare R2 ZIP Creation Queue processor stopped');
     }
 
     // Process individual ZIP job
@@ -77,36 +82,39 @@ class ZipCreationService {
         this.processing.add(job.id);
         job.status = 'active';
         
-        console.log(`🚀 Processing ZIP Job ${job.id} for study: ${job.data.orthancStudyId}`);
+        console.log(`🚀 Processing R2 ZIP Job ${job.id} for study: ${job.data.orthancStudyId}`);
         
         try {
-            job.result = await this.createAndUploadStudyZip(job);
+            job.result = await this.createAndUploadStudyZipToR2(job);
             job.status = 'completed';
-            console.log(`✅ ZIP Job ${job.id} completed successfully`);
+            console.log(`✅ R2 ZIP Job ${job.id} completed successfully`);
             
         } catch (error) {
             job.error = error.message;
             job.status = 'failed';
-            console.error(`❌ ZIP Job ${job.id} failed:`, error.message);
+            console.error(`❌ R2 ZIP Job ${job.id} failed:`, error.message);
         } finally {
             this.processing.delete(job.id);
         }
     }
 
-    // Create and upload study ZIP to Wasabi (AWS SDK v3)
-    async createAndUploadStudyZip(job) {
+    // Create and upload study ZIP to Cloudflare R2
+    async createAndUploadStudyZipToR2(job) {
         const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
         const startTime = Date.now();
         
         try {
-            console.log(`[ZIP] 📦 Creating ZIP for study: ${orthancStudyId}`);
+            console.log(`[R2 ZIP] 📦 Creating ZIP for study: ${orthancStudyId}`);
             
             // Update study status to processing
             await DicomStudy.findByIdAndUpdate(studyDatabaseId, {
                 'preProcessedDownload.zipStatus': 'processing',
                 'preProcessedDownload.zipJobId': job.id.toString(),
-                'preProcessedDownload.zipMetadata.createdBy': 'system'
+                'preProcessedDownload.zipMetadata.createdBy': 'cloudflare-r2-service',
+                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
             });
+            
+            job.progress = 20;
             
             // Get study metadata for filename
             const metadataResponse = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
@@ -119,11 +127,13 @@ class ZipCreationService {
             const patientId = (studyMetadata.PatientMainDicomTags?.PatientID || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
             const studyDate = studyMetadata.MainDicomTags?.StudyDate || '';
             
-            // Create ZIP filename
+            // Create ZIP filename with timestamp
             const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
             const zipFileName = `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId}_${timestamp}.zip`;
             
-            console.log(`[ZIP] 📂 Creating ZIP file: ${zipFileName}`);
+            console.log(`[R2 ZIP] 📂 Creating ZIP file: ${zipFileName}`);
+            
+            job.progress = 40;
             
             // Get study archive from Orthanc
             const archiveResponse = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}/archive`, {
@@ -132,152 +142,246 @@ class ZipCreationService {
                 timeout: 300000 // 5 minutes for large studies
             });
             
-            // Upload directly to Wasabi using AWS SDK v3
-            const wasabiResult = await this.uploadZipToWasabi(archiveResponse.data, zipFileName, {
+            job.progress = 60;
+            
+            // Upload directly to Cloudflare R2
+            const r2Result = await this.uploadZipToR2(archiveResponse.data, zipFileName, {
                 studyInstanceUID,
                 orthancStudyId,
                 patientId,
                 patientName
             });
             
-            const processingTime = Date.now() - startTime;
-            const zipSizeMB = Math.round((wasabiResult.size || 0) / 1024 / 1024 * 100) / 100;
+            job.progress = 90;
             
-            // Update study with ZIP URL
+            const processingTime = Date.now() - startTime;
+            const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
+            
+            // Generate CDN-optimized URLs
+            const cdnUrl = await getCDNOptimizedUrl(r2Result.key, {
+                filename: zipFileName,
+                contentType: 'application/zip',
+                cacheControl: true
+            });
+            
+            const publicUrl = getR2PublicUrl(r2Result.key, r2Config.features.enableCustomDomain);
+            
+            // Update study with R2 ZIP URL
             const updateData = {
-                'preProcessedDownload.zipUrl': wasabiResult.url,
+                'preProcessedDownload.zipUrl': cdnUrl, // Use CDN URL as primary
+                'preProcessedDownload.zipPublicUrl': publicUrl, // Store public URL as backup
                 'preProcessedDownload.zipFileName': zipFileName,
                 'preProcessedDownload.zipSizeMB': zipSizeMB,
                 'preProcessedDownload.zipCreatedAt': new Date(),
                 'preProcessedDownload.zipStatus': 'completed',
-                'preProcessedDownload.zipExpiresAt': new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+                'preProcessedDownload.zipExpiresAt': new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days (R2 has generous limits)
+                'preProcessedDownload.zipBucket': this.zipBucket,
+                'preProcessedDownload.zipKey': r2Result.key,
                 'preProcessedDownload.zipMetadata': {
                     orthancStudyId,
                     instanceCount: studyMetadata.Instances?.length || 0,
                     seriesCount: studyMetadata.Series?.length || 0,
                     compressionRatio: 0,
                     processingTimeMs: processingTime,
-                    createdBy: 'system'
+                    createdBy: 'cloudflare-r2-service',
+                    storageProvider: 'cloudflare-r2',
+                    r2Key: r2Result.key,
+                    r2Bucket: this.zipBucket,
+                    cdnEnabled: true,
+                    customDomain: r2Config.features.enableCustomDomain
                 }
             };
             
             await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
             
-            console.log(`[ZIP] ✅ ZIP created and uploaded: ${zipSizeMB}MB in ${processingTime}ms`);
+            job.progress = 100;
+            
+            console.log(`[R2 ZIP] ✅ ZIP created and uploaded: ${zipSizeMB}MB in ${processingTime}ms`);
+            console.log(`[R2 ZIP] 🌐 CDN URL: ${cdnUrl}`);
+            console.log(`[R2 ZIP] 📡 Public URL: ${publicUrl}`);
             
             return {
                 success: true,
-                zipUrl: wasabiResult.url,
+                zipUrl: cdnUrl,
+                zipPublicUrl: publicUrl,
                 zipFileName,
                 zipSizeMB,
                 processingTime,
-                wasabiKey: wasabiResult.key
+                r2Key: r2Result.key,
+                r2Bucket: this.zipBucket,
+                cdnEnabled: true,
+                storageProvider: 'cloudflare-r2'
             };
             
         } catch (error) {
-            console.error(`[ZIP] ❌ Failed to create ZIP:`, error);
+            console.error(`[R2 ZIP] ❌ Failed to create ZIP:`, error);
             
             // Update study with failed status
             await DicomStudy.findByIdAndUpdate(studyDatabaseId, {
                 'preProcessedDownload.zipStatus': 'failed',
-                'preProcessedDownload.zipMetadata.error': error.message
+                'preProcessedDownload.zipMetadata.error': error.message,
+                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
             });
             
             throw error;
         }
     }
 
-    // 🔧 Upload ZIP stream to Wasabi (AWS SDK v3 with multipart upload)
-    async uploadZipToWasabi(zipStream, fileName, metadata) {
-        const key = `studies/${new Date().getFullYear()}/${fileName}`;
+    // ✅ FIXED: Upload ZIP stream to Cloudflare R2
+    async uploadZipToR2(zipStream, fileName, metadata) {
+        const year = new Date().getFullYear();
+        const key = `studies/${year}/${fileName}`;
         
-        console.log(`[Wasabi] 📤 Uploading to: ${this.zipBucket}/${key}`);
+        console.log(`[R2] 📤 Uploading to bucket: ${this.zipBucket}, key: ${key}`);
         
         try {
-            // Use Upload class for multipart upload (better for large files)
             const upload = new Upload({
-                client: this.s3,
+                client: this.r2,
                 params: {
                     Bucket: this.zipBucket,
                     Key: key,
                     Body: zipStream,
                     ContentType: 'application/zip',
+                    
+                    // ✅ R2-optimized headers
+                    ContentDisposition: `attachment; filename="${fileName}"`,
+                    CacheControl: `public, max-age=${r2Config.cdnSettings.cacheMaxAge}, s-maxage=${r2Config.cdnSettings.edgeCacheMaxAge}`,
+                    
+                    // R2 metadata
                     Metadata: {
                         'study-instance-uid': metadata.studyInstanceUID || '',
                         'orthanc-study-id': metadata.orthancStudyId || '',
                         'patient-id': metadata.patientId || '',
                         'patient-name': metadata.patientName || '',
                         'created-at': new Date().toISOString(),
-                        'service-version': 'aws-sdk-v3'
+                        'service-version': 'cloudflare-r2-v1',
+                        'storage-provider': 'cloudflare-r2',
+                        'cdn-enabled': 'true',
+                        'bucket-name': this.zipBucket
                     },
-                    ServerSideEncryption: 'AES256',
+                    
                     StorageClass: 'STANDARD'
                 },
-                // Configure multipart upload
-                partSize: 5 * 1024 * 1024, // 5MB per part
+                
+                // Configure multipart upload for R2
+                partSize: 10 * 1024 * 1024, // 10MB per part
                 leavePartsOnError: false,
+                queueSize: 4
             });
 
             // Track upload progress
             upload.on('httpUploadProgress', (progress) => {
                 if (progress.total) {
                     const percentComplete = Math.round((progress.loaded / progress.total) * 100);
-                    console.log(`[Wasabi] 📊 Upload progress: ${percentComplete}% (${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)})`);
+                    console.log(`[R2] 📊 Upload progress: ${percentComplete}% (${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)})`);
                 }
             });
 
             const result = await upload.done();
             
-            console.log(`[Wasabi] ✅ Upload completed: ${result.Location}`);
+            // ✅ FIXED: Generate correct R2 URLs
+            const publicUrl = getR2PublicUrl(key);
+            const cdnUrl = getCDNOptimizedUrl(key, {
+                filename: fileName,
+                contentType: 'application/zip',
+                r2Optimize: true
+            });
+            
+            console.log(`[R2] ✅ Upload completed`);
+            console.log(`[R2] 📡 Public URL: ${publicUrl}`);
+            console.log(`[R2] 🚀 CDN URL: ${cdnUrl}`);
             
             return {
-                url: result.Location,
-                key: result.Key,
-                bucket: result.Bucket,
+                url: cdnUrl,        // Primary CDN URL
+                publicUrl: publicUrl, // Direct R2 URL
+                key: key,
+                bucket: this.zipBucket,
                 etag: result.ETag,
                 size: 0 // Will be updated if needed
             };
             
         } catch (error) {
-            console.error(`[Wasabi] ❌ Upload failed:`, error);
-            throw new Error(`Wasabi upload failed: ${error.message}`);
+            console.error(`[R2] ❌ Upload failed:`, error);
+            throw new Error(`Cloudflare R2 upload failed: ${error.message}`);
         }
     }
 
-    // 🔧 Create Wasabi bucket if it doesn't exist (AWS SDK v3)
-    async ensureWasabiBucket() {
+    // Create R2 bucket if it doesn't exist
+    async ensureR2Bucket() {
         try {
             // Check if bucket exists
-            await this.s3.send(new HeadBucketCommand({ Bucket: this.zipBucket }));
-            console.log(`✅ ZIP Bucket ${this.zipBucket} exists`);
+            await this.r2.send(new HeadBucketCommand({ Bucket: this.zipBucket }));
+            console.log(`✅ R2 ZIP Bucket ${this.zipBucket} exists`);
+            return true;
         } catch (error) {
             if (error.$metadata?.httpStatusCode === 404) {
-                console.log(`📦 Creating ZIP bucket: ${this.zipBucket}`);
-                
-                const createParams = {
-                    Bucket: this.zipBucket
-                };
-                
-                // Add region configuration for non-us-east-1 regions
-                if (process.env.WASABI_REGION !== 'us-east-1') {
-                    createParams.CreateBucketConfiguration = {
-                        LocationConstraint: process.env.WASABI_REGION
-                    };
-                }
-                
-                await this.s3.send(new CreateBucketCommand(createParams));
-                console.log(`✅ ZIP Bucket ${this.zipBucket} created`);
+                console.log(`📦 R2 Bucket ${this.zipBucket} not found - it should be created via Cloudflare dashboard`);
+                console.log(`🌐 Please create bucket at: https://dash.cloudflare.com/r2`);
+                return false;
             } else {
-                console.error(`❌ Error with ZIP bucket ${this.zipBucket}:`, error.message);
+                console.error(`❌ Error checking R2 ZIP bucket ${this.zipBucket}:`, error.message);
                 throw error;
             }
         }
     }
 
-    // 🔧 Get ZIP storage statistics (AWS SDK v3)
-    async getZipStorageStats() {
+    // Set up CORS for R2 bucket
+    async setupR2BucketCORS() {
         try {
-            console.log('📊 Getting ZIP storage statistics...');
+            const corsParams = {
+                Bucket: this.zipBucket,
+                CORSConfiguration: {
+                    CORSRules: [
+                        {
+                            AllowedHeaders: ['*'],
+                            AllowedMethods: ['GET', 'HEAD'],
+                            AllowedOrigins: ['*'],
+                            ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type'],
+                            MaxAgeSeconds: 3600
+                        }
+                    ]
+                }
+            };
+            
+            await this.r2.send(new PutBucketCorsCommand(corsParams));
+            console.log(`✅ R2 bucket CORS configured`);
+        } catch (error) {
+            console.error(`❌ Error setting up R2 CORS:`, error.message);
+        }
+    }
+
+    // Set up public access for R2 bucket
+    async setupR2PublicAccess() {
+        try {
+            const policyDocument = {
+                Version: '2012-10-17',
+                Statement: [
+                    {
+                        Sid: 'PublicReadGetObject',
+                        Effect: 'Allow',
+                        Principal: '*',
+                        Action: 's3:GetObject',
+                        Resource: `arn:aws:s3:::${this.zipBucket}/*`
+                    }
+                ]
+            };
+            
+            const policyParams = {
+                Bucket: this.zipBucket,
+                Policy: JSON.stringify(policyDocument)
+            };
+            
+            await this.r2.send(new PutBucketPolicyCommand(policyParams));
+            console.log(`✅ R2 bucket public access configured`);
+        } catch (error) {
+            console.error(`❌ Error setting up R2 public access:`, error.message);
+        }
+    }
+
+    // Get R2 storage statistics
+    async getR2StorageStats() {
+        try {
+            console.log('📊 Getting R2 storage statistics...');
             
             const listParams = {
                 Bucket: this.zipBucket,
@@ -285,7 +389,7 @@ class ZipCreationService {
                 MaxKeys: 1000
             };
 
-            const result = await this.s3.send(new ListObjectsV2Command(listParams));
+            const result = await this.r2.send(new ListObjectsV2Command(listParams));
             
             const files = result.Contents || [];
             const totalSize = files.reduce((sum, file) => sum + (file.Size || 0), 0);
@@ -297,8 +401,8 @@ class ZipCreationService {
                 const pathParts = file.Key.split('/');
                 if (pathParts.length >= 3) {
                     const year = pathParts[1];
-                    const month = pathParts[2];
-                    const yearMonth = `${year}-${month}`;
+                    const month = new Date(file.LastModified).getMonth() + 1;
+                    const yearMonth = `${year}-${month.toString().padStart(2, '0')}`;
                     
                     if (!groupedStats[yearMonth]) {
                         groupedStats[yearMonth] = {
@@ -315,6 +419,8 @@ class ZipCreationService {
             return {
                 success: true,
                 bucketName: this.zipBucket,
+                storageProvider: 'cloudflare-r2',
+                cdnEnabled: true,
                 summary: {
                     totalFiles: fileCount,
                     totalSize,
@@ -328,25 +434,31 @@ class ZipCreationService {
                     totalSize: groupedStats[yearMonth].totalSize,
                     totalSizeFormatted: this.formatBytes(groupedStats[yearMonth].totalSize)
                 })).sort((a, b) => b.period.localeCompare(a.period)),
-                generatedAt: new Date()
+                generatedAt: new Date(),
+                features: {
+                    cdnEnabled: r2Config.features.enableCaching,
+                    customDomain: r2Config.features.enableCustomDomain,
+                    publicAccess: r2Config.features.enablePublicAccess
+                }
             };
 
         } catch (error) {
-            console.error('❌ Error getting ZIP storage statistics:', error);
+            console.error('❌ Error getting R2 storage statistics:', error);
             throw error;
         }
     }
 
-    // 🔧 Cleanup expired ZIPs (AWS SDK v3)
+    // Cleanup expired ZIPs from R2
     async cleanupExpiredZips() {
         try {
-            console.log('🧹 Starting ZIP cleanup process...');
+            console.log('🧹 Starting R2 ZIP cleanup process...');
             
             // Find expired studies in database
             const expiredStudies = await DicomStudy.find({
                 'preProcessedDownload.zipExpiresAt': { $lt: new Date() },
                 'preProcessedDownload.zipStatus': 'completed',
-                'preProcessedDownload.zipUrl': { $exists: true }
+                'preProcessedDownload.zipUrl': { $exists: true },
+                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
             }).select('preProcessedDownload orthancStudyID').lean();
 
             let cleanedCount = 0;
@@ -356,16 +468,23 @@ class ZipCreationService {
                 try {
                     const zipInfo = study.preProcessedDownload;
                     
-                    // Extract key from URL or use stored key
-                    let key = zipInfo.zipFileName;
-                    if (zipInfo.zipUrl) {
-                        const urlParts = zipInfo.zipUrl.split('/');
-                        key = urlParts.slice(-2).join('/'); // Get last two parts (year/filename)
-                        key = `studies/${key}`;
+                    // Use stored key or extract from URL
+                    let key = zipInfo.zipKey || zipInfo.zipMetadata?.r2Key;
+                    
+                    if (!key && zipInfo.zipUrl) {
+                        // Extract key from R2 URL
+                        const url = new URL(zipInfo.zipUrl);
+                        key = url.pathname.substring(1); // Remove leading slash
+                    }
+                    
+                    if (!key) {
+                        // Fallback: construct key from filename
+                        const year = new Date(zipInfo.zipCreatedAt).getFullYear();
+                        key = `studies/${year}/${zipInfo.zipFileName}`;
                     }
 
-                    // Delete from Wasabi
-                    await this.s3.send(new DeleteObjectCommand({
+                    // Delete from R2
+                    await this.r2.send(new DeleteObjectCommand({
                         Bucket: this.zipBucket,
                         Key: key
                     }));
@@ -374,32 +493,35 @@ class ZipCreationService {
                     await DicomStudy.findByIdAndUpdate(study._id, {
                         $unset: {
                             'preProcessedDownload.zipUrl': 1,
+                            'preProcessedDownload.zipPublicUrl': 1,
                             'preProcessedDownload.zipFileName': 1,
-                            'preProcessedDownload.zipSizeMB': 1
+                            'preProcessedDownload.zipSizeMB': 1,
+                            'preProcessedDownload.zipKey': 1
                         },
                         'preProcessedDownload.zipStatus': 'expired'
                     });
 
                     cleanedCount++;
-                    console.log(`🗑️ Cleaned expired ZIP for study: ${study.orthancStudyID}`);
+                    console.log(`🗑️ Cleaned expired R2 ZIP for study: ${study.orthancStudyID}`);
 
                 } catch (error) {
                     failedCount++;
-                    console.error(`❌ Failed to cleanup ZIP for study ${study.orthancStudyID}:`, error.message);
+                    console.error(`❌ Failed to cleanup R2 ZIP for study ${study.orthancStudyID}:`, error.message);
                 }
             }
 
-            console.log(`✅ ZIP cleanup completed: ${cleanedCount} cleaned, ${failedCount} failed`);
+            console.log(`✅ R2 ZIP cleanup completed: ${cleanedCount} cleaned, ${failedCount} failed`);
             
             return {
                 success: true,
                 cleanedCount,
                 failedCount,
-                totalProcessed: expiredStudies.length
+                totalProcessed: expiredStudies.length,
+                storageProvider: 'cloudflare-r2'
             };
 
         } catch (error) {
-            console.error('❌ Error during ZIP cleanup:', error);
+            console.error('❌ Error during R2 ZIP cleanup:', error);
             throw error;
         }
     }
@@ -426,7 +548,8 @@ class ZipCreationService {
             completed: jobs.filter(j => j.status === 'completed').length,
             failed: jobs.filter(j => j.status === 'failed').length,
             processing: this.processing.size,
-            isProcessing: this.isProcessing
+            isProcessing: this.isProcessing,
+            storageProvider: 'cloudflare-r2'
         };
     }
 
@@ -440,4 +563,4 @@ class ZipCreationService {
     }
 }
 
-export default new ZipCreationService();
+export default new CloudflareR2ZipService();

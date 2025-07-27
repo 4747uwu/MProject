@@ -48,14 +48,6 @@ const DicomStudySchema = new mongoose.Schema({
         type: String, 
         index: { sparse: true, background: true } // 🔥 Sparse index for optional fields
     },
-    age: {
-        type: String
-    },
-    gender: {
-        type: String
-    },
-    
-
     
     // 🔧 CRITICAL: Workflow management
     workflowStatus: {
@@ -138,36 +130,6 @@ const DicomStudySchema = new mongoose.Schema({
             index: { background: true } // 🔥 Priority filtering
         }
     }],
-
-    preProcessedDownload: {
-    zipUrl: { type: String, sparse: true },
-    zipFileName: { type: String },
-    zipSizeMB: { type: Number },
-    zipCreatedAt: { type: Date },
-    zipBucket: { type: String, default: 'medical-dicom-zips' },
-    zipStatus: {
-        type: String,
-        enum: ['pending', 'processing', 'completed', 'failed', 'expired'],
-        default: 'pending',
-        index: { background: true }
-    },
-    zipKey: { type: String },
-    zipJobId: { type: String },
-    zipExpiresAt: { type: Date },
-    zipMetadata: {
-        orthancStudyId: String,
-        instanceCount: Number,
-        seriesCount: Number,
-        compressionRatio: Number,
-        processingTimeMs: Number,
-        createdBy: String,
-        error: String
-    },
-    downloadCount: { type: Number, default: 0 },
-    lastDownloaded: { type: Date }
-},
-
-
 
     studyPriority: {
         type: String,
@@ -524,15 +486,6 @@ DicomStudySchema.index({
     createdAt: -1 
 }, { 
     name: 'lab_dashboard',
-    background: true 
-});
-
-// Add ZIP management index
-DicomStudySchema.index({ 
-    'preProcessedDownload.zipStatus': 1, 
-    'preProcessedDownload.zipExpiresAt': 1 
-}, { 
-    name: 'zip_management_index',
     background: true 
 });
 

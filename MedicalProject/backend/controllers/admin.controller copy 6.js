@@ -162,60 +162,163 @@ export const getAllStudiesForAdmin = async (req, res) => {
         const queryFilters = {};
         let filterStartDate = null;
         let filterEndDate = null;
+         const IST_OFFSET = 5.5 * 60 * 60 * 1000; 
         
         // Optimized date filtering with pre-calculated timestamps
         if (req.query.quickDatePreset || req.query.dateFilter) {
             const preset = req.query.quickDatePreset || req.query.dateFilter;
             const now = Date.now(); // Use timestamp for better performance
             
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+           switch (preset) {
+            case 'last24h':
+                // Last 24 hours from current IST time
+                const nowIST = new Date(Date.now() + IST_OFFSET);
+                filterEndDate = new Date(Date.now()); // Current UTC time
+                filterStartDate = new Date(Date.now() - 86400000); // 24 hours ago UTC
+                break;
 
-                    case 'today':
-                        // 🔧 FIXED: Add missing 'today' case
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+            case 'today':
+                // ✅ FIX: Today in IST timezone
+                const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+                
+                // Create start of day in IST (00:00:00 IST)
+                const todayStartIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of day in IST (23:59:59.999 IST)
+                const todayEndIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Today IST: ${todayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${todayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Today UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
+            case 'yesterday':
+                // ✅ FIX: Yesterday in IST timezone
+                const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+                const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000); // Subtract 1 day
+                
+                // Create start of yesterday in IST
+                const yesterdayStartIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of yesterday in IST
+                const yesterdayEndIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Yesterday IST: ${yesterdayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${yesterdayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Yesterday UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
+
+            case 'thisWeek':
+                // ✅ FIX: This week in IST timezone
+                const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of week (Sunday) in IST
+                const dayOfWeek = currentTimeISTWeek.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                const weekStartIST = new Date(
+                    currentTimeISTWeek.getFullYear(),
+                    currentTimeISTWeek.getMonth(),
+                    currentTimeISTWeek.getDate() - dayOfWeek,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const weekEndIST = new Date(currentTimeISTWeek.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'thisMonth':
+                // ✅ FIX: This month in IST timezone
+                const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of month in IST
+                const monthStartIST = new Date(
+                    currentTimeISTMonth.getFullYear(),
+                    currentTimeISTMonth.getMonth(),
+                    1,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const monthEndIST = new Date(currentTimeISTMonth.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'custom':
+                if (req.query.customDateFrom || req.query.customDateTo) {
+                    // ✅ FIX: Handle custom dates - assume they're entered in IST
+                    if (req.query.customDateFrom) {
+                        // Parse as IST date
+                        const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                        filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
                     }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
+                    
+                    if (req.query.customDateTo) {
+                        // Parse as IST date
+                        const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                        filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                    }
+                } else {
+                    // Default to last 24 hours
+                    filterEndDate = new Date();
+                    filterStartDate = new Date(Date.now() - 86400000);
+                }
+                break;
+
+            default:
+                // Default to last 24 hours
+                filterEndDate = new Date();
+                filterStartDate = new Date(Date.now() - 86400000);
+        }
         } else {
-    // 🔧 FIXED: Default to today when no date filter specified (same as getValues)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
 }
 
         // Apply date filter with proper indexing
@@ -317,7 +420,10 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientId: 1
+                    patientId: 1,
+                    age:1,
+                    gender:1,
+                    preProcessedDownload: 1
                 }
             }
         ];
@@ -452,6 +558,11 @@ export const getAllStudiesForAdmin = async (req, res) => {
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
 
+             const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
+
             // 🔥 FIXED: Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
             let latestAssignmentEntry = null;
@@ -510,19 +621,16 @@ export const getAllStudiesForAdmin = async (req, res) => {
             // Optimized patient display building with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
-            let patientAgeGenderDisplay = "N/A";
-
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-                // Optimized age/gender display
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                
             }
 
             // Fast category lookup using pre-compiled map
@@ -580,13 +688,14 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -596,15 +705,26 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
                 clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
-                tat: tat,
-                ...legacyTATFields,
-                totalTATDays: tat.totalTATDays,
-                totalTATFormatted: tat.totalTATFormatted,
-                isOverdue: tat.isOverdue,
-                tatPhase: tat.phase,
+                // tat: tat,
+                // ...legacyTATFields,
+                // totalTATDays: tat.totalTATDays,
+                // totalTATFormatted: tat.totalTATFormatted,
+                // isOverdue: tat.isOverdue,
+                // tatPhase: tat.phase,
                 
                 // 🔥 FIXED: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 ADDED: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -707,61 +827,126 @@ export const getValues = async (req, res) => {
         let filterEndDate = null;
         
         // Optimized date filtering with pre-calculated timestamps
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+        // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
-                
-                case 'today':
-                        // 🔧 FIXED: Consistent today handling
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
             }
-        } else {
-    // 🔧 FIXED: Default to today when no date filter specified (consistent across all functions)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
-}
+            break;
 
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -804,12 +989,14 @@ export const getValues = async (req, res) => {
 
         // Status mapping
         const statusCategories = {
-            pending: ['new_study_received', 'pending_assignment'],
+            pending: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ],
             inprogress: [
-                'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                'report_finalized', 'report_drafted', 'report_uploaded', 
-                'report_downloaded_radiologist', 'report_downloaded'
-            ],
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
+                ],
             completed: ['final_report_downloaded']
         };
 
@@ -2778,224 +2965,6 @@ export const updateDoctor = async (req, res) => {
 
 
 
-// export const registerDoctor = async (req, res) => {
-//     console.log('🔍 ===== REGISTER DOCTOR CALLED =====');
-//     console.log('📝 req.body:', req.body);
-//     console.log('📁 req.file:', req.file);
-    
-//     const session = await mongoose.startSession();
-    
-//     try {
-//         const result = await session.withTransaction(async () => {
-//             const {
-//                 username, email, fullName,
-//                 specialization, licenseNumber, department, qualifications, 
-//                 yearsOfExperience, contactPhoneOffice, isActiveProfile
-//             } = req.body;
-
-//             if (!username || !email || !fullName || !specialization || !licenseNumber) {
-//                 throw new Error('Username, email, fullName, specialization, and licenseNumber are required.');
-//             }
-
-//             const password = generateRandomPassword();
-
-//             // Validation queries
-//             const [userExists, doctorWithLicenseExists] = await Promise.all([
-//                 User.findOne({ $or: [{ email }, { username }] }).session(session),
-//                 Doctor.findOne({ licenseNumber }).session(session)
-//             ]);
-
-//             if (userExists) {
-//                 throw new Error('User with this email or username already exists.');
-//             }
-//             if (doctorWithLicenseExists) {
-//                 throw new Error('A doctor with this license number already exists.');
-//             }
-
-//             // Create user
-//             const userDocument = await User.create([{
-//                 username, email, password, fullName, role: 'doctor_account'
-//             }], { session });
-
-//             console.log('✅ User created:', userDocument[0]._id);
-
-//             // 🔧 FIXED: Declare variables outside the try block
-//             let signatureUrl = '';
-//             let signatureKey = '';
-//             let signatureUploadSuccess = false;
-//             let optimizedSignature = null; // 🔧 CRITICAL FIX: Declare here
-//             let signatureFileSize = 0;
-//             let signatureOriginalName = '';
-            
-//             if (req.file) {
-//                 try {
-//                     console.log('📝 Processing doctor signature upload...');
-//                     console.log('📁 File details:', {
-//                         originalname: req.file.originalname,
-//                         mimetype: req.file.mimetype,
-//                         size: req.file.size
-//                     });
-                    
-//                     // 🔧 OPTIMIZE: Process signature image
-//                     optimizedSignature = await sharp(req.file.buffer)
-//                         .resize(400, 200, {
-//                             fit: 'contain',
-//                             background: { r: 255, g: 255, b: 255, alpha: 1 }
-//                         })
-//                         .png({ quality: 90, compressionLevel: 6 })
-//                         .toBuffer();
-
-//                     console.log('✅ Image optimized, size:', optimizedSignature.length);
-
-//                     // 🔧 STORE: File metadata for later use
-//                     signatureFileSize = req.file.size;
-//                     signatureOriginalName = req.file.originalname;
-
-//                     // 🔧 CLEAN METADATA: Ensure all values are strings
-//                     const signatureMetadata = {
-//                         doctorId: String(userDocument[0]._id),
-//                         licenseNumber: String(licenseNumber),
-//                         uploadedBy: String(req.user?._id || 'admin'),
-//                         doctorName: String(fullName),
-//                         signatureType: 'medical_signature',
-//                         originalFilename: String(req.file.originalname || 'signature.png'),
-//                         originalSize: String(req.file.size || 0),
-//                         optimizedSize: String(optimizedSignature.length),
-//                         mimeType: String(req.file.mimetype || 'image/png'),
-//                         uploadTimestamp: String(Date.now())
-//                     };
-
-//                     const signatureFileName = `signature_${licenseNumber}_${Date.now()}.png`;
-                    
-//                     console.log('📤 Uploading to Wasabi with metadata:', signatureMetadata);
-                    
-//                     const uploadResult = await WasabiService.uploadDocument(
-//                         optimizedSignature,
-//                         signatureFileName,
-//                         'signature',
-//                         signatureMetadata
-//                     );
-
-//                     console.log('📤 Upload result:', uploadResult);
-
-//                     if (uploadResult.success) {
-//                         signatureUrl = uploadResult.location;
-//                         signatureKey = uploadResult.key;
-//                         signatureUploadSuccess = true;
-//                         console.log(`✅ Signature uploaded successfully: ${signatureKey}`);
-//                     } else {
-//                         console.error('❌ Signature upload failed:', uploadResult.error);
-//                         throw new Error(`Signature upload failed: ${uploadResult.error}`);
-//                     }
-                    
-//                 } catch (signatureError) {
-//                     console.error('❌ Error uploading signature:', signatureError);
-//                     console.warn('⚠️ Continuing registration without signature');
-//                     signatureUploadSuccess = false;
-//                     // Reset variables on error
-//                     optimizedSignature = null;
-//                     signatureFileSize = 0;
-//                     signatureOriginalName = '';
-//                 }
-//             } else {
-//                 console.log('ℹ️ No signature file provided');
-//             }
-
-//             // 🔧 BUILD: Doctor profile data
-//             const doctorProfileData = {
-//                 userAccount: userDocument[0]._id, 
-//                 specialization, 
-//                 licenseNumber, 
-//                 department: department || '',
-//                 qualifications: qualifications ? 
-//                     qualifications.split(',').map(q => q.trim()).filter(q => q) : [],
-//                 yearsOfExperience: yearsOfExperience ? parseInt(yearsOfExperience) : null,
-//                 contactPhoneOffice: contactPhoneOffice || '',
-//                 isActiveProfile: isActiveProfile !== undefined ? isActiveProfile === 'true' : true
-//             };
-
-//             // 🔧 FIXED: Add signature fields with proper null checks
-//             if (signatureUploadSuccess && optimizedSignature) {
-//                 doctorProfileData.signature = signatureUrl;
-//                 doctorProfileData.signatureWasabiKey = signatureKey;
-//                 doctorProfileData.signatureMetadata = {
-//                     uploadedAt: new Date(),
-//                     fileSize: signatureFileSize || 0,
-//                     originalName: signatureOriginalName || '',
-//                     mimeType: 'image/png',
-//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
-//                 };
-//                 console.log('✅ Added signature fields to doctor profile');
-//             } else {
-//                 // 🔧 SAFE: Set default signature fields
-//                 doctorProfileData.signature = '';
-//                 doctorProfileData.signatureWasabiKey = '';
-//                 doctorProfileData.signatureMetadata = null;
-//                 console.log('ℹ️ No signature added to doctor profile');
-//             }
-
-//             console.log('📋 Doctor profile data:', JSON.stringify(doctorProfileData, null, 2));
-
-//             const doctorProfile = await Doctor.create([doctorProfileData], { session });
-//             console.log('✅ Doctor profile created:', doctorProfile[0]._id);
-
-//             // Send welcome email
-//             setImmediate(async () => {
-//                 await sendWelcomeEmail(email, fullName, username, password, 'doctor_account');
-//             });
-
-//             // Clear caches
-//             cache.del('doctors_list_*');
-
-//             return {
-//                 user: userDocument[0].toObject(),
-//                 doctorProfile: doctorProfile[0].toObject(),
-//                 signatureUploaded: signatureUploadSuccess,
-//                 signatureDetails: signatureUploadSuccess ? {
-//                     key: signatureKey,
-//                     url: signatureUrl,
-//                     originalSize: signatureFileSize,
-//                     optimizedSize: optimizedSignature ? optimizedSignature.length : 0
-//                 } : null
-//             };
-//         });
-
-//         console.log('✅ Transaction completed successfully');
-
-//         const baseMessage = 'Doctor registered successfully. A welcome email with login credentials has been sent.';
-//         const signatureMessage = req.file ? 
-//             (result.signatureUploaded ? ' Signature uploaded successfully.' : ' Signature upload failed but registration completed.') : 
-//             '';
-
-//         res.status(201).json({
-//             success: true,
-//             message: baseMessage + signatureMessage,
-//             signatureUploaded: result.signatureUploaded,
-//             data: {
-//                 doctorId: result.doctorProfile._id,
-//                 doctorRegistered: true,
-//                 signatureProcessed: !!req.file,
-//                 signatureSuccess: result.signatureUploaded,
-//                 signatureDetails: result.signatureDetails
-//             }
-//         });
-
-//     } catch (error) {
-//         console.error('❌ Error registering doctor:', error);
-        
-//         if (error.name === 'ValidationError') {
-//             const messages = Object.values(error.errors).map(val => val.message);
-//             return res.status(400).json({ success: false, message: messages.join(', ') });
-//         }
-        
-//         res.status(500).json({ 
-//             success: false, 
-//             message: error.message || 'Server error during doctor registration.' 
-//         });
-//     } finally {
-//         await session.endSession();
-//     }
-// };
 
 
 export const uploadDoctorSignature = (req, res, next) => {
@@ -3224,16 +3193,23 @@ export const registerDoctor = async (req, res) => {
             const password = "star@star";
 
             // Validation queries
-            const [userExists, doctorWithLicenseExists] = await Promise.all([
-                User.findOne({ $or: [{ email }, { username }] }).session(session),
-                Doctor.findOne({ licenseNumber }).session(session)
-            ]);
+            // const [userExists, doctorWithLicenseExists] = await Promise.all([
+            //     User.findOne({ $or: [{ email }, { username }] }).session(session),
+            //     Doctor.findOne({ licenseNumber }).session(session)
+            // ]);
 
-            if (userExists) {
-                throw new Error('User with this email or username already exists.');
-            }
-            if (doctorWithLicenseExists) {
-                throw new Error('A doctor with this license number already exists.');
+            // if (userExists) {
+            //     throw new Error('User with this email or username already exists.');
+            // }
+            // if (doctorWithLicenseExists) {
+            //     throw new Error('A doctor with this license number already exists.');
+            // }
+
+            
+            const userWithUsername = await User.findOne({ username }).session(session);
+            
+            if (userWithUsername) {
+                throw new Error('User with this username already exists.');
             }
 
             // Create user
@@ -3549,7 +3525,9 @@ export const getPendingStudies = async (req, res) => {
         // 🔧 STEP 1: Build lean query filters with PENDING status priority
         const queryFilters = {
             workflowStatus: { 
-                $in: ['new_study_received', 'pending_assignment'] 
+                $in: ['new_study_received', 'pending_assignment','assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
+                    'report_downloaded_radiologist', 'report_downloaded'
+                ] 
             }
         };
         
@@ -3557,54 +3535,126 @@ export const getPendingStudies = async (req, res) => {
         let filterStartDate = null;
         let filterEndDate = null;
         
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const today = new Date();
-                    filterStartDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, 0);
-                    filterEndDate = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999);
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
+        // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
+
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
             }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
 
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
@@ -3677,7 +3727,11 @@ export const getPendingStudies = async (req, res) => {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    patientId: 1
+                    patientId: 1,
+                    age:1,
+                    gender:1,
+                                        preProcessedDownload: 1
+
                 }
             }
         ];
@@ -3792,6 +3846,11 @@ export const getPendingStudies = async (req, res) => {
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
+    
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -3848,21 +3907,22 @@ export const getPendingStudies = async (req, res) => {
             // Optimized patient display with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = study.patientId || "N/A";
-            let patientAgeGenderDisplay = "N/A";
-
+const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
-            console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
+            // console.log("yes hostory",patient?.medicalHistory?.clinicalHistory)
 
 
             return {
@@ -3876,7 +3936,7 @@ export const getPendingStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -3901,13 +3961,15 @@ export const getPendingStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -3932,6 +3994,17 @@ export const getPendingStudies = async (req, res) => {
                 
                 // 🔥 NEW: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -4054,9 +4127,9 @@ export const getInProgressStudies = async (req, res) => {
         const queryFilters = {
             workflowStatus: { 
                 $in: [
-                    'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress',
-                    'report_finalized', 'report_drafted', 'report_uploaded', 
-                    'report_downloaded_radiologist', 'report_downloaded'
+                    
+                    'report_finalized', 'report_drafted', 'report_uploaded'
+                    
                 ] 
             }
         };
@@ -4065,56 +4138,126 @@ export const getInProgressStudies = async (req, res) => {
         let filterStartDate = null;
         let filterEndDate = null;
         
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const todayStart = new Date();
-                    todayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = todayStart;
-                    filterEndDate = new Date(todayStart.getTime() + 86399999);
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999);
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 days
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+       // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
+            }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -4193,7 +4336,10 @@ export const getInProgressStudies = async (req, res) => {
                     caseType: 1,
                     patient: 1,
                     sourceLab: 1,
-                    lastAssignmentAt: 1
+                    lastAssignmentAt: 1,
+                    age: 1,
+                    gender: 1,
+                    preProcessedDownload: 1
                 }
             }
         ];
@@ -4307,6 +4453,10 @@ export const getInProgressStudies = async (req, res) => {
             // Get related data from maps
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -4361,7 +4511,9 @@ export const getInProgressStudies = async (req, res) => {
             // Optimized patient display building
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
@@ -4369,10 +4521,10 @@ export const getInProgressStudies = async (req, res) => {
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || "N/A";
 
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
             return {
@@ -4386,7 +4538,7 @@ export const getInProgressStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4422,13 +4574,15 @@ export const getInProgressStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-IN', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                                    timeZone: 'Asia/Kolkata'
+
                     }).replace(',', '');
                 })()
                 : null,
@@ -4442,6 +4596,17 @@ export const getInProgressStudies = async (req, res) => {
                 
                 // 🔥 NEW: Doctor assignments array with full details
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -4557,56 +4722,126 @@ export const getCompletedStudies = async (req, res) => {
         let filterEndDate = null;
         
         // Optimized date filtering with pre-calculated timestamps
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'today':
-                    const todayStart = new Date();
-                    todayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = todayStart;
-                    filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
-        } else {
-            // 🔧 FIXED: Default to today (same as getValues)
-            const now = new Date();
-            filterStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-            filterEndDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-        }
+       // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
+            }
+            break;
+
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
@@ -4686,7 +4921,11 @@ export const getCompletedStudies = async (req, res) => {
                     patient: 1,
                     sourceLab: 1,
                     lastAssignmentAt: 1,
-                    timingInfo: 1
+                    timingInfo: 1,
+                    age: 1,
+                    gender: 1,
+                                        preProcessedDownload: 1
+
                 }
             }
         ];
@@ -4804,6 +5043,10 @@ export const getCompletedStudies = async (req, res) => {
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             // 🔥 Handle both legacy (object) and new (array) formats for lastAssignedDoctor
             let latestAssignedDoctor = null;
@@ -4863,7 +5106,9 @@ export const getCompletedStudies = async (req, res) => {
             // Optimized patient display building with fallback chain
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                   `${study.age}/${study.gender}` : 
+                                   study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
@@ -4872,10 +5117,10 @@ export const getCompletedStudies = async (req, res) => {
                 patientIdForDisplay = patient.patientID || "N/A";
 
                 // Optimized age/gender display
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
-                                       agePart || (genderPart ? `/ ${genderPart}` : "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` :
+                //                        agePart || (genderPart ? `/ ${genderPart}` : "N/A");
             }
 
             return {
@@ -4889,7 +5134,7 @@ export const getCompletedStudies = async (req, res) => {
                 modality: study.modalitiesInStudy?.length > 0 ? 
                          study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 description: study.examDescription || study.studyDescription || 'N/A',
-                series: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
+                seriesImages: `${study.numberOfSeries || study.seriesCount || 0}/${study.numberOfImages || study.instanceCount || 0}`,
                 location: sourceLab?.name || 'N/A',
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
@@ -4903,14 +5148,16 @@ export const getCompletedStudies = async (req, res) => {
                 currentCategory: 'completed',
                 createdAt: study.createdAt,
                 uploadDateTime: study.createdAt
-                ? new Date(study.createdAt).toLocaleString('en-GB', {
+                ? new Date(study.createdAt).toLocaleString('en-IN', {
                     timeZone: 'Asia/Kolkata', // <-- THIS IS THE FIX.
                     year: 'numeric',
                     month: 'short',
                     day: '2-digit',
                     hour: '2-digit',
                     minute: '2-digit',
-                    hour12: false
+                    hour12: false,
+                                timeZone: 'Asia/Kolkata'
+
                 }).replace(',', '')
                 : 'N/A',
                 reportedBy: study.reportInfo?.reporterName 
@@ -4948,6 +5195,18 @@ export const getCompletedStudies = async (req, res) => {
                 
                 // 🔥 NEW: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
+       
                 
                 // 🔥 NEW: Latest assigned doctor details for easy access
                 latestAssignedDoctorDetails: latestAssignedDoctor ? {
@@ -5044,4 +5303,341 @@ export const getCompletedStudies = async (req, res) => {
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
+};
+
+export const registerAdmin = async (req, res) => {
+    console.log('🔍 ===== REGISTER ADMIN CALLED =====');
+    console.log('📝 req.body:', req.body);
+    
+    const session = await mongoose.startSession();
+    
+    try {
+        const result = await session.withTransaction(async () => {
+            const { fullName, email, password } = req.body;
+
+            // Validation
+            if (!fullName || !email || !password) {
+                throw new Error('Full name, email, and password are required.');
+            }
+
+            // Email validation
+            const emailRegex = /\S+@\S+\.\S+/;
+            if (!emailRegex.test(email)) {
+                throw new Error('Please provide a valid email address.');
+            }
+
+            // Password validation
+            if (password.length < 6) {
+                throw new Error('Password must be at least 6 characters long.');
+            }
+
+            // Generate username from email (part before @)
+            const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            // Check if user already exists
+            const existingUser = await User.findOne({
+                $or: [{ email }, { username }]
+            }).session(session);
+
+            if (existingUser) {
+                throw new Error('A user with this email or generated username already exists.');
+            }
+
+            // Create admin user
+            const adminUser = await User.create([{
+                username,
+                email,
+                password,
+                fullName,
+                role: 'admin',
+                isActive: true
+            }], { session });
+
+            console.log('✅ Admin user created:', adminUser[0]._id);
+
+            // Prepare response (exclude password)
+            const adminUserResponse = adminUser[0].toObject();
+            delete adminUserResponse.password;
+
+            return {
+                admin: adminUserResponse,
+                generatedUsername: username
+            };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Admin account created successfully.',
+            data: {
+                adminId: result.admin._id,
+                username: result.generatedUsername,
+                email: result.admin.email,
+                fullName: result.admin.fullName
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error registering admin:', error);
+        
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(val => val.message);
+            return res.status(400).json({ 
+                success: false, 
+                message: messages.join(', ') 
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false, 
+            message: error.message || 'Server error during admin registration.' 
+        });
+    } finally {
+        await session.endSession();
+    }
+};
+
+export const updateStudyInteractionStatus = async (req, res) => {
+    try {
+        const { studyId } = req.params;
+        const { action } = req.body; // 'ohif_opened', 'study_downloaded', 'radiant_opened'
+        
+        console.log(`🔄 Updating study interaction status: ${studyId}, action: ${action}, user: ${req.user.role}`);
+        console.log(req.user);
+        
+        // Find the study
+        const study = await DicomStudy.findOne({
+            $or: [
+                // { _id: studyId },
+                { studyInstanceUID: studyId },
+                { orthancStudyID: studyId }
+            ]
+        });
+        console.log('🔄 Found study:', study ? study._id : 'Not found');
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+        
+        // Only doctors can trigger these status changes
+        if (req.user.role !== 'doctor_account') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only doctors can trigger study interaction status updates'
+            });
+        }
+        console.log(req.user.id);
+        
+        // Check if doctor is assigned to this study
+        // const isAssigned = Array.isArray(study.lastAssignedDoctor)
+        //     ? study.lastAssignedDoctor.some(
+        //         entry => entry.doctorId?.toString() === req.user.id?.toString()
+        //     )
+        //     : study.lastAssignedDoctor?.doctorId?.toString() === req.user.id?.toString();
+
+        // if (!isAssigned) {
+        //     console.log(isAssigned)
+        //     return res.status(403).json({
+        //         success: false,
+        //         message: 'You are not assigned to this study'
+        //     });
+        // }
+        
+        let newStatus;
+        let statusNote;
+        
+        // Determine the new status based on action
+        switch (action) {
+            case 'ohif_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in OHIF viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'radiant_opened':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study opened in Radiant viewer by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            case 'study_downloaded':
+                newStatus = 'doctor_opened_report';
+                statusNote = `Study downloaded by Dr. ${req.user.fullName || req.user.email}`;
+                break;
+            default:
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid action specified'
+                });
+        }
+        
+        // Only update if current status allows it (don't go backwards)
+        const statusHierarchy = [
+            'new_study_received',
+            'pending_assignment',
+            'assigned_to_doctor',
+                        'report_downloaded_radiologist',
+                                    'report_downloaded',
+
+
+            'doctor_opened_report',
+            'report_in_progress',
+            'report_uploaded',
+            'report_finalized',
+            'final_report_downloaded'
+        ];
+        
+        const currentStatusIndex = statusHierarchy.indexOf(study.workflowStatus);
+        const newStatusIndex = statusHierarchy.indexOf(newStatus);
+        
+        // Only update if we're moving forward or staying at the same level
+        if (newStatusIndex >= currentStatusIndex) {
+            await updateWorkflowStatus({
+                studyId: study._id,
+                status: newStatus,
+                note: statusNote,
+                user: req.user
+            });
+            
+            console.log(`✅ Study status updated to ${newStatus} for study ${studyId}`);
+        } else {
+            console.log(`⚠️ Status not updated - would be moving backwards from ${study.workflowStatus} to ${newStatus}`);
+        }
+        
+        res.json({
+            success: true,
+            message: 'Study interaction recorded successfully',
+            currentStatus: newStatus,
+            action: action
+        });
+        
+    } catch (error) {
+        console.error('❌ Error updating study interaction status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update study interaction status',
+            error: error.message
+        });
+    }
+};
+
+export const unassignDoctorFromStudy = async (req, res) => {
+  try {
+    const { studyId } = req.params;
+    const { doctorId } = req.body;
+
+    console.log(`🔄 Unassigning doctor ${doctorId} from study ${studyId}`);
+
+    // Find the study
+    const study = await DicomStudy.findById(studyId);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // 🔍 LOG: Initial workflow status
+    const initialStatus = study.workflowStatus;
+    console.log(`📊 INITIAL workflow status: ${initialStatus}`);
+
+    // Remove doctor from lastAssignedDoctor array
+    if (Array.isArray(study.lastAssignedDoctor)) {
+      const beforeLength = study.lastAssignedDoctor.length;
+      study.lastAssignedDoctor = study.lastAssignedDoctor.filter(
+        assignment => assignment.doctorId.toString() !== doctorId
+      );
+      console.log(`📊 lastAssignedDoctor array: ${beforeLength} → ${study.lastAssignedDoctor.length}`);
+    } else if (study.lastAssignedDoctor?.doctorId?.toString() === doctorId) {
+      console.log(`📊 Removing single lastAssignedDoctor`);
+      study.lastAssignedDoctor = null;
+    }
+
+    // 🔧 FIXED: Remove from assignment array - check both User._id and Doctor._id
+    if (Array.isArray(study.assignment)) {
+      const beforeLength = study.assignment.length;
+      
+      // 🔧 CRITICAL: Get the doctor's userAccount ID for proper filtering
+      const doctor = await Doctor.findById(doctorId).populate('userAccount');
+      const userAccountId = doctor?.userAccount?._id?.toString();
+      
+      console.log(`🔍 Doctor userAccount ID: ${userAccountId}`);
+      console.log(`🔍 Current assignment entries:`, study.assignment.map(a => ({
+        assignedTo: a.assignedTo?.toString(),
+        assignedAt: a.assignedAt
+      })));
+      
+      // Filter out assignments that match either the doctor ID or user account ID
+      study.assignment = study.assignment.filter(assignment => {
+        const assignedToId = assignment.assignedTo?.toString();
+        const matchesDoctorId = assignedToId === doctorId;
+        const matchesUserAccountId = assignedToId === userAccountId;
+        
+        console.log(`🔍 Assignment ${assignedToId}: doctorMatch=${matchesDoctorId}, userMatch=${matchesUserAccountId}`);
+        
+        return !matchesDoctorId && !matchesUserAccountId;
+      });
+      
+      console.log(`📊 assignment array: ${beforeLength} → ${study.assignment.length}`);
+    }
+
+    // 🔧 NEW: Update workflow status based on remaining assignments
+    const hasRemainingAssignments = (Array.isArray(study.lastAssignedDoctor) && study.lastAssignedDoctor.length > 0) ||
+                                   (Array.isArray(study.assignment) && study.assignment.length > 0) ||
+                                   study.lastAssignedDoctor;
+
+    if (!hasRemainingAssignments) {
+      console.log(`📊 No remaining assignments, setting status to pending_assignment`);
+      study.workflowStatus = 'pending_assignment';
+    } else {
+      console.log(`📊 ${study.assignment?.length || 0} assignments remaining, keeping current status`);
+    }
+
+    // 🔍 LOG: Status BEFORE save
+    console.log(`📊 Status BEFORE save: ${study.workflowStatus}`);
+    console.log(`📊 Modified fields:`, study.modifiedPaths());
+
+    // 🔍 CRITICAL: Save the changes
+    const savedStudy = await study.save();
+
+    // 🔍 LOG: Status AFTER save
+    console.log(`📊 Status AFTER save: ${savedStudy.workflowStatus}`);
+    
+    // Check if status changed as expected
+    if (savedStudy.workflowStatus !== initialStatus) {
+      console.log(`✅ STATUS UPDATED: ${initialStatus} → ${savedStudy.workflowStatus}`);
+    } else {
+      console.log(`ℹ️ STATUS UNCHANGED: ${savedStudy.workflowStatus} (other assignments remain)`);
+    }
+
+    // Also remove from doctor's assignedStudies
+    await Doctor.updateOne(
+      { _id: doctorId },
+      { 
+        $pull: { 
+          assignedStudies: { study: studyId } 
+        },
+        $set: { assigned: false }
+      }
+    );
+
+    console.log(`✅ Doctor ${doctorId} unassigned from study ${studyId}`);
+
+    res.json({
+      success: true,
+      message: 'Doctor unassigned successfully',
+      study: {
+        _id: savedStudy._id,
+        workflowStatus: savedStudy.workflowStatus,
+        assignedDoctors: savedStudy.lastAssignedDoctor || [],
+        remainingAssignments: savedStudy.assignment?.length || 0
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error unassigning doctor:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during doctor unassignment',
+      error: error.message
+    });
+  }
 };

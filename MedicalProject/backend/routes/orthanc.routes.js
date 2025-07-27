@@ -3,6 +3,7 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
+import CloudflareR2ZipService from '../services/wasabi.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -224,6 +225,7 @@ async function findOrCreatePatientFromTags(tags) {
   const patientIdDicom = tags.PatientID;
   const nameInfo = processDicomPersonName(tags.PatientName);
   const patientSex = tags.PatientSex;
+  const patientAge = tags.PatientAge;
   const patientBirthDate = tags.PatientBirthDate;
 
   if (!patientIdDicom && !nameInfo.fullName) {
@@ -235,7 +237,8 @@ async function findOrCreatePatientFromTags(tags) {
         patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
-        gender: patientSex || '',
+        gender: patientSex || '', // ✅ ADD: Gender
+        age: patientAge || '',
         dateOfBirth: patientBirthDate || '',
         isAnonymous: true
       });
@@ -259,7 +262,8 @@ async function findOrCreatePatientFromTags(tags) {
         nameSuffix: nameInfo.nameSuffix,
         originalDicomName: nameInfo.originalDicomFormat
       },
-      gender: patientSex || '',
+      gender: patientSex || '', // ✅ ADD: Gender from DICOM
+      age: patientAge || '',
       dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
     });
     
@@ -562,11 +566,15 @@ async function processStableStudy(job) {
         tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
         tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
+        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex; // ✅ ADD: Patient Sex/Gender
+tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Patient Age
         
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
+          PatientAge: tags.PatientAge, // ✅ ADD: Log patient age
+    PatientSex: tags.PatientSex,
           Modality: tags.Modality,
           // 🔧 FIX: Log the private tag values
           PrivateTags: {
@@ -694,6 +702,8 @@ async function processStableStudy(job) {
         gender: patientRecord.gender || '',
         dateOfBirth: tags.PatientBirthDate || ''
       },
+      age: patientRecord.age || tags.PatientAge || '', // ✅ ADD: Age field
+  gender: patientRecord.gender || tags.PatientSex || '',
       
       referringPhysicianName: tags.ReferringPhysicianName || '',
       physicians: {
@@ -788,6 +798,28 @@ async function processStableStudy(job) {
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
     
+    // 🆕 NEW: Queue ZIP creation job if study has instances
+    if (actualInstanceCount > 0) {
+        console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
+        
+        try {
+            const zipJob = await CloudflareR2ZipService.addZipJob({
+                orthancStudyId: orthancStudyId,
+                studyDatabaseId: dicomStudyDoc._id,
+                studyInstanceUID: studyInstanceUID,
+                instanceCount: actualInstanceCount,
+                seriesCount: actualSeriesCount
+            });
+            
+            console.log(`[StableStudy] 📦 ZIP Job ${zipJob.id} queued for study: ${orthancStudyId}`);
+        } catch (zipError) {
+            console.error(`[StableStudy] ❌ Failed to queue ZIP job:`, zipError.message);
+            // Don't fail the study processing if ZIP queueing fails
+        }
+    } else {
+        console.log(`[StableStudy] ⚠️ Skipping ZIP creation - no instances found`);
+    }
+    
     job.progress = 90;
     
     // Send notification
@@ -816,8 +848,6 @@ async function processStableStudy(job) {
     } catch (wsError) {
       console.warn(`[StableStudy] ⚠️ Notification failed:`, wsError.message);
     }
-    
-    job.progress = 100;
     
     const result = {
       success: true,
@@ -1052,6 +1082,122 @@ router.get('/job-status/:requestId', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// 🆕 NEW: Manual ZIP creation endpoint
+router.post('/create-zip/:orthancStudyId', async (req, res) => {
+    try {
+        const { orthancStudyId } = req.params;
+        
+        console.log(`[Manual ZIP] 📦 Manual ZIP creation requested for: ${orthancStudyId}`);
+        
+        // Find study in database
+        const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found in database'
+            });
+        }
+        
+        // Check if ZIP is already being processed or completed
+        if (study.preProcessedDownload?.zipStatus === 'processing') {
+            return res.json({
+                success: false,
+                message: 'ZIP creation already in progress',
+                status: 'processing',
+                jobId: study.preProcessedDownload.zipJobId
+            });
+        }
+        
+        if (study.preProcessedDownload?.zipStatus === 'completed' && study.preProcessedDownload?.zipUrl) {
+            return res.json({
+                success: true,
+                message: 'ZIP already exists',
+                status: 'completed',
+                zipUrl: study.preProcessedDownload.zipUrl,
+                zipSizeMB: study.preProcessedDownload.zipSizeMB,
+                createdAt: study.preProcessedDownload.zipCreatedAt
+            });
+        }
+        
+        // Queue new ZIP creation job
+        const zipJob = await CloudflareR2ZipService.addZipJob({
+            orthancStudyId: orthancStudyId,
+            studyDatabaseId: study._id,
+            studyInstanceUID: study.studyInstanceUID,
+            instanceCount: study.instanceCount || 0,
+            seriesCount: study.seriesCount || 0
+        });
+        
+        res.json({
+            success: true,
+            message: 'ZIP creation queued',
+            jobId: zipJob.id,
+            status: 'queued',
+            checkStatusUrl: `/orthanc/zip-status/${zipJob.id}`
+        });
+        
+    } catch (error) {
+        console.error('[Manual ZIP] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to queue ZIP creation',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: ZIP job status endpoint
+router.get('/zip-status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const job = CloudflareR2ZipService.getJob(parseInt(jobId));
+        
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP job not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            jobId: job.id,
+            status: job.status,
+            progress: job.progress,
+            createdAt: job.createdAt,
+            result: job.result,
+            error: job.error
+        });
+        
+    } catch (error) {
+        console.error('[ZIP Status] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get ZIP status',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: Initialize Wasabi bucket on startup
+router.get('/init-r2', async (req, res) => {
+    try {
+        await CloudflareR2ZipService.ensureR2Bucket();
+        res.json({
+            success: true,
+            message: 'R2 bucket initialized successfully'
+        });
+    } catch (error) {
+        console.error('[R2 Init] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to initialize R2 bucket',
+            error: error.message
+        });
+    }
 });
 
 export default router;
