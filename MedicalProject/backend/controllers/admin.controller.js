@@ -162,60 +162,163 @@ export const getAllStudiesForAdmin = async (req, res) => {
         const queryFilters = {};
         let filterStartDate = null;
         let filterEndDate = null;
+         const IST_OFFSET = 5.5 * 60 * 60 * 1000; 
         
         // Optimized date filtering with pre-calculated timestamps
         if (req.query.quickDatePreset || req.query.dateFilter) {
             const preset = req.query.quickDatePreset || req.query.dateFilter;
             const now = Date.now(); // Use timestamp for better performance
             
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+           switch (preset) {
+            case 'last24h':
+                // Last 24 hours from current IST time
+                const nowIST = new Date(Date.now() + IST_OFFSET);
+                filterEndDate = new Date(Date.now()); // Current UTC time
+                filterStartDate = new Date(Date.now() - 86400000); // 24 hours ago UTC
+                break;
 
-                    case 'today':
-                        // 🔧 FIXED: Add missing 'today' case
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+            case 'today':
+                // ✅ FIX: Today in IST timezone
+                const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+                
+                // Create start of day in IST (00:00:00 IST)
+                const todayStartIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of day in IST (23:59:59.999 IST)
+                const todayEndIST = new Date(
+                    currentTimeIST.getFullYear(),
+                    currentTimeIST.getMonth(),
+                    currentTimeIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Today IST: ${todayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${todayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Today UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
+            case 'yesterday':
+                // ✅ FIX: Yesterday in IST timezone
+                const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+                const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000); // Subtract 1 day
+                
+                // Create start of yesterday in IST
+                const yesterdayStartIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    0, 0, 0, 0
+                );
+                
+                // Create end of yesterday in IST
+                const yesterdayEndIST = new Date(
+                    yesterdayIST.getFullYear(),
+                    yesterdayIST.getMonth(),
+                    yesterdayIST.getDate(),
+                    23, 59, 59, 999
+                );
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+                
+                console.log(`🕐 Yesterday IST: ${yesterdayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${yesterdayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+                console.log(`🌍 Yesterday UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+                break;
+
+            case 'thisWeek':
+                // ✅ FIX: This week in IST timezone
+                const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of week (Sunday) in IST
+                const dayOfWeek = currentTimeISTWeek.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                const weekStartIST = new Date(
+                    currentTimeISTWeek.getFullYear(),
+                    currentTimeISTWeek.getMonth(),
+                    currentTimeISTWeek.getDate() - dayOfWeek,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const weekEndIST = new Date(currentTimeISTWeek.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'thisMonth':
+                // ✅ FIX: This month in IST timezone
+                const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+                
+                // Get start of month in IST
+                const monthStartIST = new Date(
+                    currentTimeISTMonth.getFullYear(),
+                    currentTimeISTMonth.getMonth(),
+                    1,
+                    0, 0, 0, 0
+                );
+                
+                // End is current time in IST
+                const monthEndIST = new Date(currentTimeISTMonth.getTime());
+                
+                // Convert IST times back to UTC for MongoDB query
+                filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+                filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+                break;
+
+            case 'custom':
+                if (req.query.customDateFrom || req.query.customDateTo) {
+                    // ✅ FIX: Handle custom dates - assume they're entered in IST
+                    if (req.query.customDateFrom) {
+                        // Parse as IST date
+                        const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                        filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
                     }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
-            }
+                    
+                    if (req.query.customDateTo) {
+                        // Parse as IST date
+                        const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                        filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                    }
+                } else {
+                    // Default to last 24 hours
+                    filterEndDate = new Date();
+                    filterStartDate = new Date(Date.now() - 86400000);
+                }
+                break;
+
+            default:
+                // Default to last 24 hours
+                filterEndDate = new Date();
+                filterStartDate = new Date(Date.now() - 86400000);
+        }
         } else {
-    // 🔧 FIXED: Default to today when no date filter specified (same as getValues)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
 }
 
         // Apply date filter with proper indexing
@@ -708,61 +811,126 @@ export const getValues = async (req, res) => {
         let filterEndDate = null;
         
         // Optimized date filtering with pre-calculated timestamps
-        if (req.query.quickDatePreset || req.query.dateFilter) {
-            const preset = req.query.quickDatePreset || req.query.dateFilter;
-            const now = Date.now(); // Use timestamp for better performance
-            
-            switch (preset) {
-                case 'last24h':
-                    filterStartDate = new Date(now - 86400000); // 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
+        // Replace your existing date filtering logic with this:
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
+    const now = Date.now();
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
+    
+    switch (preset) {
+        case 'last24h':
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+            break;
 
-                
-                case 'today':
-                        // 🔧 FIXED: Consistent today handling
-                        const todayStart = new Date();
-                        todayStart.setHours(0, 0, 0, 0);
-                        filterStartDate = todayStart;
-                        filterEndDate = new Date(todayStart.getTime() + 86399999); // 23:59:59.999
-                        break;
+        case 'today':
+            // ✅ IST FIX: Today in IST timezone
+            const currentTimeIST = new Date(Date.now() + IST_OFFSET);
+            const todayStartIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                0, 0, 0, 0
+            );
+            const todayEndIST = new Date(
+                currentTimeIST.getFullYear(),
+                currentTimeIST.getMonth(),
+                currentTimeIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
+            break;
 
-                case 'yesterday':
-                    const yesterdayStart = now - 86400000;
-                    const dayStart = new Date(yesterdayStart);
-                    dayStart.setHours(0, 0, 0, 0);
-                    filterStartDate = dayStart;
-                    filterEndDate = new Date(dayStart.getTime() + 86399999); // 23:59:59.999
-                    break;
-                case 'thisWeek':
-                    filterStartDate = new Date(now - 604800000); // 7 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'thisMonth':
-                    filterStartDate = new Date(now - 2592000000); // 30 * 24 * 60 * 60 * 1000
-                    filterEndDate = new Date(now);
-                    break;
-                case 'custom':
-                    if (req.query.customDateFrom || req.query.customDateTo) {
-                        filterStartDate = req.query.customDateFrom ? new Date(req.query.customDateFrom + 'T00:00:00') : null;
-                        filterEndDate = req.query.customDateTo ? new Date(req.query.customDateTo + 'T23:59:59') : null;
-                    } else {
-                        filterStartDate = new Date(now - 86400000);
-                        filterEndDate = new Date(now);
-                    }
-                    break;
-                default:
-                    filterStartDate = new Date(now - 86400000);
-                    filterEndDate = new Date(now);
+        case 'yesterday':
+            // ✅ IST FIX: Yesterday in IST timezone
+            const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
+            const yesterdayIST = new Date(currentTimeISTYesterday.getTime() - 86400000);
+            const yesterdayStartIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                0, 0, 0, 0
+            );
+            const yesterdayEndIST = new Date(
+                yesterdayIST.getFullYear(),
+                yesterdayIST.getMonth(),
+                yesterdayIST.getDate(),
+                23, 59, 59, 999
+            );
+            filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisWeek':
+            // ✅ IST FIX: This week in IST timezone
+            const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
+            const dayOfWeek = currentTimeISTWeek.getDay();
+            const weekStartIST = new Date(
+                currentTimeISTWeek.getFullYear(),
+                currentTimeISTWeek.getMonth(),
+                currentTimeISTWeek.getDate() - dayOfWeek,
+                0, 0, 0, 0
+            );
+            const weekEndIST = new Date(currentTimeISTWeek.getTime());
+            filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'thisMonth':
+            // ✅ IST FIX: This month in IST timezone
+            const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
+            const monthStartIST = new Date(
+                currentTimeISTMonth.getFullYear(),
+                currentTimeISTMonth.getMonth(),
+                1,
+                0, 0, 0, 0
+            );
+            const monthEndIST = new Date(currentTimeISTMonth.getTime());
+            filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
+            filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
+            break;
+
+        case 'custom':
+            if (req.query.customDateFrom || req.query.customDateTo) {
+                // ✅ IST FIX: Custom dates in IST
+                if (req.query.customDateFrom) {
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
+                    filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
+                }
+                if (req.query.customDateTo) {
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
+                    filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
+                }
+            } else {
+                filterStartDate = new Date(now - 86400000);
+                filterEndDate = new Date(now);
             }
-        } else {
-    // 🔧 FIXED: Default to today when no date filter specified (consistent across all functions)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    filterStartDate = todayStart;
-    filterEndDate = new Date(todayStart.getTime() + 86399999);
-}
+            break;
 
+        default:
+            filterStartDate = new Date(now - 86400000);
+            filterEndDate = new Date(now);
+    }
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
+    const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+    const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
+    const todayStartISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        0, 0, 0, 0
+    );
+    const todayEndISTDefault = new Date(
+        currentTimeISTDefault.getFullYear(),
+        currentTimeISTDefault.getMonth(),
+        currentTimeISTDefault.getDate(),
+        23, 59, 59, 999
+    );
+    filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
+    filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
+}
         // Apply date filter with proper indexing
         if (filterStartDate || filterEndDate) {
             const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
