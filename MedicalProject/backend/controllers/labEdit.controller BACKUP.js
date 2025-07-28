@@ -7,7 +7,6 @@ import Document from '../models/documentModal.js'; // 🔧 NEW: Document model
 import WasabiService from '../services/wasabi.service.js'; // 🔧 NEW: Wasabi integration
 import cache from '../utils/cache.js';
 import websocketService from '../config/webSocket.js'; // 🔧 NEW: WebSocket service
-import mongoose from 'mongoose';
 
 // 🔧 WORKFLOW STATUS MAPPING (same as existing)
 const WORKFLOW_STATUS_MAPPING = {
@@ -42,78 +41,56 @@ const sanitizeInput = (input) => {
 
 export const getPatientDetailedView = async (req, res) => {
   try {
-    console.log(req.params);
-      const { studyId } = req.params;
+      const { patientId } = req.params;
       const userId = req.user.id;
 
-      if (!mongoose.Types.ObjectId.isValid(studyId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid study ID format'
-      });
-    }
+      const originalPatientId = patientId.replace(/_SLASH_/g, '/');
 
-      // const originalPatientId = patientId.replace(/_SLASH_/g, '/');
-
-      console.log(`🔍 Fetching detailed view for patient: ${studyId} by user: ${userId}`);
+      console.log(`🔍 Fetching detailed view for patient: ${patientId} by user: ${userId}`);
 
       // 🔧 PERFORMANCE: Check cache first
-        // const cacheKey = `patient_detail_${patientId}`;
-        // let cachedData = cache.get(cacheKey);
-        // if (cachedData) {
-        //     return res.json({
-        //         success: true,
-        //         data: cachedData,
-        //         fromCache: true
-        //     });
-        // }
-
-      const study = await DicomStudy.findById(studyId).select('patient patientId patientInfo').lean();
-    if (!study) {
-      return res.status(404).json({
-        success: false,
-        message: 'Study not found'
-      });
-    }
-
-    const patientObjectId = study.patient; // This is the MongoDB ObjectId: 68647324c70783d35170d243
-    const originalPatientId = study.patientId; // This is the string: "68647324"
-
-    console.log(`📊 Found study with patient ObjectId: ${patientObjectId} (patientId: ${originalPatientId})`);
+      const cacheKey = `patient_detail_${patientId}`;
+      let cachedData = cache.get(cacheKey);
+      if (cachedData) {
+          return res.json({
+              success: true,
+              data: cachedData,
+              fromCache: true
+          });
+      }
 
       // 🔧 ENHANCED: More comprehensive parallel queries with NEW FIELDS  
       const [patient, allStudies] = await Promise.all([
-        Patient.findById(patientObjectId) // Use ObjectId directly
-            .populate('clinicalInfo.lastModifiedBy', 'fullName email')
-            .lean(),
-        DicomStudy.find({ patient: patientObjectId }) // Query by patient ObjectId reference
-            .select(`
-                studyInstanceUID studyDate studyTime modality modalitiesInStudy 
-                accessionNumber workflowStatus caseType examDescription examType 
-                sourceLab uploadedReports createdAt referringPhysician referringPhysicianName
-                assignment reportInfo.finalizedAt
-                reportInfo.startedAt timingInfo numberOfSeries numberOfImages
-                institutionName patientInfo studyPriority patientId
-                technologist physicians modifiedDate modifiedTime reportDate reportTime
-            `)
-            .populate('sourceLab', 'name identifier')
-            .populate({
-                path: 'assignment.assignedTo',
-                model: 'User',
-                select: 'fullName email'
-            })
-            .sort({ createdAt: -1 })
-            .lean()
-    ]);
+          Patient.findOne({ patientID: originalPatientId })
+              .populate('clinicalInfo.lastModifiedBy', 'fullName email')
+              .lean(),
+          DicomStudy.find({ patientId: originalPatientId })
+              .select(`
+                  studyInstanceUID studyDate studyTime modality modalitiesInStudy 
+                  accessionNumber workflowStatus caseType examDescription examType 
+                  sourceLab uploadedReports createdAt referringPhysician referringPhysicianName
+                  assignment reportInfo.finalizedAt
+                  reportInfo.startedAt timingInfo numberOfSeries numberOfImages
+                  institutionName patientInfo studyPriority
+                  technologist physicians modifiedDate modifiedTime reportDate reportTime
+              `)
+              .populate('sourceLab', 'name identifier')
+              // 🔧 FIXED: Correct populate path for assignment array
+              .populate({
+                  path: 'assignment.assignedTo',
+                  model: 'User',
+                  select: 'fullName email'
+              })
+              .sort({ createdAt: -1 })
+              .lean()
+      ]);
 
-    if (!patient) {
-        return res.status(404).json({
-            success: false,
-            message: 'Patient not found'
-        });
-    }
-
-    console.log(`📊 Found patient: ${patient.patientID} with ${allStudies.length} studies`);
+      if (!patient) {
+          return res.status(404).json({
+              success: false,
+              message: 'Patient not found'
+          });
+      }
 
       // 🔧 OPTIMIZED: Get current study efficiently
       const currentStudy = allStudies.length > 0 ? allStudies[0] : null;
@@ -982,27 +959,17 @@ const formatTAT = (minutes) => {
 
 export const updatePatientDetails = async (req, res) => {
   try {
-    console.log(req.params)
-      const { studyId } = req.params;
+      const { patientId } = req.params;
       const userId = req.user.id;
       const updateData = req.body;
       const startTime = Date.now();
 
-     console.log(`🔍 Fetching patient details for study: ${studyId} by user: ${userId}`);
+      const originalPatientId = req.params.patientId.replace(/_SLASH_/g, '/');
 
-    // 🔧 STEP 1: Find the study first to get the patient ObjectId
-    const study = await DicomStudy.findById(studyId).select('patient patientId patientInfo').lean();
-    if (!study) {
-      return res.status(404).json({
-        success: false,
-        message: 'Study not found'
-      });
-    }
-
-    const patientObjectId = study.patient; // This is the MongoDB ObjectId: 68647324c70783d35170d243
-    const originalPatientId = study.patientId; // This is the string: "68647324"
-
-    console.log(`📊 Found study with patient ObjectId: ${patientObjectId} (patientId: ${originalPatientId})`);
+      console.log(`=== PATIENT UPDATE REQUEST ===`);
+      console.log(`👤 Patient ID: ${patientId}`);
+      console.log(`🔧 Updated by: ${userId}`);
+      console.log(`📋 Update Data:`, JSON.stringify(updateData, null, 2));
 
       // 🔧 PERFORMANCE: Validate user permissions efficiently
       const user = await User.findById(userId).select('role fullName email').lean();
@@ -1014,15 +981,13 @@ export const updatePatientDetails = async (req, res) => {
       }
 
       // 🔧 OPTIMIZED: Find patient with lean query
-      const patient = await Patient.findById(patientObjectId).lean(); // Use ObjectId
+      const patient = await Patient.findOne({ patientID: originalPatientId }).lean();
       if (!patient) {
           return res.status(404).json({
               success: false,
               message: 'Patient not found'
           });
       }
-
-       console.log(`📊 Found patient: ${patient.patientID} (ObjectId: ${patient._id})`);
 
       // 🔧 STEP 1: Collect name changes efficiently
       let newFirstName = patient.firstName || '';
@@ -1145,8 +1110,6 @@ export const updatePatientDetails = async (req, res) => {
           }
       }
 
-      // Handle clinical information
-      // ...existing code...
 
 // 🔧 ENHANCED: Handle clinical information with TAT reset detection
 if (updateData.clinicalInfo) {
@@ -1231,10 +1194,10 @@ if (updateData.clinicalInfo) {
           patientUpdateData.referralInfo = sanitizeInput(updateData.referralInfo);
       }
 
-      if (updateData.studyInfo?.workflowStatus) {
-          const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-          patientUpdateData.currentWorkflowStatus = normalizedStatus;
-      }
+      // if (updateData.studyInfo?.workflowStatus) {
+      //     const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+      //     patientUpdateData.currentWorkflowStatus = normalizedStatus;
+      // }
 
       // Update computed fields
       patientUpdateData['computed.lastActivity'] = new Date();
@@ -1242,11 +1205,11 @@ if (updateData.clinicalInfo) {
       // 🔧 STEP 3: Execute single atomic update
       console.log('💾 Executing patient update...');
 
-      const updatedPatient = await Patient.findByIdAndUpdate( // Use findByIdAndUpdate with ObjectId
-        patientObjectId, // MongoDB ObjectId
-        { $set: patientUpdateData },
-        { new: true, lean: true }
-    );
+      const updatedPatient = await Patient.findOneAndUpdate(
+          { patientID: originalPatientId },
+          { $set: patientUpdateData },
+          { new: true, lean: true }
+      );
 
       if (!updatedPatient) {
           return res.status(404).json({
@@ -1257,7 +1220,7 @@ if (updateData.clinicalInfo) {
 
       let tatResetInfo = null;
 if (patientUpdateData._clinicalHistoryChanged) {
-    // console.log(`[TAT Reset] 🔄 Executing TAT reset for patient: ${patientId}`);
+    console.log(`[TAT Reset] 🔄 Executing TAT reset for patient: ${patientId}`);
     
     try {
         tatResetInfo = await resetTATForPatientStudies(
@@ -1273,7 +1236,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
             console.log(`[TAT Reset] 🔄 Fetching fresh patient data with reset TAT values...`);
             
             // Clear cache and fetch fresh data
-            // cache.del(`patient_detail_${patientId}`);
+            cache.del(`patient_detail_${patientId}`);
             
             // You could either:
             // Option 1: Include fresh TAT in the response
@@ -1349,11 +1312,11 @@ if (patientUpdateData._clinicalHistoryChanged) {
           }
 
           // 🔧 EXISTING: Workflow status
-          if (updateData.studyInfo?.workflowStatus) {
-              const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
-              studyUpdateData.workflowStatus = normalizedStatus;
-              studyUpdateData.currentCategory = normalizedStatus;
-          }
+          // if (updateData.studyInfo?.workflowStatus) {
+          //     const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
+          //     studyUpdateData.workflowStatus = normalizedStatus;
+          //     studyUpdateData.currentCategory = normalizedStatus;
+          // }
 
           // 🔧 EXISTING: Case type
           if (updateData.studyInfo?.caseType) {
@@ -1519,7 +1482,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
       }
 
       // 🔧 PERFORMANCE: Clear cache
-      // cache.del(`patient_detail_${patientId}`);
+      cache.del(`patient_detail_${patientId}`);
 
       const processingTime = Date.now() - startTime;
 
@@ -1598,7 +1561,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
 
           studyInfo: {
             examDescription: newExamDescription || updateData.studyInfo?.examDescription || '',
-            workflowStatus: updateData.studyInfo?.workflowStatus || '',
+            // workflowStatus: updateData.studyInfo?.workflowStatus || '',
             caseType: updateData.studyInfo?.caseType || ''
         },
 
@@ -1659,7 +1622,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
           success: true,
           message: successMessage,
           data: responseData,
-          newPatientId: studyId
+          newPatientId: patientIdChanged ? newPatientId : null
       });
 
   } catch (error) {
@@ -1924,12 +1887,14 @@ if (patientUpdateData._clinicalHistoryChanged) {
 export const uploadDocument = async (req, res) => {
   console.log('🔧 Uploading document to Wasabi storage...', req.params);
   try {
-    const { studyId } = req.params;
+    const { patientId } = req.params;
+          const originalPatientId = req.params.patientId.replace(/_SLASH_/g, '/');
+
     const userId = req.user.id;
-    const { type,  documentType = 'clinical' } = req.body;
+    const { type, studyId, documentType = 'clinical' } = req.body;
     const files = req.files;
 
-    console.log(`📤 Uploading document(s) for study: ${studyId}`);
+    console.log(`📤 Uploading document(s) for patient: ${originalPatientId}`);
     console.log(`👤 User ID: ${userId}, Role: ${req.user.role}`);
 
     if (!files || files.length === 0) {
@@ -1939,16 +1904,7 @@ export const uploadDocument = async (req, res) => {
         message: 'No files uploaded'
       });
     }
-    const study = await DicomStudy.findById(studyId).select('patient patientId patientInfo').lean();
-    if (!study) {
-      return res.status(404).json({
-        success: false,
-        message: 'Study not found'
-      });
-    }
 
-    const patientObjectId = study.patient; // MongoDB ObjectId
-    const patientIdString = study.patientId; // String patientId for display
     // Validate user
     const user = await User.findById(userId).select('fullName email role');
     if (!user) {
@@ -1966,30 +1922,25 @@ export const uploadDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findById(patientObjectId); // Use ObjectId
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
         message: 'Patient not found'
       });
     }
-
-    // Find study if studyId provided
-    // let study = null;
-    // if (studyId && studyId !== 'general') {
-    //   study = await DicomStudy.findOne({ studyInstanceUID: studyId });
-    //   if (!study) {
-    //     console.log(`⚠️ Study not found: ${studyId}, continuing without study reference`);
-    //   }
-    // }
-
     if (!patient.documents || !Array.isArray(patient.documents)) {
-      console.log('🔧 Initializing patient.documents array');
       patient.documents = [];
     }
 
-    console.log(`📊 Found patient: ${patient.patientID} (ObjectId: ${patient._id})`);
-    console.log(`📁 Current documents count: ${patient.documents.length}`);
+    // Find study if studyId provided
+    let study = null;
+    if (studyId && studyId !== 'general') {
+      study = await DicomStudy.findOne({ studyInstanceUID: studyId });
+      if (!study) {
+        console.log(`⚠️ Study not found: ${studyId}, continuing without study reference`);
+      }
+    }
 
     // Process each file
     const uploadedDocs = [];
@@ -2006,7 +1957,7 @@ export const uploadDocument = async (req, res) => {
         file.originalname,
         documentType,
         {
-          patientId: patientIdString,
+          patientId: originalPatientId,
           studyId: studyId || 'general',
           uploadedBy: user.fullName,
           userId: userId
@@ -2025,7 +1976,7 @@ export const uploadDocument = async (req, res) => {
         documentType: documentType,
         wasabiKey: wasabiResult.key,
         wasabiBucket: wasabiResult.bucket,
-patientId: patientIdString, //
+        patientId: originalPatientId,
         studyId: study ? study._id : null,
         uploadedBy: userId
       });
@@ -2044,18 +1995,13 @@ patientId: patientIdString, //
         wasabiBucket: wasabiResult.bucket,
         storageType: 'wasabi'
       };
-
-      // 🔧 CRITICAL FIX: Double-check array before pushing
-      if (!Array.isArray(patient.documents)) {
-        console.log('🔧 EMERGENCY: Converting patient.documents to array before push');
-        patient.documents = [];
-      }
-
-      console.log('📝 Adding document reference to patient...');
       patient.documents.push(documentReference);
 
-      // 🔧 STEP 3: Update study if this is the current study
-      try {
+      // Update study if provided
+      if (study) {
+        if (!study.uploadedReports) {
+          study.uploadedReports = [];
+        }
         const studyDocumentRef = {
           _id: documentRecord._id,
           filename: file.originalname,
@@ -2070,22 +2016,26 @@ patientId: patientIdString, //
           storageType: 'wasabi',
           documentType: documentType
         };
+        study.uploadedReports.push(studyDocumentRef);
 
-        // Update the actual study document
-        await DicomStudy.findByIdAndUpdate(
-          studyId,
-          {
-            $push: { uploadedReports: studyDocumentRef }
-            
-          
+        // Update study status if this is a report
+        if (documentType === 'report' || documentType === 'clinical') {
+          study.ReportAvailable = true;
+          if (study.workflowStatus === 'report_in_progress') {
+            study.workflowStatus = 'report_finalized';
+            if (!study.statusHistory) study.statusHistory = [];
+            study.statusHistory.push({
+              status: 'report_finalized',
+              changedAt: new Date(),
+              changedBy: userId,
+              note: `Report uploaded: ${file.originalname}`
+            });
           }
-        );
-
-        console.log(`✅ Study ${studyId} updated with document reference`);
-        
-      } catch (studyError) {
-        console.error('❌ Error updating study:', studyError);
-        // Don't fail the entire operation
+        }
+        if (study.caseType) {
+          study.caseType = study.caseType.toLowerCase();
+        }
+        await study.save();
       }
 
       uploadedDocs.push({
@@ -2099,21 +2049,12 @@ patientId: patientIdString, //
       });
     }
 
-    // 🔧 CRITICAL FIX: Save patient once after all files are processed
-    try {
-      await patient.save();
-      console.log('✅ Patient document references saved successfully');
-    } catch (saveError) {
-      console.error('❌ Error saving patient document reference:', saveError);
-      // Don't fail the entire operation, documents are already in Wasabi and Document collection
-    }
+    // Save patient once after all files are processed
+    await patient.save();
 
-    // Clear cache for patient details using ObjectId
-    const cacheKey = `patient_detail_objectid_${patientObjectId}`;
+    // Clear cache for patient details
+    const cacheKey = `patient_detail_${patientId}`;
     cache.del(cacheKey);
-    console.log('🧹 Cleared patient details cache');
-
-    console.log('✅ Document(s) uploaded successfully to Wasabi');
 
     res.json({
       success: true,
@@ -2123,7 +2064,6 @@ patientId: patientIdString, //
 
   } catch (error) {
     console.error('❌ Error uploading document:', error);
-    console.error('❌ Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Failed to upload document(s)',
@@ -2136,6 +2076,7 @@ patientId: patientIdString, //
 export const downloadDocument = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
     const userId = req.user.id;
 
     console.log(`⬇️ Downloading document ${docIndex} for patient: ${patientId}`);
@@ -2158,7 +2099,7 @@ export const downloadDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2243,7 +2184,8 @@ export const deleteDocument = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
     const userId = req.user.id;
-
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
+    
     console.log(`🗑️ Deleting document ${docIndex} for patient: ${patientId}`);
 
     // Validate user permissions
@@ -2256,7 +2198,7 @@ export const deleteDocument = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2410,6 +2352,7 @@ export const deleteStudyReport = async (req, res) => {
 export const getDocumentDownloadUrl = async (req, res) => {
   try {
     const { patientId, docIndex } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
     const userId = req.user.id;
     const { expiresIn = 3600 } = req.query; // Default 1 hour
 
@@ -2425,7 +2368,7 @@ export const getDocumentDownloadUrl = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findOne({ patientID: patientId });
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2492,20 +2435,12 @@ export const getDocumentDownloadUrl = async (req, res) => {
 // 🔧 NEW: List patient documents with metadata
 export const getPatientDocuments = async (req, res) => {
   try {
-    const { studyId } = req.params;
+    const { patientId } = req.params;
+    const originalPatientId = patientId.replace(/_SLASH_/g, '/');
+    
     const userId = req.user.id;
 
-    console.log(`📋 Getting documents for study: ${studyId}`);
-
-    const study = await DicomStudy.findById(studyId).select('patient patientId patientInfo').lean();
-    if (!study) {
-      return res.status(404).json({
-        success: false,
-        message: 'Study not found'
-      });
-    }
-    const patientObjectId = study.patient; // MongoDB ObjectId
-    const patientIdString = study.patientId; // String patientId
+    console.log(`📋 Getting documents for patient: ${patientId}`);
 
     // Validate user
     const user = await User.findById(userId).select('role');
@@ -2517,7 +2452,7 @@ export const getPatientDocuments = async (req, res) => {
     }
 
     // Find patient
-    const patient = await Patient.findById(patientObjectId).lean();
+    const patient = await Patient.findOne({ patientID: originalPatientId });
     if (!patient) {
       return res.status(404).json({
         success: false,
@@ -2544,7 +2479,7 @@ export const getPatientDocuments = async (req, res) => {
     res.json({
       success: true,
       data: {
-        patientId: patientIdString,
+        patientId: patientId,
         documentsCount: documents.length,
         documents: documents
       }

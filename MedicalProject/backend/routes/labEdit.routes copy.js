@@ -84,10 +84,10 @@ router.delete(
 );
 
 // Upload document for patient (Lab Staff + Admin only)
-router.post('/patients/:studyId/documents', 
+router.post('/patients/:patientId/documents', 
   authorize('lab_staff', 'admin'),
   (req, res, next) => {
-    console.log(`🔍 Upload middleware - User: ${req.user?.role}, Study: ${req.params.studyId}`);
+    console.log(`🔍 Upload middleware - User: ${req.user?.role}, Patient: ${req.params.patientId}`);
     next();
   },
   upload.array('files', 10), // Allow up to 10 files at once 
@@ -95,19 +95,19 @@ router.post('/patients/:studyId/documents',
 );
 
 // Get presigned download URL (for web apps)
-router.get('/patients/:studyId/documents/:docIndex/url',
+router.get('/patients/:patientId/documents/:docIndex/url',
   authorize('lab_staff', 'admin', 'doctor_account'),
   getDocumentDownloadUrl
 );
 
 // Direct download endpoint
-router.get('/patients/:studyId/documents/:docIndex/download', 
+router.get('/patients/:patientId/documents/:docIndex/download', 
   authorize('lab_staff', 'admin', 'doctor_account'),
   downloadDocument
 );
 
 // Delete patient document (Lab Staff + Admin only)
-router.delete('/patients/:studyId/documents/:docIndex', 
+router.delete('/patients/:patientId/documents/:docIndex', 
   authorize('lab_staff', 'admin'),
   deleteDocument
 );
@@ -115,13 +115,13 @@ router.delete('/patients/:studyId/documents/:docIndex',
 // 🔧 PATIENT MANAGEMENT (Lab Staff + Admin)
 
 // Get detailed patient view
-router.get('/patients/:studyId', 
+router.get('/patients/:patientId', 
   authorize('lab_staff', 'admin', 'doctor_account'),
   getPatientDetailedView
 );
 
 // Update patient details
-router.put('/patients/:studyId', 
+router.put('/patients/:patientId', 
   authorize('lab_staff', 'admin'),
   updatePatientDetails
 );
