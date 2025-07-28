@@ -223,70 +223,59 @@ function formatDicomDateToISO(dicomDate) {
 
 async function findOrCreatePatientFromTags(tags) {
   const patientIdDicom = tags.PatientID;
-  const nameInfo = processDicomPersonName(tags.PatientName);
+  const patientNameRaw = tags.PatientName; // ✅ Use raw name as-is
   const patientSex = tags.PatientSex;
   const patientAge = tags.PatientAge;
   const patientBirthDate = tags.PatientBirthDate;
 
-  if (!patientIdDicom && !nameInfo.fullName) {
-    let unknownPatient = await Patient.findOne({ mrn: 'UNKNOWN_STABLE_STUDY' });
-    if (!unknownPatient) {
-      unknownPatient = await Patient.create({
-        mrn: 'UNKNOWN_STABLE_STUDY',
-        patientID: 'UNKNOWN_PATIENT', // 🔧 FIXED: Use consistent unknown ID
-        patientNameRaw: 'Unknown Patient (Stable Study)',
-        firstName: '',
-        lastName: '',
-        gender: patientSex || '', // ✅ ADD: Gender
-        age: patientAge || '',
-        dateOfBirth: patientBirthDate || '',
-        isAnonymous: true
-      });
-    }
-    return unknownPatient;
-  }
+  // ✅ ALWAYS CREATE: No existence checks, always create new patient
+  console.log(`👤 Creating new patient from DICOM tags - PatientID: ${patientIdDicom}, Name: ${patientNameRaw}`);
 
-  let patient = await Patient.findOne({ mrn: patientIdDicom });
-
-  if (!patient) {
-    // 🔧 FIXED: Use DICOM PatientID directly instead of generating new one
-    patient = new Patient({
-      mrn: patientIdDicom || `ANON_${Date.now()}`,
-      patientID: patientIdDicom || `ANON_${Date.now()}`, // 🔧 FIXED: Use DICOM PatientID
-      patientNameRaw: nameInfo.formattedForDisplay,
-      firstName: nameInfo.firstName,
-      lastName: nameInfo.lastName,
+  try {
+    // ✅ SIMPLE: Create patient with minimal processing - save name as-is
+    const patient = new Patient({
+      mrn: patientIdDicom || `UNKNOWN_${Date.now()}`,
+      patientID: patientIdDicom || `UNKNOWN_${Date.now()}`, 
+      patientNameRaw: patientNameRaw || 'Unknown Patient', // ✅ Save exactly as received
+      firstName: '', // ✅ Leave empty - no name parsing
+      lastName: patientNameRaw || 'Unknown Patient', // ✅ Put full name in lastName for backward compatibility
       computed: {
-        fullName: nameInfo.formattedForDisplay,
-        namePrefix: nameInfo.namePrefix,
-        nameSuffix: nameInfo.nameSuffix,
-        originalDicomName: nameInfo.originalDicomFormat
+        fullName: patientNameRaw || 'Unknown Patient', // ✅ Use raw name
+        originalDicomName: patientNameRaw || '' // ✅ Store original
       },
-      gender: patientSex || '', // ✅ ADD: Gender from DICOM
+      gender: patientSex || '',
       age: patientAge || '',
-      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : ''
+      dateOfBirth: patientBirthDate ? formatDicomDateToISO(patientBirthDate) : null
     });
     
     await patient.save();
-    console.log(`👤 Created patient: ${nameInfo.formattedForDisplay} (${patientIdDicom})`);
-  } else {
-    // Update existing patient if name format has improved
-    if (patient.patientNameRaw && patient.patientNameRaw.includes('^') && nameInfo.formattedForDisplay && !nameInfo.formattedForDisplay.includes('^')) {
-      console.log(`🔄 Updating patient name format from "${patient.patientNameRaw}" to "${nameInfo.formattedForDisplay}"`);
-      
-      patient.patientNameRaw = nameInfo.formattedForDisplay;
-      patient.firstName = nameInfo.firstName;
-      patient.lastName = nameInfo.lastName;
-      
-      if (!patient.computed) patient.computed = {};
-      patient.computed.fullName = nameInfo.formattedForDisplay;
-      patient.computed.originalDicomName = nameInfo.originalDicomFormat;
-      
-      await patient.save();
-    }
+    console.log(`✅ Created new patient: ${patientNameRaw} (ID: ${patientIdDicom}) - MongoDB ID: ${patient._id}`);
+    
+    return patient;
+    
+  } catch (error) {
+    console.error(`❌ Error creating patient:`, error);
+    
+    // ✅ FALLBACK: Create minimal patient if save fails
+    const fallbackPatient = new Patient({
+      mrn: `FALLBACK_${Date.now()}`,
+      patientID: `FALLBACK_${Date.now()}`,
+      patientNameRaw: patientNameRaw || 'Unknown Patient',
+      firstName: '',
+      lastName: patientNameRaw || 'Unknown Patient',
+      computed: {
+        fullName: patientNameRaw || 'Unknown Patient',
+        originalDicomName: patientNameRaw || ''
+      },
+      gender: patientSex || '',
+      age: patientAge || ''
+    });
+    
+    await fallbackPatient.save();
+    console.log(`⚠️ Created fallback patient due to error: ${fallbackPatient._id}`);
+    
+    return fallbackPatient;
   }
-  
-  return patient;
 }
 
 async function findOrCreateSourceLab(tags) {
