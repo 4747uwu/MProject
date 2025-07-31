@@ -187,10 +187,34 @@ export const getTATReport = async (req, res) => {
 
             switch (dateType) {
                 case 'studyDate':
-                    // Handle YYYYMMDD string format
-                    const fromDateStr = fromDate.replace(/-/g, '');
-                    const toDateStr = toDate.replace(/-/g, '');
-                    dateFilter.studyDate = { $gte: fromDateStr, $lte: toDateStr };
+                    // ✅ FIXED: Handle both YYYYMMDD string and Date object formats
+                    if (typeof fromDate === 'string' && fromDate.includes('-')) {
+                        // ISO date format (YYYY-MM-DD) - convert to YYYYMMDD for comparison
+                        const fromDateStr = fromDate.replace(/-/g, '');
+                        const toDateStr = toDate.replace(/-/g, '');
+                        
+                        dateFilter.$or = [
+                            // Handle string studyDate (YYYYMMDD format)
+                            { 
+                                studyDate: { 
+                                    $type: "string",
+                                    $gte: fromDateStr, 
+                                    $lte: toDateStr 
+                                }
+                            },
+                            // Handle Date studyDate
+                            { 
+                                studyDate: { 
+                                    $type: "date",
+                                    $gte: startDate, 
+                                    $lte: endDate 
+                                }
+                            }
+                        ];
+                    } else {
+                        // Direct date comparison
+                        dateFilter.studyDate = { $gte: startDate, $lte: endDate };
+                    }
                     break;
 
                 case 'uploadDate':
@@ -302,10 +326,41 @@ export const getTATReport = async (req, res) => {
             const patient = study.patient || {};
             const patientName = patient.computed?.fullName ||
                 (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
-            
-            const modality = study.modality || (Array.isArray(study.modalitiesInStudy) ? study.modalitiesInStudy.join(', ') : '-');
+
+            const modality = study.modalitiesInStudy?.length > 0 ? 
+                         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A');
             const reportedBy = study.reportInfo?.reporterName || study.doctor?.userAccount?.[0]?.fullName || '-';
             const formatDate = (date) => (date ? new Date(date).toLocaleString() : '');
+
+            // ✅ FIXED: Handle study date formatting consistently
+            const formatStudyDate = (studyDate) => {
+                if (!studyDate) return '-';
+                
+                // Handle YYYYMMDD string format
+                if (typeof studyDate === 'string' && studyDate.length === 8) {
+                    const year = studyDate.substring(0, 4);
+                    const month = studyDate.substring(4, 6);
+                    const day = studyDate.substring(6, 8);
+                    return `${day}/${month}/${year}`;
+                }
+                
+                // Handle Date object
+                if (studyDate instanceof Date) {
+                    return studyDate.toLocaleDateString('en-GB');
+                }
+                
+                // Fallback: try to parse as date
+                try {
+                    const date = new Date(studyDate);
+                    if (!isNaN(date.getTime())) {
+                        return date.toLocaleDateString('en-GB');
+                    }
+                } catch (error) {
+                    console.warn('Invalid study date format:', studyDate);
+                }
+                
+                return studyDate.toString();
+            };
 
             return {
                 _id: study._id,
@@ -319,7 +374,7 @@ export const getTATReport = async (req, res) => {
                 modality,
                 series_Images: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 institutionName: study.lab?.name || '-',
-                billedOnStudyDate: study.studyDate || '-',
+                billedOnStudyDate: formatStudyDate(study.studyDate),
                 uploadDate: formatDate(study.createdAt),
                 // Handle both old and new assignment structures
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),

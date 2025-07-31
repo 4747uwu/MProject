@@ -1,7 +1,90 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 
-const TATReportTable = ({ studies = [] }) => {
+const TATReportTable = ({ 
+  studies = [], 
+  onLocationChange, 
+  locations = [],
+  selectedLocation,
+  onModalityFilter,
+  selectedModalities = [],
+  onRecordsPerPageChange,
+  recordsPerPage = 100 
+}) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // ✅ NEW: Modality options with combined modalities
+  const modalityOptions = [
+    'CT', 'MR', 'CR', 'DX', 'PR', 'US', 'XR', 'MG', 'NM', 'PT',
+    'MR/SR', 'CT/SR', 'CR/SR', 'DX/SR', 'PR/MR', 'CT/MR'
+  ];
+
+  // ✅ NEW: Records per page options
+  const recordOptions = [10, 25, 50, 100, 250, 500, 1000];
+
+  // ✅ NEW: Filter and search logic
+  const filteredStudies = useMemo(() => {
+    let filtered = [...studies];
+
+    // Search filter
+    if (searchTerm.trim()) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(study => 
+        (study.patientName || '').toLowerCase().includes(search) ||
+        (study.patientId || '').toLowerCase().includes(search) ||
+        (study.accessionNumber || '').toLowerCase().includes(search) ||
+        (study.referredBy || '').toLowerCase().includes(search) ||
+        (study.reportedBy || '').toLowerCase().includes(search) ||
+        (study.studyDescription || '').toLowerCase().includes(search)
+      );
+    }
+
+    // Modality filter
+    if (selectedModalities.length > 0) {
+      filtered = filtered.filter(study => {
+        const studyModality = study.modality || '';
+        return selectedModalities.some(selectedMod => {
+          if (selectedMod.includes('/')) {
+            // Handle combined modalities like MR/SR
+            const modalityParts = selectedMod.split('/');
+            return modalityParts.every(part => studyModality.includes(part));
+          } else {
+            return studyModality.includes(selectedMod);
+          }
+        });
+      });
+    }
+
+    return filtered;
+  }, [studies, searchTerm, selectedModalities]);
+
+  // ✅ NEW: Pagination logic
+  const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
+  const startIndex = (currentPage - 1) * recordsPerPage;
+  const paginatedStudies = filteredStudies.slice(startIndex, startIndex + recordsPerPage);
+
+  // ✅ NEW: Handle modality toggle
+  const handleModalityToggle = (modality) => {
+    const newSelection = selectedModalities.includes(modality)
+      ? selectedModalities.filter(m => m !== modality)
+      : [...selectedModalities, modality];
+    
+    onModalityFilter(newSelection);
+    setCurrentPage(1); // Reset to first page when filtering
+  };
+
+  // ✅ NEW: Handle page change
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+  };
+
+  // ✅ NEW: Handle records per page change
+  const handleRecordsChange = (newRecordsPerPage) => {
+    onRecordsPerPageChange(newRecordsPerPage);
+    setCurrentPage(1); // Reset to first page
+  };
+
   // Helper function to format date with modern style
   const formatDateTime = (dateString) => {
     if (!dateString) return '-';
@@ -113,9 +196,9 @@ const TATReportTable = ({ studies = [] }) => {
 
   return (
     <div className="w-full bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-      {/* Enhanced Table Header */}
+      {/* ✅ NEW: Enhanced Header with Filters */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
           <div>
             <h3 className="text-xl font-bold text-gray-900 flex items-center">
               <svg className="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,19 +206,108 @@ const TATReportTable = ({ studies = [] }) => {
               </svg>
               TAT Performance Report
             </h3>
-            <p className="text-sm text-gray-600 mt-1">Turnaround Time Analysis & Study Status</p>
+            <p className="text-sm text-gray-600 mt-1">
+              Showing {paginatedStudies.length} of {filteredStudies.length} studies 
+              {filteredStudies.length !== studies.length && ` (filtered from ${studies.length} total)`}
+            </p>
           </div>
-          <div className="text-right">
-            <div className="text-2xl font-bold text-blue-600">{studies.length}</div>
-            <div className="text-xs text-gray-500 uppercase tracking-wide">Total Records</div>
+
+          {/* ✅ NEW: Filter Controls */}
+          <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
+            {/* Location Search Dropdown */}
+            <div className="relative">
+              <select
+                value={selectedLocation}
+                onChange={(e) => onLocationChange(e.target.value)}
+                className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">All Locations</option>
+                {locations.map(location => (
+                  <option key={location.value} value={location.value}>
+                    {location.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Records Per Page */}
+            <select
+              value={recordsPerPage}
+              onChange={(e) => handleRecordsChange(parseInt(e.target.value))}
+              className="w-full sm:w-32 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              {recordOptions.map(option => (
+                <option key={option} value={option}>{option} records</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* ✅ NEW: Search and Modality Filters */}
+        <div className="mt-4 space-y-3">
+          {/* Search Bar */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <input
+              type="text"
+              placeholder="Search by patient name, ID, accession number, referring doctor..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Modality Filter */}
+          <div>
+            <div className="flex items-center mb-2">
+              <span className="text-sm font-medium text-gray-700 mr-3">Filter by Modality:</span>
+              {selectedModalities.length > 0 && (
+                <button
+                  onClick={() => onModalityFilter([])}
+                  className="text-xs text-blue-600 hover:text-blue-800 underline"
+                >
+                  Clear All
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {modalityOptions.map(modality => (
+                <button
+                  key={modality}
+                  onClick={() => handleModalityToggle(modality)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                    selectedModalities.includes(modality)
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {modality}
+                  {selectedModalities.includes(modality) && (
+                    <span className="ml-1">✓</span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Enhanced Table Container */}
-      {/* Increased min-w-full to ensure it doesn't squish too much before overflow kicks in */}
+      {/* ✅ EXISTING: Table remains the same, but uses paginatedStudies */}
       <div className="w-full overflow-x-auto">
-        {/* Changed table-fixed to table-auto for dynamic column sizing, added a minimum width to prevent excessive squishing */}
         <table className="w-full border-collapse table-auto text-xs min-w-[1200px]">
           <thead>
             <tr className="bg-gradient-to-r from-gray-800 to-gray-900 text-white">
@@ -202,9 +374,9 @@ const TATReportTable = ({ studies = [] }) => {
               </th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-100"> {/* Added divide-y for horizontal lines */}
-            {studies.length > 0 ? (
-              studies.map((study, index) => (
+          <tbody className="bg-white divide-y divide-gray-100">
+            {paginatedStudies.length > 0 ? (
+              paginatedStudies.map((study, index) => (
                 <tr 
                   key={study._id || index} 
                   className={`hover:bg-blue-50 transition-colors duration-150 ${
@@ -342,12 +514,22 @@ const TATReportTable = ({ studies = [] }) => {
                   <div className="flex flex-col items-center justify-center space-y-4">
                     <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
                       <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </div>
                     <div>
-                      <p className="text-lg font-medium text-gray-500">No TAT data available</p>
-                      <p className="text-sm text-gray-400">Adjust your date range or filters to see results</p>
+                      <p className="text-lg font-medium text-gray-500">
+                        {searchTerm || selectedModalities.length > 0 
+                          ? 'No studies match your search criteria' 
+                          : 'No TAT data available'
+                        }
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        {searchTerm || selectedModalities.length > 0 
+                          ? 'Try adjusting your search terms or filters' 
+                          : 'Adjust your date range or filters to see results'
+                        }
+                      </p>
                     </div>
                   </div>
                 </td>
@@ -357,14 +539,19 @@ const TATReportTable = ({ studies = [] }) => {
         </table>
       </div>
 
-      {/* Enhanced Table Footer */}
-      {studies.length > 0 && (
+      {/* ✅ NEW: Enhanced Pagination Footer */}
+      {filteredStudies.length > 0 && (
         <div className="bg-gradient-to-r from-gray-50 to-gray-100 border-t border-gray-200 px-4 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">{studies.length}</span> {studies.length === 1 ? 'record' : 'records'} displayed
-              </div>
+          <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+            {/* Left: Record Info */}
+            <div className="flex items-center space-x-4 text-sm text-gray-600">
+              <span>
+                Showing <span className="font-semibold">{startIndex + 1}</span> to{' '}
+                <span className="font-semibold">{Math.min(startIndex + recordsPerPage, filteredStudies.length)}</span> of{' '}
+                <span className="font-semibold">{filteredStudies.length}</span> studies
+              </span>
+              
+              {/* Modality Legend */}
               <div className="flex items-center space-x-2 text-xs">
                 <div className="flex items-center">
                   <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
@@ -388,6 +575,59 @@ const TATReportTable = ({ studies = [] }) => {
                 </div>
               </div>
             </div>
+
+            {/* Right: Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                
+                {/* Page Numbers */}
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                    
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => handlePageChange(pageNum)}
+                        className={`px-3 py-1 text-sm font-medium rounded-md ${
+                          currentPage === pageNum
+                            ? 'bg-blue-500 text-white'
+                            : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+                
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+
+            {/* Last Updated */}
             <div className="text-xs text-gray-500 flex items-center">
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
