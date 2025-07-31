@@ -11,8 +11,10 @@ const TATReport = () => {
   // State management
   const [studies, setStudies] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [doctors, setDoctors] = useState([]); // 🆕 NEW
   const [loading, setLoading] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('');
+  const [selectedDoctor, setSelectedDoctor] = useState(''); // 🆕 NEW
   const [selectedModalities, setSelectedModalities] = useState([]);
   const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
@@ -27,6 +29,11 @@ const TATReport = () => {
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef(null);
+
+  // 🆕 NEW: Searchable doctor dropdown state
+  const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
+  const [isDoctorDropdownOpen, setIsDoctorDropdownOpen] = useState(false);
+  const doctorDropdownRef = useRef(null);
 
   // ✅ COMPACT: Modality options
   const modalityOptions = [
@@ -52,6 +59,22 @@ const TATReport = () => {
     fetchLocations();
   }, []);
 
+  // 🆕 NEW: Fetch doctors
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      try {
+        const response = await api.get('/tat/doctors');
+        if (response.data.success) {
+          setDoctors(response.data.doctors);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching doctors:', error);
+        toast.error('Failed to load doctors');
+      }
+    };
+    fetchDoctors();
+  }, []);
+
   // ✅ NEW: Filtered locations based on search
   const filteredLocations = useMemo(() => {
     if (!locationSearchTerm.trim()) return locations;
@@ -63,11 +86,29 @@ const TATReport = () => {
     );
   }, [locations, locationSearchTerm]);
 
+  // 🆕 NEW: Filtered doctors based on search
+  const filteredDoctors = useMemo(() => {
+    if (!doctorSearchTerm.trim()) return doctors;
+    
+    const search = doctorSearchTerm.toLowerCase();
+    return doctors.filter(doctor => 
+      doctor.label.toLowerCase().includes(search) ||
+      (doctor.specialization && doctor.specialization.toLowerCase().includes(search))
+    );
+  }, [doctors, doctorSearchTerm]);
+
   // ✅ NEW: Handle location selection
   const handleLocationSelect = (location) => {
     setSelectedLocation(location ? location.value : '');
     setLocationSearchTerm(location ? location.label : '');
     setIsLocationDropdownOpen(false);
+  };
+
+  // 🆕 NEW: Handle doctor selection
+  const handleDoctorSelect = (doctor) => {
+    setSelectedDoctor(doctor ? doctor.value : '');
+    setDoctorSearchTerm(doctor ? doctor.label : '');
+    setIsDoctorDropdownOpen(false);
   };
 
   // ✅ NEW: Handle search input
@@ -82,11 +123,26 @@ const TATReport = () => {
     }
   };
 
+  // 🆕 NEW: Handle doctor search input
+  const handleDoctorSearchChange = (e) => {
+    const value = e.target.value;
+    setDoctorSearchTerm(value);
+    setIsDoctorDropdownOpen(true);
+    
+    // Clear selection if search doesn't match current selection
+    if (selectedDoctor && !value) {
+      setSelectedDoctor('');
+    }
+  };
+
   // ✅ NEW: Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
         setIsLocationDropdownOpen(false);
+      }
+      if (doctorDropdownRef.current && !doctorDropdownRef.current.contains(event.target)) {
+        setIsDoctorDropdownOpen(false);
       }
     };
 
@@ -106,6 +162,18 @@ const TATReport = () => {
     }
   }, [selectedLocation, locations]);
 
+  // 🆕 NEW: Set initial search term when doctor is selected externally
+  useEffect(() => {
+    if (selectedDoctor) {
+      const doctor = doctors.find(doc => doc.value === selectedDoctor);
+      if (doctor) {
+        setDoctorSearchTerm(doctor.label);
+      }
+    } else {
+      setDoctorSearchTerm('');
+    }
+  }, [selectedDoctor, doctors]);
+
   // Fetch TAT data
   const fetchTATData = useCallback(async () => {
     if (!selectedLocation) return;
@@ -123,6 +191,9 @@ const TATReport = () => {
       if (selectedModalities.length > 0) {
         params.modality = selectedModalities.join(',');
       }
+
+      // 🔧 REMOVED: Don't send reportedBy to backend anymore
+      // Backend will return ALL studies, frontend will filter
 
       const response = await api.get('/tat/report', { params });
       
@@ -142,9 +213,74 @@ const TATReport = () => {
     }
   }, [selectedLocation, dateType, fromDate, toDate, selectedModalities, recordsPerPage]);
 
-  // ✅ OPTIMIZED: Combined filtering and search
+  // 🔧 MODIFIED: Remove selectedDoctor from Excel export
+  const exportToExcel = useCallback(async () => {
+    if (!selectedLocation) {
+      toast.error('Please select a location first');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const params = {
+        location: selectedLocation,
+        dateType,
+        fromDate,
+        toDate
+      };
+
+      // 🔧 REMOVED: Don't send reportedBy to backend for export
+      // We'll export the filtered data from frontend
+
+      const response = await api.get('/tat/report/export', { 
+        params,
+        responseType: 'blob'
+      });
+
+      // Create blob link to download
+      const blob = new Blob([response.data], { 
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Generate filename with doctor filter info
+      const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
+      const doctorName = selectedDoctor ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' : 'All_Doctors';
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.download = `TAT_Report_${locationName}_${doctorName}_${dateStr}.xlsx`;
+      
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast.success('Excel report downloaded successfully!');
+    } catch (error) {
+      console.error('❌ Error exporting Excel:', error);
+      toast.error('Failed to export Excel report');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedLocation, dateType, fromDate, toDate, locations, selectedDoctor, doctors]);
+
+  // 🔧 ENHANCED: Add doctor filtering to the existing filteredStudies logic
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
+
+    // 🆕 NEW: Doctor filter (reportedBy)
+    if (selectedDoctor) {
+      filtered = filtered.filter(study => {
+        const reportedBy = study.reportedBy || '';
+        // Get the selected doctor's name
+        const selectedDoctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || '';
+        
+        // Check if the study's reportedBy matches the selected doctor
+        return reportedBy.toLowerCase().includes(selectedDoctorName.toLowerCase()) ||
+               reportedBy === selectedDoctorName;
+      });
+    }
 
     // Search filter
     if (searchTerm.trim()) {
@@ -175,7 +311,7 @@ const TATReport = () => {
     }
 
     return filtered;
-  }, [studies, searchTerm, selectedModalities]);
+  }, [studies, selectedDoctor, doctors, searchTerm, selectedModalities]);
 
   // Pagination
   const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
@@ -280,6 +416,22 @@ const TATReport = () => {
     setCurrentPage(page);
   };
 
+  // 🔧 ENHANCED: Update the title to show active filters
+  const getFilterSummary = () => {
+    const filters = [];
+    if (selectedDoctor) {
+      const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
+      filters.push(`Doctor: ${doctorName}`);
+    }
+    if (selectedModalities.length > 0) {
+      filters.push(`Modalities: ${selectedModalities.join(', ')}`);
+    }
+    if (searchTerm.trim()) {
+      filters.push(`Search: "${searchTerm}"`);
+    }
+    return filters.length > 0 ? ` (${filters.join(' | ')})` : '';
+  };
+
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
@@ -293,11 +445,22 @@ const TATReport = () => {
             <p className="text-xs text-gray-600">
               Showing {paginatedStudies.length} of {filteredStudies.length} studies 
               {filteredStudies.length !== studies.length && ` (filtered from ${studies.length} total)`}
+              {getFilterSummary()}
             </p>
           </div>
           
           {/* ✅ COMPACT: TAT Legend */}
           <div className="flex items-center space-x-2 text-xs">
+            {/* 🆕 NEW: Add Export button next to legend */}
+            <button
+              onClick={exportToExcel}
+              disabled={!selectedLocation || loading || filteredStudies.length === 0}
+              className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed mr-4"
+              title="Export current filtered data to Excel"
+            >
+              {loading ? '...' : '📊 Export'}
+            </button>
+            
             <div className="flex items-center">
               <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
               <span>≤1h</span>
@@ -338,7 +501,7 @@ const TATReport = () => {
           </div>
 
           {/* From Date */}
-          <div className="col-span-2">
+          <div className="col-span-1">
             <input
               type="date"
               value={fromDate}
@@ -348,7 +511,7 @@ const TATReport = () => {
           </div>
 
           {/* To Date */}
-          <div className="col-span-2">
+          <div className="col-span-1">
             <input
               type="date"
               value={toDate}
@@ -358,7 +521,7 @@ const TATReport = () => {
           </div>
 
           {/* ✅ SEARCHABLE: Location Dropdown */}
-          <div className="col-span-3 relative" ref={locationDropdownRef}>
+          <div className="col-span-2 relative" ref={locationDropdownRef}>
             <div className="relative">
               <input
                 type="text"
@@ -441,6 +604,102 @@ const TATReport = () => {
                 ) : (
                   <div className="px-2 py-1 text-xs text-gray-500 italic">
                     No locations found for "{locationSearchTerm}"
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 🆕 NEW: Searchable Doctor Dropdown */}
+          <div className="col-span-2 relative" ref={doctorDropdownRef}>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search doctors..."
+                value={doctorSearchTerm}
+                onChange={handleDoctorSearchChange}
+                onFocus={() => setIsDoctorDropdownOpen(true)}
+                className="w-full pl-6 pr-6 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <svg 
+                className="w-3 h-3 text-gray-400 absolute left-1 top-1/2 transform -translate-y-1/2" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              
+              {/* Clear button */}
+              {doctorSearchTerm && (
+                <button
+                  onClick={() => {
+                    setDoctorSearchTerm('');
+                    setSelectedDoctor('');
+                    setIsDoctorDropdownOpen(false);
+                  }}
+                  className="absolute right-1 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* 🆕 NEW: Doctor dropdown list */}
+            {isDoctorDropdownOpen && (
+              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
+                {/* All Doctors option */}
+                <div
+                  onClick={() => handleDoctorSelect(null)}
+                  className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 ${
+                    !selectedDoctor ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center">
+                    <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    All Doctors
+                  </div>
+                </div>
+
+                {/* Filtered doctors */}
+                {filteredDoctors.length > 0 ? (
+                  filteredDoctors.map((doctor) => (
+                    <div
+                      key={doctor.value}
+                      onClick={() => handleDoctorSelect(doctor)}
+                      className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
+                        selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                          <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                          </svg>
+                          <div>
+                            <span className="truncate">{doctor.label}</span>
+                            {doctor.specialization && (
+                              <div className="text-xs text-gray-500 truncate">
+                                {doctor.specialization}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        {selectedDoctor === doctor.value && (
+                          <svg className="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-2 py-1 text-xs text-gray-500 italic">
+                    No doctors found for "{doctorSearchTerm}"
                   </div>
                 )}
               </div>
@@ -537,7 +796,7 @@ const TATReport = () => {
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">ASSIGN DATE</th>
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">REPORT DATE</th>
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">U→A TAT</th>
-              <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">S→R TAT</th>
+              {/* <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">S→R TAT</th> */}
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">U→R TAT</th>
               <th className="border-r border-gray-600 px-1 py-2 text-center text-xs font-semibold min-w-[70px]">A→R TAT</th>
               <th className="border-r border-gray-600 px-1 py-2 text-left text-xs font-semibold min-w-[80px]">REPORTED BY</th>
@@ -642,14 +901,14 @@ const TATReport = () => {
                       })()}
                     </span>
                   </td>
-                  <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
+                  {/* <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-1 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted'))}`}>
                       {(() => {
                         const val = getSafeNestedValue(study, 'fullTatDetails.studyToReportTATFormatted', 'N/A');
                         return val !== 'N/A' && val !== '-' ? `${val}m` : val;
                       })()}
                     </span>
-                  </td>
+                  </td> */}
                   <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className={`inline-flex items-center px-1 py-0.5 text-xs font-medium rounded-full ${getTATStatusColor(getSafeNestedValue(study, 'fullTatDetails.uploadToReportTATFormatted'))}`}>
                       {(() => {
