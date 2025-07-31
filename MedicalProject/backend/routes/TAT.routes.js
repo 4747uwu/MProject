@@ -2,6 +2,7 @@ import express from 'express';
 import { 
   getLocations, 
   getStatuses, 
+  getDoctors,  // 🆕 NEW
   getTATReport, 
   exportTATReport,
   getTATAnalytics
@@ -16,6 +17,7 @@ router.use(protect);
 // Master data routes
 router.get('/locations', getLocations);
 router.get('/statuses', getStatuses);
+router.get('/doctors', getDoctors);  // 🆕 NEW
 
 // TAT Report routes
 router.get('/report', getTATReport);
