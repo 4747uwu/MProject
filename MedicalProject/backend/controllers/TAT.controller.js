@@ -139,8 +139,8 @@ export const getStatuses = async (req, res) => {
 export const getTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
-        const { location, dateType, fromDate, toDate, status, page = 1, limit = 100 } = req.query;
-        // 🔧 REMOVED: reportedBy parameter - no longer used
+        const { location, dateType, fromDate, toDate, status } = req.query;
+        // 🔧 REMOVED: page and limit parameters - fetch ALL studies
 
         console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
 
@@ -151,8 +151,8 @@ export const getTATReport = async (req, res) => {
             });
         }
 
-        // 🔧 PERFORMANCE: Check cache for this specific query (removed reportedBy from cache key)
-        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}_${page}_${limit}`;
+        // 🔧 MODIFIED: Cache key without pagination params
+        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}`;
         let cachedReport = cache.get(cacheKey);
 
         if (cachedReport) {
@@ -188,14 +188,11 @@ export const getTATReport = async (req, res) => {
 
             switch (dateType) {
                 case 'studyDate':
-                    // ✅ FIXED: Handle both YYYYMMDD string and Date object formats
                     if (typeof fromDate === 'string' && fromDate.includes('-')) {
-                        // ISO date format (YYYY-MM-DD) - convert to YYYYMMDD for comparison
                         const fromDateStr = fromDate.replace(/-/g, '');
                         const toDateStr = toDate.replace(/-/g, '');
                         
                         dateFilter.$or = [
-                            // Handle string studyDate (YYYYMMDD format)
                             { 
                                 studyDate: { 
                                     $type: "string",
@@ -203,7 +200,6 @@ export const getTATReport = async (req, res) => {
                                     $lte: toDateStr 
                                 }
                             },
-                            // Handle Date studyDate
                             { 
                                 studyDate: { 
                                     $type: "date",
@@ -213,7 +209,6 @@ export const getTATReport = async (req, res) => {
                             }
                         ];
                     } else {
-                        // Direct date comparison
                         dateFilter.studyDate = { $gte: startDate, $lte: endDate };
                     }
                     break;
@@ -294,34 +289,18 @@ export const getTATReport = async (req, res) => {
             }
         });
 
-        // 🔧 PERFORMANCE: Add faceting for data and total count in one query
-        const facetStage = {
-            $facet: {
-                paginatedResults: [
-                    { $sort: { createdAt: -1 } },
-                    { $skip: (parseInt(page) - 1) * parseInt(limit) },
-                    { $limit: parseInt(limit) }
-                ],
-                totalCount: [
-                    { $count: 'count' }
-                ]
-            }
-        };
-        pipeline.push(facetStage);
+        // 🔧 MODIFIED: Only sort, no pagination - fetch ALL studies
+        pipeline.push({ $sort: { createdAt: -1 } });
 
         // 🔧 CRITICAL: Execute aggregation with allowDiskUse for large datasets
         console.log('🔍 Executing TAT aggregation pipeline...');
-        const result = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
-
-        const studies = result[0].paginatedResults;
-        const totalCount = result[0].totalCount.length > 0 ? result[0].totalCount[0].count : 0;
+        const studies = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
         
-        console.log(`✅ Retrieved ${studies.length} studies out of ${totalCount} total`);
+        console.log(`✅ Retrieved ALL ${studies.length} studies for the timeframe`);
 
         // 🔧 OPTIMIZED: Process studies efficiently, using the fetched calculatedTAT
         const processedStudies = studies.map(study => {
             // 🔧 CRITICAL: Prioritize using calculatedTAT from the database.
-            // If it's not present (e.g., for older records), calculate it on-the-fly as a fallback.
             const tat = study.calculatedTAT || calculateStudyTAT(study);
 
             const patient = study.patient || {};
@@ -406,7 +385,7 @@ export const getTATReport = async (req, res) => {
         // 🔧 PERFORMANCE: Calculate summary statistics using the already fetched `calculatedTAT`
         const reportedStudies = studies.filter(s => s.reportInfo?.finalizedAt);
         const summary = {
-            totalStudies: totalCount,
+            totalStudies: studies.length,
             reportedStudies: reportedStudies.length,
             averageUploadToReport: reportedStudies.length > 0
                 ? Math.round(reportedStudies.reduce((sum, s) => sum + (s.calculatedTAT?.uploadToReportTAT || 0), 0) / reportedStudies.length)
@@ -419,19 +398,15 @@ export const getTATReport = async (req, res) => {
         const responseData = {
             studies: processedStudies,
             summary,
-            pagination: {
-                currentPage: parseInt(page),
-                totalPages: Math.ceil(totalCount / parseInt(limit)),
-                totalRecords: totalCount,
-                limit: parseInt(limit)
-            }
+            // 🔧 REMOVED: pagination object - not needed anymore
+            totalRecords: studies.length
         };
 
         // 🔧 PERFORMANCE: Cache the result for 5 minutes
         cache.set(cacheKey, responseData, 300);
 
         const processingTime = Date.now() - startTime;
-        console.log(`✅ TAT report generated in ${processingTime}ms`);
+        console.log(`✅ TAT report generated in ${processingTime}ms - ALL ${studies.length} studies fetched`);
 
         return res.status(200).json({
             success: true,

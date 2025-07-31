@@ -93,7 +93,8 @@ const TATReport = () => {
     const search = doctorSearchTerm.toLowerCase();
     return doctors.filter(doctor => 
       doctor.label.toLowerCase().includes(search) ||
-      (doctor.specialization && doctor.specialization.toLowerCase().includes(search))
+      (doctor.specialization && doctor.specialization.toLowerCase().includes(search)) ||
+      (doctor.email && doctor.email.toLowerCase().includes(search))
     );
   }, [doctors, doctorSearchTerm]);
 
@@ -109,6 +110,7 @@ const TATReport = () => {
     setSelectedDoctor(doctor ? doctor.value : '');
     setDoctorSearchTerm(doctor ? doctor.label : '');
     setIsDoctorDropdownOpen(false);
+    setCurrentPage(1); // 🔧 ADDED: Reset to first page when doctor changes
   };
 
   // ✅ NEW: Handle search input
@@ -184,22 +186,20 @@ const TATReport = () => {
         location: selectedLocation,
         dateType,
         fromDate,
-        toDate,
-        limit: recordsPerPage
+        toDate
+        // 🔧 REMOVED: limit parameter - fetch ALL studies
       };
 
       if (selectedModalities.length > 0) {
         params.modality = selectedModalities.join(',');
       }
 
-      // 🔧 REMOVED: Don't send reportedBy to backend anymore
-      // Backend will return ALL studies, frontend will filter
-
       const response = await api.get('/tat/report', { params });
       
       if (response.data.success) {
         setStudies(response.data.studies);
         setCurrentPage(1);
+        console.log(`✅ Fetched ${response.data.studies.length} studies from backend`);
       } else {
         toast.error('Failed to load TAT data');
         setStudies([]);
@@ -211,7 +211,7 @@ const TATReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities, recordsPerPage]);
+  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]); // 🔧 REMOVED: recordsPerPage dependency
 
   // 🔧 MODIFIED: Remove selectedDoctor from Excel export
   const exportToExcel = useCallback(async () => {
@@ -265,11 +265,11 @@ const TATReport = () => {
     }
   }, [selectedLocation, dateType, fromDate, toDate, locations, selectedDoctor, doctors]);
 
-  // 🔧 ENHANCED: Add doctor filtering to the existing filteredStudies logic
+  // 🔧 ENHANCED: Reorder filtering - Doctor filter BEFORE pagination
   const filteredStudies = useMemo(() => {
     let filtered = [...studies];
 
-    // 🆕 NEW: Doctor filter (reportedBy)
+    // 🆕 STEP 1: Doctor filter FIRST (on full dataset before any pagination)
     if (selectedDoctor) {
       filtered = filtered.filter(study => {
         const reportedBy = study.reportedBy || '';
@@ -282,7 +282,7 @@ const TATReport = () => {
       });
     }
 
-    // Search filter
+    // 🔧 STEP 2: Search filter (after doctor filter)
     if (searchTerm.trim()) {
       const search = searchTerm.toLowerCase();
       filtered = filtered.filter(study => 
@@ -295,7 +295,7 @@ const TATReport = () => {
       );
     }
 
-    // Modality filter
+    // 🔧 STEP 3: Modality filter (after search filter)
     if (selectedModalities.length > 0) {
       filtered = filtered.filter(study => {
         const studyModality = study.modality || '';
@@ -421,7 +421,13 @@ const TATReport = () => {
     const filters = [];
     if (selectedDoctor) {
       const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
-      filters.push(`Doctor: ${doctorName}`);
+      // Show how many studies match this doctor
+      const doctorStudies = studies.filter(study => {
+        const reportedBy = study.reportedBy || '';
+        return reportedBy.toLowerCase().includes(doctorName.toLowerCase()) ||
+               reportedBy === doctorName;
+      });
+      filters.push(`Doctor: ${doctorName} (${doctorStudies.length} studies)`);
     }
     if (selectedModalities.length > 0) {
       filters.push(`Modalities: ${selectedModalities.join(', ')}`);
@@ -443,9 +449,22 @@ const TATReport = () => {
           <div>
             <h1 className="text-lg font-bold text-gray-900">TAT Performance Report</h1>
             <p className="text-xs text-gray-600">
-              Showing {paginatedStudies.length} of {filteredStudies.length} studies 
-              {filteredStudies.length !== studies.length && ` (filtered from ${studies.length} total)`}
-              {getFilterSummary()}
+              {loading ? (
+                <span className="text-blue-600">
+                  🔄 Loading studies...
+                </span>
+              ) : (
+                <>
+                  Showing <span className="font-semibold">{paginatedStudies.length}</span> of{' '}
+                  <span className="font-semibold">{filteredStudies.length}</span> studies
+                  {filteredStudies.length !== studies.length && (
+                    <span className="text-gray-500">
+                      {' '}(filtered from <span className="font-semibold">{studies.length}</span> total)
+                    </span>
+                  )}
+                  {getFilterSummary()}
+                </>
+              )}
             </p>
           </div>
           
@@ -540,6 +559,7 @@ const TATReport = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
               
+            
               {/* Clear button */}
               {locationSearchTerm && (
                 <button
@@ -559,19 +579,19 @@ const TATReport = () => {
 
             {/* ✅ SEARCHABLE: Dropdown list */}
             {isLocationDropdownOpen && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
+              <div className="absolute z-50 w-80 mt-1 bg-white border border-gray-300 rounded-md shadow-xl max-h-80 overflow-y-auto">
                 {/* All Locations option */}
                 <div
                   onClick={() => handleLocationSelect(null)}
-                  className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 ${
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 ${
                     !selectedLocation ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
                   }`}
                 >
                   <div className="flex items-center">
-                    <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
-                    All Locations
+                    <span className="font-medium">All Locations</span>
                   </div>
                 </div>
 
@@ -581,20 +601,25 @@ const TATReport = () => {
                     <div
                       key={location.value}
                       onClick={() => handleLocationSelect(location)}
-                      className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
+                      className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
                         selectedLocation === location.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
                       }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center">
-                          <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                           </svg>
-                          <span className="truncate">{location.label}</span>
+                          <div>
+                            <div className="font-medium">{location.label}</div>
+                            {location.code && (
+                              <div className="text-xs text-gray-500">Code: {location.code}</div>
+                            )}
+                          </div>
                         </div>
                         {selectedLocation === location.value && (
-                          <svg className="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
                         )}
@@ -602,7 +627,7 @@ const TATReport = () => {
                     </div>
                   ))
                 ) : (
-                  <div className="px-2 py-1 text-xs text-gray-500 italic">
+                  <div className="px-3 py-2 text-sm text-gray-500 italic">
                     No locations found for "{locationSearchTerm}"
                   </div>
                 )}
@@ -630,6 +655,7 @@ const TATReport = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
               </svg>
               
+            
               {/* Clear button */}
               {doctorSearchTerm && (
                 <button
@@ -649,56 +675,82 @@ const TATReport = () => {
 
             {/* 🆕 NEW: Doctor dropdown list */}
             {isDoctorDropdownOpen && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-40 overflow-y-auto">
+              <div className="absolute z-50 w-96 mt-1 bg-white border border-gray-300 rounded-md shadow-xl max-h-80 overflow-y-auto">
                 {/* All Doctors option */}
                 <div
                   onClick={() => handleDoctorSelect(null)}
-                  className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 ${
+                  className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 ${
                     !selectedDoctor ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
                   }`}
                 >
-                  <div className="flex items-center">
-                    <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                    </svg>
-                    All Doctors
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                      </svg>
+                      <span className="font-medium">All Doctors</span>
+                    </div>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      {studies.length}
+                    </span>
                   </div>
                 </div>
 
-                {/* Filtered doctors */}
+                {/* Filtered doctors with study counts */}
                 {filteredDoctors.length > 0 ? (
-                  filteredDoctors.map((doctor) => (
-                    <div
-                      key={doctor.value}
-                      onClick={() => handleDoctorSelect(doctor)}
-                      className={`px-2 py-1 text-xs cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
-                        selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                          </svg>
-                          <div>
-                            <span className="truncate">{doctor.label}</span>
-                            {doctor.specialization && (
-                              <div className="text-xs text-gray-500 truncate">
-                                {doctor.specialization}
-                              </div>
+                  filteredDoctors.map((doctor) => {
+                    // 🔧 Calculate study count for this doctor from FULL dataset
+                    const doctorStudyCount = studies.filter(study => {
+                      const reportedBy = study.reportedBy || '';
+                      return reportedBy.toLowerCase().includes(doctor.label.toLowerCase()) ||
+                             reportedBy === doctor.label;
+                    }).length;
+
+                    return (
+                      <div
+                        key={doctor.value}
+                        onClick={() => handleDoctorSelect(doctor)}
+                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
+                          selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                            </svg>
+                            <div>
+                              <div className="font-medium">{doctor.label}</div>
+                              {doctor.specialization && doctor.specialization !== 'N/A' && (
+                                <div className="text-xs text-gray-500">{doctor.specialization}</div>
+                              )}
+                              {doctor.email && (
+                                <div className="text-xs text-gray-400">{doctor.email}</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {/* Study count badge */}
+                            <span className={`text-xs px-2 py-1 rounded-full ${
+                              doctorStudyCount > 0 
+                                ? 'bg-blue-100 text-blue-800' 
+                                : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {doctorStudyCount}
+                            </span>
+                            {/* Selected checkmark */}
+                            {selectedDoctor === doctor.value && (
+                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                              </svg>
                             )}
                           </div>
                         </div>
-                        {selectedDoctor === doctor.value && (
-                          <svg className="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
-                  <div className="px-2 py-1 text-xs text-gray-500 italic">
+                  <div className="px-3 py-2 text-sm text-gray-500 italic">
                     No doctors found for "{doctorSearchTerm}"
                   </div>
                 )}
