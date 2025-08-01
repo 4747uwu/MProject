@@ -528,7 +528,7 @@ export const exportTATReport = async (req, res) => {
             { header: 'Assigned Date', key: 'assignedDate', width: 20 },
             { header: 'Report Date', key: 'reportDate', width: 20 },
             { header: 'Upload-to-Assign TAT (min)', key: 'uploadToAssignment', width: 25 },
-            { header: 'Study-to-Report TAT (min)', key: 'studyToReport', width: 25 },
+            // { header: 'Study-to-Report TAT (min)', key: 'studyToReport', width: 25 },
             { header: 'Upload-to-Report TAT (min)', key: 'uploadToReport', width: 25 },
             { header: 'Assign-to-Report TAT (min)', key: 'assignToReport', width: 25 },
             { header: 'Reported By', key: 'reportedBy', width: 25 }
@@ -608,7 +608,7 @@ export const exportTATReport = async (req, res) => {
                     assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
                     reportDate: formatDate(study.reportInfo?.finalizedAt),
                     uploadToAssignment: tat.uploadToAssignmentTAT || 'N/A',
-                    studyToReport: tat.studyToReportTAT || 'N/A',
+                    // studyToReport: tat.studyToReportTAT || 'N/A',
                     uploadToReport: tat.uploadToReportTAT || 'N/A',
                     assignToReport: tat.assignmentToReportTAT || 'N/A',
                     reportedBy: study.reportInfo?.reporterName || doctor.userAccount?.[0]?.fullName || '-'
