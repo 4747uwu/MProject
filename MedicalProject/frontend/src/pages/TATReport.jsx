@@ -178,17 +178,20 @@ const TATReport = () => {
 
   // Fetch TAT data
   const fetchTATData = useCallback(async () => {
-    if (!selectedLocation) return;
+    // 🔧 REMOVED: Location requirement - allow fetching from all locations
 
     setLoading(true);
     try {
       const params = {
-        location: selectedLocation,
         dateType,
         fromDate,
         toDate
-        // 🔧 REMOVED: limit parameter - fetch ALL studies
       };
+
+      // 🔧 MODIFIED: Only add location param if a specific location is selected
+      if (selectedLocation) {
+        params.location = selectedLocation;
+      }
 
       if (selectedModalities.length > 0) {
         params.modality = selectedModalities.join(',');
@@ -199,7 +202,7 @@ const TATReport = () => {
       if (response.data.success) {
         setStudies(response.data.studies);
         setCurrentPage(1);
-        console.log(`✅ Fetched ${response.data.studies.length} studies from backend`);
+        console.log(`✅ Fetched ${response.data.studies.length} studies from ${selectedLocation ? 'selected location' : 'ALL locations'}`);
       } else {
         toast.error('Failed to load TAT data');
         setStudies([]);
@@ -211,26 +214,28 @@ const TATReport = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]); // 🔧 REMOVED: recordsPerPage dependency
+  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]);
 
-  // 🔧 MODIFIED: Remove selectedDoctor from Excel export
+  // 🔧 MODIFIED: Export function also works without location
   const exportToExcel = useCallback(async () => {
-    if (!selectedLocation) {
-      toast.error('Please select a location first');
-      return;
-    }
+    // 🔧 REMOVED: Location requirement for export
+    // if (!selectedLocation) {
+    //   toast.error('Please select a location first');  
+    //   return;
+    // }
 
     try {
       setLoading(true);
       const params = {
-        location: selectedLocation,
         dateType,
         fromDate,
         toDate
       };
 
-      // 🔧 REMOVED: Don't send reportedBy to backend for export
-      // We'll export the filtered data from frontend
+      // 🔧 MODIFIED: Only add location param if a specific location is selected
+      if (selectedLocation) {
+        params.location = selectedLocation;
+      }
 
       const response = await api.get('/tat/report/export', { 
         params,
@@ -245,9 +250,13 @@ const TATReport = () => {
       const link = document.createElement('a');
       link.href = url;
       
-      // Generate filename with doctor filter info
-      const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
-      const doctorName = selectedDoctor ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' : 'All_Doctors';
+      // 🔧 MODIFIED: Generate filename with proper location handling
+      const locationName = selectedLocation 
+        ? locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown'
+        : 'All_Locations';
+      const doctorName = selectedDoctor 
+        ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' 
+        : 'All_Doctors';
       const dateStr = new Date().toISOString().split('T')[0];
       link.download = `TAT_Report_${locationName}_${doctorName}_${dateStr}.xlsx`;
       
@@ -451,12 +460,13 @@ const TATReport = () => {
             <p className="text-xs text-gray-600">
               {loading ? (
                 <span className="text-blue-600">
-                  🔄 Loading studies...
+                  🔄 Loading studies from {selectedLocation ? 'selected location' : 'ALL locations'}...
                 </span>
               ) : (
                 <>
                   Showing <span className="font-semibold">{paginatedStudies.length}</span> of{' '}
                   <span className="font-semibold">{filteredStudies.length}</span> studies
+                  {selectedLocation ? ' from selected location' : ' from ALL locations'}
                   {filteredStudies.length !== studies.length && (
                     <span className="text-gray-500">
                       {' '}(filtered from <span className="font-semibold">{studies.length}</span> total)
@@ -473,7 +483,7 @@ const TATReport = () => {
             {/* 🆕 NEW: Add Export button next to legend */}
             <button
               onClick={exportToExcel}
-              disabled={!selectedLocation || loading || filteredStudies.length === 0}
+              disabled={loading || filteredStudies.length === 0} // 🔧 REMOVED: !selectedLocation requirement
               className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed mr-4"
               title="Export current filtered data to Excel"
             >
@@ -794,7 +804,7 @@ const TATReport = () => {
           <div className="col-span-1">
             <button
               onClick={fetchTATData}
-              disabled={!selectedLocation || loading}
+              disabled={loading} // 🔧 REMOVED: !selectedLocation requirement
               className="w-full px-1 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? '...' : 'Go'}
@@ -1014,7 +1024,7 @@ const TATReport = () => {
                       <p className="text-xs text-gray-400">
                         {searchTerm || selectedModalities.length > 0 
                           ? 'Try adjusting your search terms or filters' 
-                          : 'Select a location and date range to generate the report'
+                          : 'Select a date range to generate the report for all locations, or choose a specific location'
                         }
                       </p>
                     </div>

@@ -140,19 +140,20 @@ export const getTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
         const { location, dateType, fromDate, toDate, status } = req.query;
-        // 🔧 REMOVED: page and limit parameters - fetch ALL studies
 
-        console.log(`🔍 Generating TAT report - Location: ${location}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
+        console.log(`🔍 Generating TAT report - Location: ${location || 'ALL'}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
 
-        if (!location) {
-            return res.status(400).json({
-                success: false,
-                message: 'Location is required'
-            });
-        }
+        // 🔧 MODIFIED: Location is no longer required - allow fetching from all locations
+        // if (!location) {
+        //     return res.status(400).json({
+        //         success: false,
+        //         message: 'Location is required'
+        //     });
+        // }
 
-        // 🔧 MODIFIED: Cache key without pagination params
-        const cacheKey = `tat_report_${location}_${dateType}_${fromDate}_${toDate}_${status}`;
+        // 🔧 MODIFIED: Cache key includes 'all' when no location specified
+        const locationKey = location || 'all';
+        const cacheKey = `tat_report_${locationKey}_${dateType}_${fromDate}_${toDate}_${status}`;
         let cachedReport = cache.get(cacheKey);
 
         if (cachedReport) {
@@ -167,14 +168,16 @@ export const getTATReport = async (req, res) => {
         }
 
         // 🔧 OPTIMIZED: Build aggregation pipeline for maximum performance
-        const pipeline = [
-            // Stage 1: Match by location
-            {
+        const pipeline = [];
+
+        // 🔧 MODIFIED: Only add location filter if location is specified
+        if (location) {
+            pipeline.push({
                 $match: {
                     sourceLab: new mongoose.Types.ObjectId(location)
                 }
-            }
-        ];
+            });
+        }
 
         // 🔧 PERFORMANCE: Add date filtering based on type
         if (fromDate && toDate) {
@@ -296,7 +299,7 @@ export const getTATReport = async (req, res) => {
         console.log('🔍 Executing TAT aggregation pipeline...');
         const studies = await DicomStudy.aggregate(pipeline).allowDiskUse(true);
         
-        console.log(`✅ Retrieved ALL ${studies.length} studies for the timeframe`);
+        console.log(`✅ Retrieved ALL ${studies.length} studies for the timeframe from ${location ? 'selected location' : 'ALL locations'}`);
 
         // 🔧 OPTIMIZED: Process studies efficiently, using the fetched calculatedTAT
         const processedStudies = studies.map(study => {
@@ -398,7 +401,6 @@ export const getTATReport = async (req, res) => {
         const responseData = {
             studies: processedStudies,
             summary,
-            // 🔧 REMOVED: pagination object - not needed anymore
             totalRecords: studies.length
         };
 
@@ -406,7 +408,7 @@ export const getTATReport = async (req, res) => {
         cache.set(cacheKey, responseData, 300);
 
         const processingTime = Date.now() - startTime;
-        console.log(`✅ TAT report generated in ${processingTime}ms - ALL ${studies.length} studies fetched`);
+        console.log(`✅ TAT report generated in ${processingTime}ms - ALL ${studies.length} studies fetched from ${location ? 'selected location' : 'ALL locations'}`);
 
         return res.status(200).json({
             success: true,
@@ -428,24 +430,26 @@ export const getTATReport = async (req, res) => {
     }
 };
 
-/**
- * 🔧 HIGH-PERFORMANCE: Export TAT report to Excel (optimized for large datasets)
- */
+// 🔧 MODIFIED: Export function also supports all locations
 export const exportTATReport = async (req, res) => {
     try {
         const startTime = Date.now();
         const { location, dateType, fromDate, toDate, status } = req.query;
 
-        console.log(`📊 Exporting TAT report - Location: ${location}`);
+        console.log(`📊 Exporting TAT report - Location: ${location || 'ALL'}`);
 
-        if (!location) {
-            return res.status(400).json({ success: false, message: 'Location is required' });
-        }
+        // 🔧 MODIFIED: Location is no longer required
+        // if (!location) {
+        //     return res.status(400).json({ success: false, message: 'Location is required' });
+        // }
 
         // 🔧 CONSISTENCY: Use the same base pipeline as getTATReport
-        const pipeline = [
-             { $match: { sourceLab: new mongoose.Types.ObjectId(location) } }
-        ];
+        const pipeline = [];
+
+        // 🔧 MODIFIED: Only add location filter if location is specified
+        if (location) {
+            pipeline.push({ $match: { sourceLab: new mongoose.Types.ObjectId(location) } });
+        }
 
         // Add date filtering
         if (fromDate && toDate) {
@@ -502,8 +506,10 @@ export const exportTATReport = async (req, res) => {
         const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
         const worksheet = workbook.addWorksheet('TAT Report');
 
+        // 🔧 MODIFIED: Update filename to reflect all locations when no location selected
+        const locationName = location ? (await Lab.findById(location))?.name || 'Unknown' : 'All_Locations';
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', `attachment; filename="TAT_Report_${location}_${new Date().toISOString().split('T')[0]}.xlsx"`);
+        res.setHeader('Content-Disposition', `attachment; filename="TAT_Report_${locationName}_${new Date().toISOString().split('T')[0]}.xlsx"`);
         
         // 🔧 ENHANCED: More comprehensive Excel columns
         worksheet.columns = [
@@ -594,7 +600,7 @@ export const exportTATReport = async (req, res) => {
                     referredBy: study.referredBy || '-',
                     accessionNumber: study.accessionNumber || '-',
                     studyDescription: study.examDescription || '-',
-                    modality: study.modality || study.modalitiesInStudy?.join(', ') || '-',
+                    modality: study.modalitiesInStudy?.join(', ') || '-',
                     seriesImages: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                     institution: lab.name || '-',
                     studyDate: formatStudyDate(study.studyDate),
@@ -623,7 +629,7 @@ export const exportTATReport = async (req, res) => {
 
             await workbook.commit();
             const processingTime = Date.now() - startTime;
-            console.log(`✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records`);
+            console.log(`✅ TAT Excel export completed in ${processingTime}ms - ${processedCount} records from ${location ? 'selected location' : 'ALL locations'}`);
 
         } catch (cursorError) {
             console.error('❌ Error during cursor iteration:', cursorError);
