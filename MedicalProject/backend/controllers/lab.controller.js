@@ -2536,16 +2536,13 @@ export const getValues = async (req, res) => {
             queryFilters.sourceLab = new mongoose.Types.ObjectId(req.user.lab._id);
             console.log(`🏢 LAB VALUES: Filtering by lab: ${req.user.lab._id}`);
         }
-        let shouldApplyDateFilter = true;
-let filterStartDate = null;
+        
+        let filterStartDate = null;
 let filterEndDate = null;
 const IST_OFFSET = 5.5 * 60 * 60 * 1000; // IST offset in milliseconds
 
-// Handle quick date presets first
-if (quickDatePreset || dateFilter) {
-    const preset = quickDatePreset || dateFilter;
-    
-    console.log(`📅 LAB: Processing date preset: ${preset}`);
+if (req.query.quickDatePreset || req.query.dateFilter) {
+    const preset = req.query.quickDatePreset || req.query.dateFilter;
     
     switch (preset) {
         case 'last24h':
@@ -2553,9 +2550,8 @@ if (quickDatePreset || dateFilter) {
             const nowIST = new Date(Date.now() + IST_OFFSET);
             filterEndDate = new Date(Date.now()); // Current UTC time
             filterStartDate = new Date(Date.now() - 86400000); // 24 hours ago UTC
-            console.log(`📅 LAB: Applying LAST 24H filter: ${filterStartDate} to ${filterEndDate}`);
             break;
-            
+
         case 'today':
             // ✅ FIX: Today in IST timezone
             const currentTimeIST = new Date(Date.now() + IST_OFFSET);
@@ -2580,10 +2576,10 @@ if (quickDatePreset || dateFilter) {
             filterStartDate = new Date(todayStartIST.getTime() - IST_OFFSET);
             filterEndDate = new Date(todayEndIST.getTime() - IST_OFFSET);
             
-            console.log(`🕐 LAB Today IST: ${todayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${todayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
-            console.log(`🌍 LAB Today UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            console.log(`🕐 Today IST: ${todayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${todayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+            console.log(`🌍 Today UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
             break;
-            
+
         case 'yesterday':
             // ✅ FIX: Yesterday in IST timezone
             const currentTimeISTYesterday = new Date(Date.now() + IST_OFFSET);
@@ -2609,10 +2605,10 @@ if (quickDatePreset || dateFilter) {
             filterStartDate = new Date(yesterdayStartIST.getTime() - IST_OFFSET);
             filterEndDate = new Date(yesterdayEndIST.getTime() - IST_OFFSET);
             
-            console.log(`🕐 LAB Yesterday IST: ${yesterdayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${yesterdayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
-            console.log(`🌍 LAB Yesterday UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+            console.log(`🕐 Yesterday IST: ${yesterdayStartIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})} to ${yesterdayEndIST.toLocaleString('en-IN', {timeZone: 'Asia/Kolkata'})}`);
+            console.log(`🌍 Yesterday UTC: ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
             break;
-            
+
         case 'thisWeek':
             // ✅ FIX: This week in IST timezone
             const currentTimeISTWeek = new Date(Date.now() + IST_OFFSET);
@@ -2632,10 +2628,8 @@ if (quickDatePreset || dateFilter) {
             // Convert IST times back to UTC for MongoDB query
             filterStartDate = new Date(weekStartIST.getTime() - IST_OFFSET);
             filterEndDate = new Date(weekEndIST.getTime() - IST_OFFSET);
-            
-            console.log(`📅 LAB: Applying THIS WEEK filter (IST): ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
             break;
-            
+
         case 'thisMonth':
             // ✅ FIX: This month in IST timezone
             const currentTimeISTMonth = new Date(Date.now() + IST_OFFSET);
@@ -2654,10 +2648,8 @@ if (quickDatePreset || dateFilter) {
             // Convert IST times back to UTC for MongoDB query
             filterStartDate = new Date(monthStartIST.getTime() - IST_OFFSET);
             filterEndDate = new Date(monthEndIST.getTime() - IST_OFFSET);
-            
-            console.log(`📅 LAB: Applying THIS MONTH filter (IST): ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
             break;
-            
+
         case 'thisYear':
             // ✅ FIX: This year in IST timezone
             const currentTimeISTYear = new Date(Date.now() + IST_OFFSET);
@@ -2676,54 +2668,36 @@ if (quickDatePreset || dateFilter) {
             // Convert IST times back to UTC for MongoDB query
             filterStartDate = new Date(yearStartIST.getTime() - IST_OFFSET);
             filterEndDate = new Date(yearEndIST.getTime() - IST_OFFSET);
-            
-            console.log(`📅 LAB: Applying THIS YEAR filter (IST): ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
             break;
-            
+
         case 'custom':
-            if (customDateFrom || customDateTo) {
+            if (req.query.customDateFrom || req.query.customDateTo) {
                 // ✅ FIX: Handle custom dates - assume they're entered in IST
-                if (customDateFrom) {
+                if (req.query.customDateFrom) {
                     // Parse as IST date
-                    const customStartIST = new Date(customDateFrom + 'T00:00:00');
+                    const customStartIST = new Date(req.query.customDateFrom + 'T00:00:00');
                     filterStartDate = new Date(customStartIST.getTime() - IST_OFFSET);
                 }
                 
-                if (customDateTo) {
+                if (req.query.customDateTo) {
                     // Parse as IST date
-                    const customEndIST = new Date(customDateTo + 'T23:59:59');
+                    const customEndIST = new Date(req.query.customDateTo + 'T23:59:59');
                     filterEndDate = new Date(customEndIST.getTime() - IST_OFFSET);
                 }
-                
-                console.log(`📅 LAB: Applying CUSTOM filter (IST): ${filterStartDate?.toISOString()} to ${filterEndDate?.toISOString()}`);
             } else {
-                shouldApplyDateFilter = false;
-                console.log(`📅 LAB: Custom date preset selected but no dates provided`);
+                // Default to last 24 hours
+                filterEndDate = new Date();
+                filterStartDate = new Date(Date.now() - 86400000);
             }
             break;
-            
+
         default:
-            shouldApplyDateFilter = false;
-            console.log(`📅 LAB: Unknown preset: ${preset}, no date filter applied`);
+            // Default to last 24 hours
+            filterEndDate = new Date();
+            filterStartDate = new Date(Date.now() - 86400000);
     }
-}
-// Handle legacy startDate/endDate parameters
-else if (startDate || endDate) {
-    // ✅ FIX: Handle legacy parameters with IST timezone
-    if (startDate) {
-        const legacyStartIST = new Date(startDate + 'T00:00:00');
-        filterStartDate = new Date(legacyStartIST.getTime() - IST_OFFSET);
-    }
-    
-    if (endDate) {
-        const legacyEndIST = new Date(endDate + 'T23:59:59');
-        filterEndDate = new Date(legacyEndIST.getTime() - IST_OFFSET);
-    }
-    
-    console.log(`📅 LAB: Applied legacy date filter (IST): ${filterStartDate?.toISOString()} to ${filterEndDate?.toISOString()}`);
-}
-// ✅ IST FIX: Default to today in IST when no filter specified
-else {
+} else {
+    // ✅ IST FIX: Default to today in IST when no filter specified
     const currentTimeISTDefault = new Date(Date.now() + IST_OFFSET);
     const todayStartISTDefault = new Date(
         currentTimeISTDefault.getFullYear(),
@@ -2739,10 +2713,14 @@ else {
     );
     filterStartDate = new Date(todayStartISTDefault.getTime() - IST_OFFSET);
     filterEndDate = new Date(todayEndISTDefault.getTime() - IST_OFFSET);
-    
-    console.log(`📅 LAB: Applying default TODAY filter (IST): ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
 }
 
+if (filterStartDate || filterEndDate) {
+    const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
+    queryFilters[dateField] = {};
+    if (filterStartDate) queryFilters[dateField].$gte = filterStartDate;
+    if (filterEndDate) queryFilters[dateField].$lte = filterEndDate;
+}
         if (req.query.search) {
             queryFilters.$or = [
                 { accessionNumber: { $regex: req.query.search, $options: 'i' } },
