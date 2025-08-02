@@ -24,7 +24,7 @@ class CloudflareR2ZipService {
         this.processing = new Set();
         this.nextJobId = 1;
         this.isProcessing = false;
-        this.concurrency = 3;
+        this.concurrency = 2;
         this.zipBucket = r2Config.zipBucket; // 'studyzip'
         
         console.log(`📦 R2 ZIP Service initialized for bucket: ${this.zipBucket}`);
@@ -119,7 +119,7 @@ class CloudflareR2ZipService {
             // Get study metadata for filename
             const metadataResponse = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
                 headers: { 'Authorization': orthancAuth },
-                timeout: 10000
+                timeout: 50000
             });
             
             const studyMetadata = metadataResponse.data;
@@ -139,7 +139,7 @@ class CloudflareR2ZipService {
             const archiveResponse = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}/archive`, {
                 headers: { 'Authorization': orthancAuth },
                 responseType: 'stream',
-                timeout: 300000 // 5 minutes for large studies
+                timeout: 1000000 // 10 minutes for large studies
             });
             
             job.progress = 60;

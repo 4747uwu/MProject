@@ -5172,13 +5172,14 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
