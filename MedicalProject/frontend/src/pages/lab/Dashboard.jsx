@@ -16,7 +16,7 @@ const LabDashboard = React.memo(() => {
   const [activeCategory, setActiveCategory] = useState('all');
   
   // 🔧 SIMPLIFIED: Single page mode state management (matching admin/doctor)
-  const [recordsPerPage, setRecordsPerPage] = useState(100);
+  const [recordsPerPage, setRecordsPerPage] = useState(500);
   const [totalRecords, setTotalRecords] = useState(0);
   
   // 🆕 NEW: Date filter state for backend integration (matching admin/doctor)
