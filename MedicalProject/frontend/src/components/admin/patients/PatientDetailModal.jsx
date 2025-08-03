@@ -163,7 +163,8 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
         referralInfo: '',
         studyInfo: {
           caseType: data.visitInfo?.caseType || 'ROUTINE',
-          workflowStatus: data.studyInfo?.status || data.visitInfo?.studyStatus || 'NEW'
+          workflowStatus: data.studyInfo?.status || data.visitInfo?.studyStatus || 'NEW',
+          accessionNumber: data.studyInfo?.accessionNumber || 'N/A'
         }
       });
       
@@ -321,7 +322,8 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
         studyInfo: {
           ...editedData.studyInfo,
           // 🆕 NEW: Include exam description
-          examDescription: editedData.studyInfo.examDescription
+          examDescription: editedData.studyInfo.examDescription,
+              accessionNumber: editedData.studyInfo.accessionNumber // ✅ NEW: Accession number
         }
       };
 
@@ -892,14 +894,16 @@ const PatientDetailModal = ({ isOpen, onClose, patientId }) => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs mb-1">Accession No</label>
-                    <input 
-                      type="text" 
-                      className="w-full border p-1 text-sm bg-gray-100"
-                      value={patientDetails?.studyInfo?.accessionNumber || 'N/A'}
-                      readOnly
-                    />
-                  </div>
+                     <label className="block text-xs mb-1">Accession No</label>
+  <input 
+    type="text" 
+    className={`w-full border p-1 text-sm ${canEdit ? 'bg-white' : 'bg-gray-100'}`}
+    value={editedData.studyInfo.accessionNumber || patientDetails?.studyInfo?.accessionNumber || ''}
+    onChange={(e) => handleInputChange('studyInfo', 'accessionNumber', e.target.value)}
+    readOnly={!canEdit}
+    placeholder="Accession Number"
+  />
+</div>
 
                   {/* Row 2: Additional Info */}
                   <div>

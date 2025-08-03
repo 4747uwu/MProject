@@ -3,7 +3,7 @@ import { debounce, values } from 'lodash';
 import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 import { Link } from 'react-router-dom';
-import api from '../../services/api';
+
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
@@ -32,14 +32,6 @@ const WorklistSearch = React.memo(({
   onManualRefresh,
   onResetNewStudyCount,
 }) => {
-
-  //location 
-  const [backendLocations, setBackendLocations] = useState([]);
-  const [locationsLoading, setLocationsLoading] = useState(false);
-  const [locationSearchTerm, setLocationSearchTerm] = useState('');
-  const [showLocationDropdown, setShowLocationDropdown] = useState(false);
-
-
   const [isExpanded, setIsExpanded] = useState(false);
   const [searchType, setSearchType] = useState("");
   const [quickSearchTerm, setQuickSearchTerm] = useState("");
@@ -76,50 +68,6 @@ const WorklistSearch = React.memo(({
     inprogress: 0,
     completed: 0
   });
-
-useEffect(() => {
-  const fetchLocations = async () => {
-    setLocationsLoading(true);
-    try {
-      const response = await api.get('/tat/locations');
-      if (response.data.success) {
-        setBackendLocations(response.data.locations);
-        console.log('✅ Locations fetched:', response.data.locations);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching locations:', error);
-      // Fallback to existing locations from studies
-      const uniqueLocations = [...new Set(allStudies.filter(s => s.location).map(s => s.location))];
-      setBackendLocations(uniqueLocations.map(loc => ({ 
-        value: loc, 
-        label: loc 
-      })));
-    } finally {
-      setLocationsLoading(false);
-    }
-  };
-
-  fetchLocations();
-}, []); // Only run once
-  
-const filteredLocations = useMemo(() => {
-  if (!locationSearchTerm.trim()) {
-    return backendLocations;
-  }
-  
-  const searchLower = locationSearchTerm.toLowerCase();
-  return backendLocations.filter(location => 
-    location.label.toLowerCase().includes(searchLower)
-  );
-}, [backendLocations, locationSearchTerm]);
-
-// Get selected location label for display
-const selectedLocationLabel = useMemo(() => {
-  if (selectedLocation === 'ALL') return 'All Labs';
-  
-  const location = backendLocations.find(loc => loc.value === selectedLocation);
-  return location ? location.label : 'Select Lab';
-}, [selectedLocation, backendLocations]);
 
   // 🔧 MEMOIZE LOCATIONS
   const locations = useMemo(() => {
@@ -176,16 +124,8 @@ const selectedLocationLabel = useMemo(() => {
 
     // Location filter
     if (selectedLocation !== 'ALL') {
-    const selectedLocationData = backendLocations.find(loc => loc.value === selectedLocation);
-    
-    if (selectedLocationData) {
-      filtered = filtered.filter(study => {
-        // Match against study location or lab name
-        const studyLocation = study.location || study.sourceLab?.name || study.institutionName;
-        return studyLocation === selectedLocationData.label;
-      });
+      filtered = filtered.filter(study => study.location === selectedLocation);
     }
-  }
 
     // Advanced search filters (non-date)
     if (patientName.trim()) {
@@ -296,11 +236,6 @@ const selectedLocationLabel = useMemo(() => {
     quickSearchTerm, patientName, workflowStatus, modalities, onSearchWithBackend
   ]);
 
-  const handleLocationSelect = useCallback((locationValue) => {
-  setSelectedLocation(locationValue);
-  setLocationSearchTerm('');
-  setShowLocationDropdown(false);
-}, []);
   // 🔧 MEMOIZED CALLBACKS
   const handleQuickSearch = useCallback((e) => {
     e.preventDefault();
@@ -311,11 +246,9 @@ const selectedLocationLabel = useMemo(() => {
     setQuickSearchTerm('');
     setSearchType('');
     setSelectedLocation('ALL');
-    setLocationSearchTerm('');
     setPatientName('');
     setPatientId('');
     setRefName('');
-    setSelectedLocation('ALL');
     setAccessionNumber('');
     setDescription('');
     setWorkflowStatus('all');
@@ -481,115 +414,16 @@ const selectedLocationLabel = useMemo(() => {
               {/* Second row on mobile: Labs dropdown and action buttons */}
               <div className="flex items-center gap-2">
                 {/* Labs Dropdown */}
-                <div className="relative">
-  {/* ✅ ENHANCED: Bigger Labs Dropdown */}
-<div className="relative">
-  <button
-    type="button"
-    className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-40 text-left flex items-center justify-between" // ✅ CHANGED: w-32 to w-40
-    onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-    disabled={locationsLoading}
-  >
-    <span className="truncate">
-      {locationsLoading ? 'Loading...' : selectedLocationLabel}
-    </span>
-    <svg className="w-3 h-3 ml-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
-  </button>
-
-  {/* ✅ ENHANCED: Bigger Dropdown */}
-  {showLocationDropdown && (
-    <div className="absolute top-full left-0 z-50 mt-1 bg-white border border-gray-300 rounded-md shadow-lg overflow-hidden w-80"> {/* ✅ CHANGED: Added w-80 for fixed width */}
-      {/* Search input */}
-      <div className="p-3 border-b border-gray-200"> {/* ✅ CHANGED: p-2 to p-3 for more padding */}
-        <div className="relative">
-          <svg className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Search icon */}
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search labs..."
-            className="w-full pl-10 pr-3 py-2 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500" // ✅ CHANGED: text-xs to text-sm, added pl-10 for icon space
-            value={locationSearchTerm}
-            onChange={(e) => setLocationSearchTerm(e.target.value)}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      </div>
-
-      {/* Location options */}
-      <div className="max-h-64 overflow-y-auto"> {/* ✅ CHANGED: max-h-48 to max-h-64 for more height */}
-        <button
-          type="button"
-          className={`w-full px-4 py-3 text-left text-sm hover:bg-gray-100 flex items-center justify-between ${
-            selectedLocation === 'ALL' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-          }`} // ✅ CHANGED: px-3 py-2 to px-4 py-3, text-xs to text-sm
-          onClick={() => handleLocationSelect('ALL')}
-        >
-          <div className="flex items-center">
-            <svg className="w-4 h-4 mr-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Building icon */}
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-            </svg>
-            All Labs
-          </div>
-          {selectedLocation === 'ALL' && (
-            <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 20 20"> {/* ✅ ENHANCED: Better checkmark icon */}
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-            </svg>
-          )}
-        </button>
-
-        {filteredLocations.length > 0 ? (
-          filteredLocations.map(location => (
-            <button
-              key={location.value}
-              type="button"
-              className={`w-full px-4 py-3 text-left text-sm hover:bg-gray-100 flex items-center justify-between ${
-                selectedLocation === location.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-              }`} // ✅ CHANGED: px-3 py-2 to px-4 py-3, text-xs to text-sm
-              onClick={() => handleLocationSelect(location.value)}
-            >
-              <div className="flex items-center min-w-0 flex-1"> {/* ✅ ENHANCED: Better layout */}
-                <svg className="w-4 h-4 mr-3 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ADDED: Location icon */}
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium truncate">{location.label}</div>
-                  {location.code && location.code !== location.label && (
-                    <div className="text-xs text-gray-500 truncate">Code: {location.code}</div> // ✅ ADDED: Show code if available
-                  )}
-                </div>
-              </div>
-              {selectedLocation === location.value && (
-                <svg className="w-4 h-4 text-blue-600 flex-shrink-0 ml-2" fill="currentColor" viewBox="0 0 20 20"> {/* ✅ ENHANCED: Better checkmark */}
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              )}
-            </button>
-          ))
-        ) : (
-          <div className="px-4 py-8 text-sm text-gray-500 text-center"> {/* ✅ CHANGED: px-3 py-4 to px-4 py-8, text-xs to text-sm */}
-            <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"> {/* ✅ ENHANCED: Bigger empty state icon */}
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <div className="font-medium">No labs found</div>
-            <div className="text-xs text-gray-400 mt-1">Try a different search term</div>
-          </div>
-        )}
-      </div>
-    </div>
-  )}
-</div>
-</div>
-
-{showLocationDropdown && (
-  <div 
-    className="fixed inset-0 z-40" 
-    onClick={() => setShowLocationDropdown(false)}
-  />
-)}
+                <select 
+                  className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 flex-1 sm:flex-none sm:w-24"
+                  value={selectedLocation}
+                  onChange={(e) => setSelectedLocation(e.target.value)}
+                >
+                  <option value="ALL">All Labs</option>
+                  {locations.map(loc => (
+                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                  ))}
+                </select>
 
                 {/* Search & Filter Buttons */}
                 <div className="flex items-center gap-1">
@@ -634,7 +468,7 @@ const selectedLocationLabel = useMemo(() => {
             <div className="flex items-center justify-center lg:justify-start gap-1 bg-gray-50 rounded-md px-2 py-1 overflow-x-auto">
               {userRole === 'doctor' ? (
                 // 🆕 DOCTOR: Include "Assigned Today" filter
-                ['last24h', 'today', 'yesterday', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
+                ['last24h', 'today', 'thisWeek', 'thisMonth', 'assignedToday'].map(filter => (
                   <button
                     key={filter}
                     onClick={() => onDateFilterChange(filter)}

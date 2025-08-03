@@ -1034,6 +1034,9 @@ export const updatePatientDetails = async (req, res) => {
 
       let examDescriptionChanged = false;
       let newExamDescription = '';
+      let accessionNumberChanged = false;
+      let newAccessionNumber = '';
+
 
       
 
@@ -1072,6 +1075,12 @@ export const updatePatientDetails = async (req, res) => {
       examDescriptionChanged = true;
       console.log(`[Patient Update] 📋 Exam description updating to: "${newExamDescription}"`);
   }
+
+   if (updateData.studyInfo && updateData.studyInfo.accessionNumber !== undefined) {
+      newAccessionNumber = sanitizeInput(updateData.studyInfo.accessionNumber);
+      accessionNumberChanged = true;
+      console.log(`[Patient Update] 🔢 Accession number updating to: "${newAccessionNumber}"`);
+    }
 
   if (updateData.patientInfo) {
       if (updateData.patientInfo.firstName !== undefined) {
@@ -1341,6 +1350,11 @@ if (patientUpdateData._clinicalHistoryChanged) {
             studyUpdateData.examDescription = newExamDescription;
             console.log(`[Study Update] 📋 Updating examDescription in studies to: ${newExamDescription}`);
         }
+
+         if (accessionNumberChanged) {
+            studyUpdateData.accessionNumber = newAccessionNumber;
+            console.log(`[Study Update] 🔢 Updating accessionNumber in studies to: ${newAccessionNumber}`);
+        }
           
           // 🔧 EXISTING: Name changes
           if (nameChanged) {
@@ -1585,7 +1599,8 @@ if (patientUpdateData._clinicalHistoryChanged) {
           priorityInfo: {
               studyPriority: updateData.priorityInfo?.studyPriority || 'SELECT',
               priorityLevel: updateData.priorityInfo?.priorityLevel || 'NORMAL',
-              caseType: updateData.priorityInfo?.caseType || 'routine'
+              caseType: updateData.studyInfo?.caseType || '',
+            accessionNumber: newAccessionNumber || updateData.studyInfo?.accessionNumber || ''
           },
           
           // 🆕 NEW: Time info response

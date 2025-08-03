@@ -400,7 +400,7 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                   <th className="text-left p-3 font-medium">Name</th>
                   <th className="text-center p-3 font-medium">Specialization</th>
                   <th className="text-center p-3 font-medium">Status</th>
-                  <th className="text-center p-3 font-medium">Assignment</th>
+                  {/* <th className="text-center p-3 font-medium">Assignment</th> */}
                 </tr>
               </thead>
               <tbody>
@@ -441,26 +441,18 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                                  {displayName}
 
                               </span>
-                              <div className="text-xs text-gray-500">{doctor.email}</div>
+                              {/* <div className="text-xs text-gray-500"></div> */}
                             </div>
                           </div>
                         </td>
-                        <td className="p-3 text-center text-gray-700">{doctor.specialization || 'Radiology'}</td>
+                        <td className="p-3 text-center text-gray-700">{doctor.email}</td>
                         <td className="p-3 text-center">
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs sm:text-sm font-medium ${isOnline ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                             <span className={`w-2 h-2 rounded-full mr-1 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></span>
                             {isOnline ? 'Online' : 'Offline'}
                           </span>
                         </td>
-                        <td className="p-3 text-center">
-                          {isCurrentlyAssignedToThisStudy ? (
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-                              ✓ Assigned
-                            </span>
-                          ) : (
-                            <span className="text-gray-400 text-xs">Not Assigned</span>
-                          )}
-                        </td>
+                        
                       </tr>
                     );
                   })
