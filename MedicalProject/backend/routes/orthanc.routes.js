@@ -605,10 +605,10 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       tags = {
         PatientName: 'Unknown Patient',
         PatientID: `UNKNOWN_${Date.now()}`,
-        StudyDescription: 'Unknown Study',
+        StudyDescription: 'N/A',
         StudyInstanceUID: studyInstanceUID,
         StudyDate: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-        Modality: 'UNKNOWN',
+        Modality: 'n/a',
         ...tags
       };
     }

@@ -316,7 +316,59 @@ class OptimizedCloudflareR2ZipService {
         }
     }
 
-    // 🚀 OPTIMIZED: High-performance archive stream creation
+    // 🔥 HELPER: Optimized HTTP agents with connection pooling (FIXED)
+    getOptimizedHttpAgent() {
+        if (!this.httpAgent) {
+            const http = require('http'); // Use require instead of import
+            this.httpAgent = new http.Agent({
+                keepAlive: true,
+                keepAliveMsecs: 30000,
+                maxSockets: 20,
+                maxFreeSockets: 10,
+                timeout: 600000
+            });
+        }
+        return this.httpAgent;
+    }
+
+    getOptimizedHttpsAgent() {
+        if (!this.httpsAgent) {
+            const https = require('https'); // Use require instead of import
+            this.httpsAgent = new https.Agent({
+                keepAlive: true,
+                keepAliveMsecs: 30000,
+                maxSockets: 20,
+                maxFreeSockets: 10,
+                timeout: 600000,
+                rejectUnauthorized: false // For self-signed certificates
+            });
+        }
+        return this.httpsAgent;
+    }
+
+    // 🔧 HELPER: Fetch study metadata with caching (FIXED)
+    async fetchStudyMetadata(orthancStudyId) {
+        const cacheKey = `metadata_${orthancStudyId}`;
+        
+        if (this.connectionPool.has(cacheKey)) {
+            return this.connectionPool.get(cacheKey);
+        }
+        
+        const response = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
+            headers: { 'Authorization': orthancAuth },
+            timeout: 30000,
+            httpAgent: this.getOptimizedHttpAgent(), // Now returns the actual agent, not a Promise
+            httpsAgent: this.getOptimizedHttpsAgent() // Now returns the actual agent, not a Promise
+        });
+        
+        // Cache for 5 minutes
+        this.connectionPool.set(cacheKey, response);
+        setTimeout(() => this.connectionPool.delete(cacheKey), 5 * 60 * 1000);
+        
+        return response;
+    }
+
+    // 🚀 OPTIMIZED: High-performance archive stream creation (FIXED)
     async createOptimizedArchiveStream(orthancStudyId, job) {
         console.log(`[STREAM] 🌊 Creating optimized archive stream for ${orthancStudyId}`);
         
@@ -325,9 +377,9 @@ class OptimizedCloudflareR2ZipService {
             responseType: 'stream',
             timeout: 600000, // 10 minutes for very large studies
             maxRedirects: 0,
-            // 🔥 OPTIMIZED: HTTP/2 and connection reuse
-            httpAgent: this.getOptimizedHttpAgent(),
-            httpsAgent: this.getOptimizedHttpsAgent()
+            // 🔥 OPTIMIZED: HTTP/2 and connection reuse (FIXED)
+            httpAgent: this.getOptimizedHttpAgent(), // Now returns the actual agent
+            httpsAgent: this.getOptimizedHttpsAgent() // Now returns the actual agent
         };
         
         const response = await axios.get(
@@ -461,36 +513,6 @@ class OptimizedCloudflareR2ZipService {
         }
     }
 
-    // 🔥 HELPER: Optimized HTTP agents with connection pooling
-    async getOptimizedHttpAgent() {
-        if (!this.httpAgent) {
-            const http = await import('http');
-            this.httpAgent = new http.Agent({
-                keepAlive: true,
-                keepAliveMsecs: 30000,
-                maxSockets: 20,
-                maxFreeSockets: 10,
-                timeout: 600000
-            });
-        }
-        return this.httpAgent;
-    }
-
-    async getOptimizedHttpsAgent() {
-        if (!this.httpsAgent) {
-            const https = await import('https');
-            this.httpsAgent = new https.Agent({
-                keepAlive: true,
-                keepAliveMsecs: 30000,
-                maxSockets: 20,
-                maxFreeSockets: 10,
-                timeout: 600000,
-                rejectUnauthorized: false // For self-signed certificates
-            });
-        }
-        return this.httpsAgent;
-    }
-
     // 🧠 HELPER: Smart memory estimation
     estimateMemoryUsage(studyData) {
         // Base memory for processing
@@ -570,27 +592,6 @@ class OptimizedCloudflareR2ZipService {
         const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         
         return `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId.substring(0, 8)}_${timestamp}.zip`;
-    }
-
-    // 🔧 HELPER: Fetch study metadata with caching
-    async fetchStudyMetadata(orthancStudyId) {
-        const cacheKey = `metadata_${orthancStudyId}`;
-        
-        if (this.connectionPool.has(cacheKey)) {
-            return this.connectionPool.get(cacheKey);
-        }
-        
-        const response = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 30000,
-            httpAgent: this.getOptimizedHttpAgent()
-        });
-        
-        // Cache for 5 minutes
-        this.connectionPool.set(cacheKey, response);
-        setTimeout(() => this.connectionPool.delete(cacheKey), 5 * 60 * 1000);
-        
-        return response;
     }
 
     // 🔧 HELPER: Calculate compression ratio
