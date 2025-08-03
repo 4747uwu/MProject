@@ -677,7 +677,7 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       studyDate: formatDicomDateToISO(tags.StudyDate),
       studyTime: tags.StudyTime || '',
       modalitiesInStudy: Array.from(modalitiesSet),
-      examDescription: tags.StudyDescription || 'Unknown Study',
+      examDescription: tags.StudyDescription || 'N/A',
       institutionName: tags.InstitutionName || '',
       workflowStatus: actualInstanceCount > 0 ? 'new_study_received' : 'new_metadata_only',
       
