@@ -16,6 +16,8 @@ import { Transform } from 'stream';
 import { createGzip } from 'zlib';
 import os from 'os';
 import cluster from 'cluster';
+import http from 'http'; // ✅ ES module import
+import https from 'https'; // ✅ ES module import
 
 const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
@@ -45,6 +47,24 @@ class OptimizedCloudflareR2ZipService {
         this.memoryUsage = 0;
         this.connectionPool = new Map();
         this.compressionLevel = 6; // Balanced compression (1=fastest, 9=best)
+        
+        // 🔥 OPTIMIZED: Initialize HTTP agents in constructor (FIXED)
+        this.httpAgent = new http.Agent({
+            keepAlive: true,
+            keepAliveMsecs: 30000,
+            maxSockets: 20,
+            maxFreeSockets: 10,
+            timeout: 600000
+        });
+        
+        this.httpsAgent = new https.Agent({
+            keepAlive: true,
+            keepAliveMsecs: 30000,
+            maxSockets: 20,
+            maxFreeSockets: 10,
+            timeout: 600000,
+            rejectUnauthorized: false // For self-signed certificates
+        });
         
         // 📊 Performance monitoring
         this.metrics = {
@@ -318,32 +338,11 @@ class OptimizedCloudflareR2ZipService {
 
     // 🔥 HELPER: Optimized HTTP agents with connection pooling (FIXED)
     getOptimizedHttpAgent() {
-        if (!this.httpAgent) {
-            const http = require('http'); // Use require instead of import
-            this.httpAgent = new http.Agent({
-                keepAlive: true,
-                keepAliveMsecs: 30000,
-                maxSockets: 20,
-                maxFreeSockets: 10,
-                timeout: 600000
-            });
-        }
-        return this.httpAgent;
+        return this.httpAgent; // Return pre-initialized agent
     }
 
     getOptimizedHttpsAgent() {
-        if (!this.httpsAgent) {
-            const https = require('https'); // Use require instead of import
-            this.httpsAgent = new https.Agent({
-                keepAlive: true,
-                keepAliveMsecs: 30000,
-                maxSockets: 20,
-                maxFreeSockets: 10,
-                timeout: 600000,
-                rejectUnauthorized: false // For self-signed certificates
-            });
-        }
-        return this.httpsAgent;
+        return this.httpsAgent; // Return pre-initialized agent
     }
 
     // 🔧 HELPER: Fetch study metadata with caching (FIXED)
@@ -357,8 +356,8 @@ class OptimizedCloudflareR2ZipService {
         const response = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
             headers: { 'Authorization': orthancAuth },
             timeout: 30000,
-            httpAgent: this.getOptimizedHttpAgent(), // Now returns the actual agent, not a Promise
-            httpsAgent: this.getOptimizedHttpsAgent() // Now returns the actual agent, not a Promise
+            httpAgent: this.getOptimizedHttpAgent(),
+            httpsAgent: this.getOptimizedHttpsAgent()
         });
         
         // Cache for 5 minutes
@@ -378,8 +377,8 @@ class OptimizedCloudflareR2ZipService {
             timeout: 600000, // 10 minutes for very large studies
             maxRedirects: 0,
             // 🔥 OPTIMIZED: HTTP/2 and connection reuse (FIXED)
-            httpAgent: this.getOptimizedHttpAgent(), // Now returns the actual agent
-            httpsAgent: this.getOptimizedHttpsAgent() // Now returns the actual agent
+            httpAgent: this.getOptimizedHttpAgent(),
+            httpsAgent: this.getOptimizedHttpsAgent()
         };
         
         const response = await axios.get(
@@ -509,7 +508,7 @@ class OptimizedCloudflareR2ZipService {
             
         } catch (error) {
             console.error(`[R2-OPT] ❌ Upload failed:`, error);
-            throw new Error(`Optimized R2 upload failed: ${error.message}`);
+            throw new Error(["Optimized R2 upload failed", error.message]);
         }
     }
 
