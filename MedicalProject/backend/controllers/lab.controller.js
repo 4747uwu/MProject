@@ -772,6 +772,8 @@ else {
                     clinicalHistory: 1,
                     caseType: 1,
                     patient: 1,
+                    clinicalHistory: 1,
+
                     sourceLab: 1
                 }
             },
@@ -861,13 +863,14 @@ else {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -881,7 +884,7 @@ else {
                 // Add all other necessary fields for table display
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 
@@ -1278,6 +1281,8 @@ export const getPendingStudies = async (req, res) => {
                     clinicalHistory: 1,
                     caseType: 1,
                     patient: 1,
+                    clinicalHistory: 1,
+
                     sourceLab: 1
                 }
             },
@@ -1361,13 +1366,14 @@ export const getPendingStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -1381,7 +1387,7 @@ export const getPendingStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 
@@ -1683,6 +1689,8 @@ export const getProcessingStudies = async (req, res) => {
                     clinicalHistory: 1,
                     caseType: 1,
                     patient: 1,
+                    clinicalHistory: 1,
+
                     sourceLab: 1
                 }
             },
@@ -1765,13 +1773,14 @@ export const getProcessingStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -1784,7 +1793,7 @@ export const getProcessingStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 
@@ -2082,6 +2091,8 @@ export const getCompletedStudies = async (req, res) => {
                     clinicalHistory: 1,
                     caseType: 1,
                     patient: 1,
+                    clinicalHistory: 1,
+
                     sourceLab: 1
                 }
             },
@@ -2164,13 +2175,14 @@ export const getCompletedStudies = async (req, res) => {
                     );
                     const dt = new Date(latestReport.uploadedAt);
                     // Format: 15 Jun 2025 03:30
-                    return dt.toLocaleString('en-GB', {
+                    return dt.toLocaleString('en-in', {
                         year: 'numeric',
                         month: 'short',
                         day: '2-digit',
                         hour: '2-digit',
                         minute: '2-digit',
-                        hour12: false
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
                     }).replace(',', '');
                 })()
                 : null,
@@ -2184,7 +2196,7 @@ export const getCompletedStudies = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 

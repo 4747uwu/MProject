@@ -245,6 +245,7 @@ export const getAssignedStudies = async (req, res) => {
                     sourceLab: 1,
                     age:1,
                     gender:1,
+                    clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
             },
@@ -452,7 +453,7 @@ export const getAssignedStudies = async (req, res) => {
                 priority: assignmentData?.priority || study.caseType?.toUpperCase() || 'NORMAL',
                 assignedDate: assignmentData?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 
@@ -1092,6 +1093,7 @@ export const getPendingStudies = async (req, res) => {
                     patientInfo: 1, // Keep denormalized patient data
                     age:1,
                     gender:1,
+                    clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
             },
@@ -1318,7 +1320,7 @@ export const getPendingStudies = async (req, res) => {
         zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
     },
                 workflowStatus: study.workflowStatus,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
@@ -1497,7 +1499,7 @@ export const getInProgressStudies = async (req, res) => {
                     doctorReports: 1, ReportAvailable: 1, 
                     'assignment.assignedAt': 1, lastAssignedDoctor: 1, 'reportInfo.startedAt': 1,
                     patient: 1, sourceLab: 1, patientInfo: 1,  age:1,
-                    gender:1,
+                    gender:1, clinicalHistory: 1,
                     preProcessedDownload: 1 // Keep for fallback
                 }
             },
@@ -1683,7 +1685,7 @@ export const getInProgressStudies = async (req, res) => {
     },
 
                 currentCategory: study.currentCategory,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -1927,6 +1929,7 @@ queryFilters = {
                     patientInfo: 1, // Keep for fallback
                     age: 1,
                     gender: 1,
+                    clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
             },
@@ -2156,7 +2159,7 @@ queryFilters = {
         zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
     },
                 workflowStatus: study.workflowStatus,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',

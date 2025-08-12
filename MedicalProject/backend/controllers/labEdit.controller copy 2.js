@@ -94,7 +94,7 @@ export const getPatientDetailedView = async (req, res) => {
                 assignment reportInfo.finalizedAt
                 reportInfo.startedAt timingInfo numberOfSeries numberOfImages
                 institutionName patientInfo studyPriority patientId
-                technologist physicians modifiedDate modifiedTime reportDate reportTime clinicalHistory
+                technologist physicians modifiedDate modifiedTime reportDate reportTime
             `)
             .populate('sourceLab', 'name identifier')
             .populate({
@@ -339,7 +339,7 @@ export const getPatientDetailedView = async (req, res) => {
               mrn: patient.mrn || 'N/A'
           },
           clinicalInfo: {
-              clinicalHistory: currentStudy.clinicalHistory?.clinicalHistory || patient.clinicalInfo?.clinicalHistory || '',
+              clinicalHistory: patient.clinicalInfo?.clinicalHistory || '',
               previousInjury: patient.clinicalInfo?.previousInjury || '',
               previousSurgery: patient.clinicalInfo?.previousSurgery || '',
               lastModifiedBy: patient.clinicalInfo?.lastModifiedBy || null,
@@ -1034,9 +1034,9 @@ export const updatePatientDetails = async (req, res) => {
 
       let examDescriptionChanged = false;
       let newExamDescription = '';
-
       let accessionNumberChanged = false;
-    let newAccessionNumber = '';
+      let newAccessionNumber = '';
+
 
       
 
@@ -1081,7 +1081,6 @@ export const updatePatientDetails = async (req, res) => {
       accessionNumberChanged = true;
       console.log(`[Patient Update] 🔢 Accession number updating to: "${newAccessionNumber}"`);
     }
-
 
   if (updateData.patientInfo) {
       if (updateData.patientInfo.firstName !== undefined) {
@@ -1352,7 +1351,7 @@ if (patientUpdateData._clinicalHistoryChanged) {
             console.log(`[Study Update] 📋 Updating examDescription in studies to: ${newExamDescription}`);
         }
 
-        if (accessionNumberChanged) {
+         if (accessionNumberChanged) {
             studyUpdateData.accessionNumber = newAccessionNumber;
             console.log(`[Study Update] 🔢 Updating accessionNumber in studies to: ${newAccessionNumber}`);
         }
@@ -1363,60 +1362,6 @@ if (patientUpdateData._clinicalHistoryChanged) {
               studyUpdateData.patientName = `${newFirstName} ${newLastName}`.trim();
           }
 
-          // Around line 1375-1402, replace the existing clinical history handling with this:
-          
-          // Replace the entire clinical history section (around lines 1368-1428) with this:
-
-if (updateData.clinicalInfo) {
-    console.log(`[Clinical History] 🔄 Updating clinical history ONLY in DicomStudy model...`);
-    
-    // 🔧 DETECT CLINICAL HISTORY CHANGES
-    const oldClinicalHistory = patient.clinicalInfo?.clinicalHistory || '';
-    const newClinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory) || '';
-    const isClinicalHistoryChanged = oldClinicalHistory !== newClinicalHistory;
-    
-    console.log(`[Clinical History] Old (Patient): "${oldClinicalHistory}"`);
-    console.log(`[Clinical History] New (DicomStudy): "${newClinicalHistory}"`);
-    console.log(`[Clinical History] Changed: ${isClinicalHistoryChanged}`);
-    
-    // 🚫 REMOVED: Do NOT update patient clinical info anymore
-    // ❌ DELETE THESE LINES - they update Patient model
-    // patientUpdateData.clinicalInfo = { ... };
-    // patientUpdateData.medicalHistory = { ... };
-    
-    // ✅ ONLY UPDATE IN DICOMSTUDY MODEL
-    studyUpdateRequired = true;
-    
-    // Update clinical history in DicomStudy
-    studyUpdateData['clinicalHistory.clinicalHistory'] = newClinicalHistory;
-    studyUpdateData['clinicalHistory.previousInjury'] = sanitizeInput(updateData.clinicalInfo.previousInjury) || '';
-    studyUpdateData['clinicalHistory.previousSurgery'] = sanitizeInput(updateData.clinicalInfo.previousSurgery) || '';
-    studyUpdateData['clinicalHistory.lastModifiedBy'] = userId;
-    studyUpdateData['clinicalHistory.lastModifiedAt'] = new Date();
-    studyUpdateData['clinicalHistory.lastModifiedFrom'] = 'study_detail';
-    studyUpdateData['clinicalHistory.dataSource'] = 'dicom_study_primary';
-    
-    // 🔧 LEGACY: Mark as not from patient model
-    studyUpdateData['legacyClinicalHistoryRef.fromPatientModel'] = false;
-    studyUpdateData['legacyClinicalHistoryRef.lastSyncedAt'] = new Date();
-    studyUpdateData['legacyClinicalHistoryRef.syncedBy'] = 'user_update';
-    
-    // // 🔧 FLAG FOR TAT RESET IF CLINICAL HISTORY CHANGED
-    // if (isClinicalHistoryChanged) {
-    //     console.log(`[TAT Reset] 🔄 Clinical history changed, flagging for TAT reset`);
-        
-    //     // Store flag for TAT reset (will be processed after DicomStudy update)
-    //     clinicalHistoryChanged = true;
-    //     clinicalHistoryChangeInfo = {
-    //         oldHistory: oldClinicalHistory,
-    //         newHistory: newClinicalHistory,
-    //         changedBy: userId,
-    //         changedAt: new Date()
-    //     };
-    // }
-    
-    console.log(`[Clinical History] ✅ Clinical history will be updated ONLY in DicomStudy model`);
-}
           // 🔧 EXISTING: Workflow status
           if (updateData.studyInfo?.workflowStatus) {
               const normalizedStatus = normalizeWorkflowStatus(updateData.studyInfo.workflowStatus);
@@ -1430,9 +1375,9 @@ if (updateData.clinicalInfo) {
           }
 
           // 🔧 EXISTING: Clinical history
-          // if (updateData.clinicalInfo?.clinicalHistory) {
-          //     studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
-          // }
+          if (updateData.clinicalInfo?.clinicalHistory) {
+              studyUpdateData.clinicalHistory = sanitizeInput(updateData.clinicalInfo.clinicalHistory);
+          }
 
           // 🆕 NEW: Enhanced referring physician in studies
           if (referringPhysicianUpdated && referringPhysicianData.name) {
@@ -1654,7 +1599,8 @@ if (updateData.clinicalInfo) {
           priorityInfo: {
               studyPriority: updateData.priorityInfo?.studyPriority || 'SELECT',
               priorityLevel: updateData.priorityInfo?.priorityLevel || 'NORMAL',
-              caseType: updateData.priorityInfo?.caseType || 'routine'
+              caseType: updateData.studyInfo?.caseType || '',
+            accessionNumber: newAccessionNumber || updateData.studyInfo?.accessionNumber || ''
           },
           
           // 🆕 NEW: Time info response
@@ -1668,8 +1614,7 @@ if (updateData.clinicalInfo) {
           studyInfo: {
             examDescription: newExamDescription || updateData.studyInfo?.examDescription || '',
             workflowStatus: updateData.studyInfo?.workflowStatus || '',
-            caseType: updateData.studyInfo?.caseType || '',
-            accessionNumber: newAccessionNumber || updateData.studyInfo?.accessionNumber || ''
+            caseType: updateData.studyInfo?.caseType || ''
         },
 
           tatResetInfo: tatResetInfo ? {
