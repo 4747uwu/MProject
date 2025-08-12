@@ -24,7 +24,7 @@ class CloudflareR2ZipService {
         this.processing = new Set();
         this.nextJobId = 1;
         this.isProcessing = false;
-        this.concurrency = 2;
+        this.concurrency = 5;
         this.zipBucket = r2Config.zipBucket; // 'studyzip'
         
         console.log(`📦 R2 ZIP Service initialized for bucket: ${this.zipBucket}`);

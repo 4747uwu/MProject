@@ -1,423 +1,381 @@
 import axios from 'axios';
-import { 
-    HeadBucketCommand, 
-    CreateBucketCommand, 
-    PutObjectCommand, 
+import archiver from 'archiver';
+import { PassThrough } from 'stream';
+import {
+    HeadBucketCommand,
+    CreateBucketCommand,
+    PutObjectCommand,
     ListObjectsV2Command,
     DeleteObjectCommand,
     PutBucketCorsCommand,
-    PutBucketPolicyCommand
+    PutBucketPolicyCommand,
+    HeadObjectCommand // ✅ ADD: For getting file size
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { r2Client, r2Config, getR2PublicUrl, getCDNOptimizedUrl } from '../config/cloudflare-r2.js';
 import DicomStudy from '../models/dicomStudyModel.js';
-import { Worker } from 'worker_threads';
-import { Transform } from 'stream';
-import { createGzip } from 'zlib';
-import os from 'os';
-import cluster from 'cluster';
-import http from 'http'; // ✅ ES module import
-import https from 'https'; // ✅ ES module import
 
 const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
 const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
 
-class OptimizedCloudflareR2ZipService {
+class CloudflareR2ZipService {
     constructor() {
         this.r2 = r2Client;
-        
-        // 🚀 OPTIMIZED: Resource allocation for 16GB RAM / 8vCPU
-        this.maxConcurrentJobs = 6; // Leave 2 CPU cores for system + other operations
-        this.maxMemoryPerJob = 2 * 1024 * 1024 * 1024; // 2GB per job (8GB total for ZIP operations)
-        this.streamChunkSize = 64 * 1024; // 64KB chunks for memory efficiency
-        this.maxPartSize = 50 * 1024 * 1024; // 50MB parts for R2 multipart upload
-        this.queueSize = 8; // Parallel upload parts
-        
-        // Job management
         this.zipJobs = new Map();
-        this.activeJobs = new Set();
-        this.jobQueue = [];
+        this.processing = new Set();
         this.nextJobId = 1;
         this.isProcessing = false;
+        
+        // ✅ OPTIMIZED: Start with a safe concurrency level
+        this.concurrency = 4; 
+        this.processingDelay = 2000; // ✅ INCREASED: 2 seconds between starting jobs
         this.zipBucket = r2Config.zipBucket;
         
-        // 🔥 PERFORMANCE: Memory and connection pooling
-        this.memoryUsage = 0;
-        this.connectionPool = new Map();
-        this.compressionLevel = 6; // Balanced compression (1=fastest, 9=best)
+        // ✅ ADD: Batch processing for instances
+        this.instanceBatchSize = 20; // Process 20 instances concurrently
+        this.maxRetries = 3;
+        this.retryDelay = 2000; // 2 seconds base delay
         
-        // 🔥 OPTIMIZED: Initialize HTTP agents in constructor (FIXED)
-        this.httpAgent = new http.Agent({
-            keepAlive: true,
-            keepAliveMsecs: 30000,
-            maxSockets: 20,
-            maxFreeSockets: 10,
-            timeout: 600000
-        });
-        
-        this.httpsAgent = new https.Agent({
-            keepAlive: true,
-            keepAliveMsecs: 30000,
-            maxSockets: 20,
-            maxFreeSockets: 10,
-            timeout: 600000,
-            rejectUnauthorized: false // For self-signed certificates
-        });
-        
-        // 📊 Performance monitoring
-        this.metrics = {
-            totalJobs: 0,
-            completedJobs: 0,
-            failedJobs: 0,
-            avgProcessingTime: 0,
-            totalDataProcessed: 0,
-            peakMemoryUsage: 0,
-            currentActiveJobs: 0
-        };
-        
-        // 🧹 Resource cleanup
-        this.cleanupInterval = setInterval(() => this.performCleanup(), 5 * 60 * 1000); // Every 5 minutes
-        
-        console.log(`🚀 OPTIMIZED R2 ZIP Service initialized`);
-        console.log(`💾 Memory allocation: ${this.maxMemoryPerJob / 1024 / 1024}MB per job`);
-        console.log(`⚡ Max concurrent jobs: ${this.maxConcurrentJobs}`);
-        console.log(`🏗️ Stream chunk size: ${this.streamChunkSize / 1024}KB`);
-        console.log(`📦 Bucket: ${this.zipBucket}`);
+        console.log(`📦 R2 ZIP Service initialized (DECOUPLED MODE):`);
+        console.log(`🔧 Concurrency: ${this.concurrency}`);
+        console.log(`📦 Instance batch size: ${this.instanceBatchSize}`);
+        console.log(`⏱️ Processing delay: ${this.processingDelay}ms`);
     }
 
-    // 🚀 OPTIMIZED: Smart job queuing with priority and resource management
-    async addZipJob(studyData, priority = 'normal') {
+    // Add ZIP creation job to queue
+    async addZipJob(studyData) {
         const jobId = this.nextJobId++;
-        const memoryEstimate = this.estimateMemoryUsage(studyData);
-        
-        // Check if we have enough memory available
-        if (this.memoryUsage + memoryEstimate > 14 * 1024 * 1024 * 1024) { // Reserve 2GB for system
-            console.warn(`⚠️ Job ${jobId} queued - insufficient memory (current: ${this.formatBytes(this.memoryUsage)}, needed: ${this.formatBytes(memoryEstimate)})`);
-        }
-        
         const job = {
             id: jobId,
-            type: 'create-study-zip-r2-optimized',
+            type: 'create-study-zip-r2',
             data: studyData,
             status: 'waiting',
-            priority: priority, // 'high', 'normal', 'low'
             createdAt: new Date(),
             progress: 0,
             result: null,
-            error: null,
-            memoryEstimate,
-            retryCount: 0,
-            maxRetries: 2
+            error: null
         };
         
         this.zipJobs.set(jobId, job);
-        this.jobQueue.push(job);
-        this.metrics.totalJobs++;
-        
-        // Sort queue by priority
-        this.jobQueue.sort((a, b) => {
-            const priorityOrder = { 'high': 3, 'normal': 2, 'low': 1 };
-            return priorityOrder[b.priority] - priorityOrder[a.priority];
-        });
-        
-        console.log(`📋 Job ${jobId} queued (Priority: ${priority}, Est. Memory: ${this.formatBytes(memoryEstimate)})`);
+        console.log(`📦 R2 ZIP Creation Job ${jobId} queued for study: ${studyData.orthancStudyId}`);
         
         if (!this.isProcessing) {
-            this.startOptimizedProcessing();
+            this.startZipProcessing();
         }
         
         return job;
     }
 
-    // 🔥 OPTIMIZED: High-performance concurrent processing
-    async startOptimizedProcessing() {
+    // ✅ OPTIMIZED: Enhanced queue processing with resource monitoring
+    async startZipProcessing() {
         if (this.isProcessing) return;
         this.isProcessing = true;
         
-        console.log('🚀 Starting OPTIMIZED ZIP processing engine');
-        console.log(`⚡ Max concurrent jobs: ${this.maxConcurrentJobs}`);
+        console.log('🚀 HIGH-PERFORMANCE ZIP Processing Engine Started');
+        console.log(`⚡ Server Specs: 8vCPU/16GB | Max Jobs: ${this.concurrency}`);
         
-        while (this.jobQueue.length > 0 || this.activeJobs.size > 0) {
-            // Process jobs while we have capacity and queued jobs
-            while (this.activeJobs.size < this.maxConcurrentJobs && this.jobQueue.length > 0) {
-                const job = this.jobQueue.shift();
-                
-                // Check memory availability
-                if (this.memoryUsage + job.memoryEstimate <= 14 * 1024 * 1024 * 1024) {
-                    this.processOptimizedZipJob(job);
-                } else {
-                    // Put job back at front of queue and wait
-                    this.jobQueue.unshift(job);
-                    console.log(`⏳ Job ${job.id} waiting for memory (${this.formatBytes(this.memoryUsage)} used)`);
-                    break;
-                }
+        while (this.getWaitingZipJobs().length > 0 || this.processing.size > 0) {
+            // 🔥 MEMORY MONITORING: Check system resources
+            const memUsage = process.memoryUsage();
+            const memUsedGB = memUsage.heapUsed / (1024 * 1024 * 1024);
+            const cpuUsage = process.cpuUsage();
+            
+            // Dynamic concurrency based on memory pressure
+            let effectiveConcurrency = this.concurrency;
+            if (memUsage.heapUsed > this.maxMemoryUsage * 0.8) {
+                effectiveConcurrency = 1; // Reduce to 1 job if memory is high
+                console.warn(`⚠️ Memory pressure detected: ${memUsedGB.toFixed(2)}GB - reducing concurrency`);
             }
             
-            // Wait before checking again
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Start new jobs if under limit
+            const waitingJobs = this.getWaitingZipJobs();
+            while (this.processing.size < effectiveConcurrency && waitingJobs.length > 0) {
+                const job = waitingJobs.shift();
+                console.log(`🚀 Starting Job ${job.id} (${this.processing.size + 1}/${effectiveConcurrency} active)`);
+                console.log(`📊 System: ${memUsedGB.toFixed(2)}GB RAM, ${waitingJobs.length} queued`);
+                this.processZipJob(job);
+            }
+            
+            // 🔥 ADAPTIVE DELAY: Faster processing when system is idle
+            const delay = memUsage.heapUsed > this.maxMemoryUsage * 0.6 ? 
+                         this.processingDelay * 2 : this.processingDelay;
+            await new Promise(resolve => setTimeout(resolve, delay));
         }
         
         this.isProcessing = false;
-        console.log('⏹️ ZIP processing engine stopped');
-        this.printPerformanceStats();
+        console.log('⏹️ HIGH-PERFORMANCE ZIP Processing Engine Stopped');
     }
 
-    // 🔥 OPTIMIZED: Individual job processing with resource tracking
-    async processOptimizedZipJob(job) {
-        this.activeJobs.add(job.id);
-        this.memoryUsage += job.memoryEstimate;
-        this.metrics.currentActiveJobs++;
-        
+    // ✅ ENHANCED: Better error handling in job processing
+    async processZipJob(job) {
+        this.processing.add(job.id);
         job.status = 'active';
-        job.startTime = Date.now();
         
-        console.log(`🚀 Processing Job ${job.id} (${this.activeJobs.size}/${this.maxConcurrentJobs} active)`);
-        console.log(`💾 Memory usage: ${this.formatBytes(this.memoryUsage)}`);
+        const memUsage = process.memoryUsage();
+        const memUsedGB = memUsage.heapUsed / (1024 * 1024 * 1024);
+        
+        console.log(`🚀 Processing R2 ZIP Job ${job.id} (Memory: ${memUsedGB.toFixed(2)}GB)`);
         
         try {
-            job.result = await this.createOptimizedStudyZip(job);
+            job.result = await this.createAndUploadStudyZipToR2(job);
             job.status = 'completed';
-            this.metrics.completedJobs++;
+            console.log(`✅ R2 ZIP Job ${job.id} completed successfully`);
             
-            const processingTime = Date.now() - job.startTime;
-            this.updatePerformanceMetrics(processingTime, job.result.zipSizeMB * 1024 * 1024);
-            
-            console.log(`✅ Job ${job.id} completed in ${processingTime}ms (${job.result.zipSizeMB}MB)`);
-            
+            // ✅ CLEANUP: Force garbage collection if available
+            if (global.gc) {
+                global.gc();
+                console.log(`🗑️ Garbage collection triggered after job ${job.id}`);
+            }
+
         } catch (error) {
-            job.error = error.message;
+            console.error(`❌ R2 ZIP Job ${job.id} failed:`, error.message);
             
-            // Retry logic for transient failures
-            if (job.retryCount < job.maxRetries && this.isRetryableError(error)) {
-                job.retryCount++;
+            job.retryCount = (job.retryCount || 0) + 1;
+            
+            // ✅ ENHANCED: Better retry logic
+            const isRetryable = error.message.includes('timeout') || 
+                              error.message.includes('ECONNRESET') ||
+                              error.message.includes('socket hang up') ||
+                              error.message.includes('ENOTFOUND') ||
+                              error.message.includes('aborted');
+
+            if (isRetryable && job.retryCount <= this.maxRetries) {
                 job.status = 'waiting';
-                this.jobQueue.unshift(job); // High priority retry
-                console.warn(`🔄 Job ${job.id} retry ${job.retryCount}/${job.maxRetries}: ${error.message}`);
+                job.error = null;
+                const delay = this.retryDelay * Math.pow(2, job.retryCount - 1); // Exponential backoff
+                console.log(`🔄 Retrying job ${job.id} in ${delay}ms (attempt ${job.retryCount}/${this.maxRetries})`);
+                
+                setTimeout(() => {
+                    if (!this.isProcessing) {
+                        this.startZipProcessing();
+                    }
+                }, delay);
             } else {
+                job.error = error.message;
                 job.status = 'failed';
-                this.metrics.failedJobs++;
-                console.error(`❌ Job ${job.id} failed permanently: ${error.message}`);
+                console.error(`❌ Job ${job.id} failed permanently after ${job.retryCount} retries`);
             }
         } finally {
-            this.activeJobs.delete(job.id);
-            this.memoryUsage -= job.memoryEstimate;
-            this.metrics.currentActiveJobs--;
+            this.processing.delete(job.id);
         }
     }
 
-    // 🚀 OPTIMIZED: Memory-efficient ZIP creation with streaming
-    async createOptimizedStudyZip(job) {
-        const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
-        const startTime = Date.now();
+    
+    async createAndUploadStudyZipToR2(job) {
+    const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;
+    const startTime = Date.now();
+    
+    try {
+        console.log(`[ZIP WORKER] 📦 Starting job for study: ${orthancStudyId} (Decoupled Method)`);
         
-        try {
-            console.log(`[OPTIMIZED] 📦 Creating ZIP for study: ${orthancStudyId}`);
-            
-            // Update status with resource info
-            await DicomStudy.findByIdAndUpdate(studyDatabaseId, {
-                'preProcessedDownload.zipStatus': 'processing',
-                'preProcessedDownload.zipJobId': job.id.toString(),
-                'preProcessedDownload.zipMetadata.createdBy': 'optimized-cloudflare-r2-service',
-                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2',
-                'preProcessedDownload.zipMetadata.processingStarted': new Date(),
-                'preProcessedDownload.zipMetadata.estimatedMemory': job.memoryEstimate
-            });
-            
-            job.progress = 10;
-            
-            // 🔥 OPTIMIZED: Parallel metadata and archive fetching
-            const [metadataResponse, archiveStream] = await Promise.all([
-                this.fetchStudyMetadata(orthancStudyId),
-                this.createOptimizedArchiveStream(orthancStudyId, job)
-            ]);
-            
-            const studyMetadata = metadataResponse.data;
-            job.progress = 30;
-            
-            // Generate optimized filename
-            const zipFileName = this.generateOptimizedFileName(studyMetadata, orthancStudyId);
-            console.log(`[OPTIMIZED] 📂 ZIP filename: ${zipFileName}`);
-            
-            job.progress = 40;
-            
-            // 🚀 OPTIMIZED: Streaming upload with compression and progress tracking
-            const r2Result = await this.uploadOptimizedZipToR2(
-                archiveStream, 
-                zipFileName, 
-                {
-                    studyInstanceUID,
-                    orthancStudyId,
-                    patientId: studyMetadata.PatientMainDicomTags?.PatientID,
-                    patientName: studyMetadata.PatientMainDicomTags?.PatientName
-                },
-                job
-            );
-            
-            job.progress = 90;
-            
-            const processingTime = Date.now() - startTime;
-            const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
-            
-            // Generate optimized URLs
-            const cdnUrl = await getCDNOptimizedUrl(r2Result.key, {
-                filename: zipFileName,
-                contentType: 'application/zip',
-                cacheControl: true,
-                r2Optimize: true
-            });
-            
-            const publicUrl = getR2PublicUrl(r2Result.key, r2Config.features.enableCustomDomain);
-            
-            // Update database with comprehensive metadata
-            const updateData = {
-                'preProcessedDownload.zipUrl': cdnUrl,
-                'preProcessedDownload.zipPublicUrl': publicUrl,
-                'preProcessedDownload.zipFileName': zipFileName,
-                'preProcessedDownload.zipSizeMB': zipSizeMB,
-                'preProcessedDownload.zipCreatedAt': new Date(),
-                'preProcessedDownload.zipStatus': 'completed',
-                'preProcessedDownload.zipExpiresAt': new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
-                'preProcessedDownload.zipBucket': this.zipBucket,
-                'preProcessedDownload.zipKey': r2Result.key,
-                'preProcessedDownload.zipMetadata': {
-                    orthancStudyId,
-                    instanceCount: studyMetadata.Instances?.length || 0,
-                    seriesCount: studyMetadata.Series?.length || 0,
-                    processingTimeMs: processingTime,
-                    compressionRatio: this.calculateCompressionRatio(studyMetadata, zipSizeMB),
-                    createdBy: 'optimized-cloudflare-r2-service',
-                    storageProvider: 'cloudflare-r2',
-                    r2Key: r2Result.key,
-                    r2Bucket: this.zipBucket,
-                    cdnEnabled: true,
-                    customDomain: r2Config.features.enableCustomDomain,
-                    optimizationLevel: 'high-performance',
-                    serverSpecs: {
-                        cpu: '8vCPU',
-                        memory: '16GB',
-                        concurrency: this.maxConcurrentJobs
-                    }
-                }
-            };
-            
-            await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
-            
-            job.progress = 100;
-            
-            console.log(`[OPTIMIZED] ✅ ZIP completed: ${zipSizeMB}MB in ${processingTime}ms`);
-            console.log(`[OPTIMIZED] 📊 Throughput: ${(zipSizeMB / (processingTime / 1000)).toFixed(2)} MB/s`);
-            
-            return {
-                success: true,
-                zipUrl: cdnUrl,
-                zipPublicUrl: publicUrl,
-                zipFileName,
-                zipSizeMB,
-                processingTime,
-                throughputMBps: zipSizeMB / (processingTime / 1000),
-                r2Key: r2Result.key,
-                r2Bucket: this.zipBucket,
-                cdnEnabled: true,
-                storageProvider: 'cloudflare-r2-optimized'
-            };
-            
-        } catch (error) {
-            console.error(`[OPTIMIZED] ❌ ZIP creation failed:`, error);
-            
-            await DicomStudy.findByIdAndUpdate(studyDatabaseId, {
-                'preProcessedDownload.zipStatus': 'failed',
-                'preProcessedDownload.zipMetadata.error': error.message,
-                'preProcessedDownload.zipMetadata.failedAt': new Date()
-            });
-            
-            throw error;
-        }
-    }
-
-    // 🔥 HELPER: Optimized HTTP agents with connection pooling (FIXED)
-    getOptimizedHttpAgent() {
-        return this.httpAgent; // Return pre-initialized agent
-    }
-
-    getOptimizedHttpsAgent() {
-        return this.httpsAgent; // Return pre-initialized agent
-    }
-
-    // 🔧 HELPER: Fetch study metadata with caching (FIXED)
-    async fetchStudyMetadata(orthancStudyId) {
-        const cacheKey = `metadata_${orthancStudyId}`;
-        
-        if (this.connectionPool.has(cacheKey)) {
-            return this.connectionPool.get(cacheKey);
-        }
-        
-        const response = await axios.get(`${ORTHANC_BASE_URL}/studies/${orthancStudyId}`, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 30000,
-            httpAgent: this.getOptimizedHttpAgent(),
-            httpsAgent: this.getOptimizedHttpsAgent()
+        // Update study status
+        await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
+            'preProcessedDownload.zipStatus': 'processing',
+            'preProcessedDownload.zipJobId': job.id.toString(),
+            'preProcessedDownload.zipMetadata.createdBy': 'cloudflare-r2-service-decoupled',
+            'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
         });
         
-        // Cache for 5 minutes
-        this.connectionPool.set(cacheKey, response);
-        setTimeout(() => this.connectionPool.delete(cacheKey), 5 * 60 * 1000);
-        
-        return response;
-    }
+        job.progress = 10;
 
-    // 🚀 OPTIMIZED: High-performance archive stream creation (FIXED)
-    async createOptimizedArchiveStream(orthancStudyId, job) {
-        console.log(`[STREAM] 🌊 Creating optimized archive stream for ${orthancStudyId}`);
+        // ✅ FIXED: Step 1 - Fetch study details AND instance list in parallel for efficiency
+        console.log(`[ZIP WORKER] 🔍 Fetching all metadata from Orthanc...`);
+        const studyDetailsUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
+        const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expanded=true`;
+
+        const [studyDetailsResponse, instancesResponse] = await Promise.all([
+            axios.get(studyDetailsUrl, { headers: { 'Authorization': orthancAuth }, timeout: 15000 }),
+            axios.get(instancesUrl, { headers: { 'Authorization': orthancAuth }, timeout: 30000 })
+        ]);
+
+        const studyDetails = studyDetailsResponse.data;
+        const detailedInstances = instancesResponse.data;
+
+        if (!detailedInstances || detailedInstances.length === 0) {
+            throw new Error("No instances found for this study");
+        }
         
-        const streamOptions = {
-            headers: { 'Authorization': orthancAuth },
-            responseType: 'stream',
-            timeout: 600000, // 10 minutes for very large studies
-            maxRedirects: 0,
-            // 🔥 OPTIMIZED: HTTP/2 and connection reuse (FIXED)
-            httpAgent: this.getOptimizedHttpAgent(),
-            httpsAgent: this.getOptimizedHttpsAgent()
+        console.log(`[ZIP WORKER] 📊 Found ${detailedInstances.length} instances to process`);
+        job.progress = 25;
+
+        // ✅ FIXED: Step 2 - Create filename from the correct source (studyDetails)
+        const patientName = (studyDetails.PatientMainDicomTags.PatientName || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
+        const patientId = (studyDetails.PatientMainDicomTags.PatientID || 'Unknown').replace(/[^a-zA-Z0-9]/g, '_');
+        const studyDate = studyDetails.MainDicomTags.StudyDate || '';
+        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const zipFileName = `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId}.zip`;
+        
+        console.log(`[ZIP WORKER] 📂 Creating ZIP with correct name: ${zipFileName}`);
+
+        // ✅ FIXED: Step 3 - Group instances by series using the detailed instance data
+        const seriesMap = new Map();
+        for (const instance of detailedInstances) {
+            const seriesInstanceUID = instance.MainDicomTags.SeriesInstanceUID;
+            if (!seriesMap.has(seriesInstanceUID)) {
+                const seriesDescription = (instance.MainDicomTags.SeriesDescription || 'UnknownSeries').replace(/[^a-zA-Z0-9\-_]/g, '_').substring(0, 50);
+                const seriesNumber = String(instance.MainDicomTags.SeriesNumber || '000').padStart(3, '0');
+                seriesMap.set(seriesInstanceUID, {
+                    folderName: `Series_${seriesNumber}_${seriesDescription}`,
+                    instances: []
+                });
+            }
+            seriesMap.get(seriesInstanceUID).instances.push(instance.ID);
+        }
+
+        console.log(`[ZIP WORKER] 📁 Organized into ${seriesMap.size} series`);
+        job.progress = 35;
+
+        // ✅ STEP 4: Setup streams for zipping and uploading
+        const zipStream = new PassThrough();
+        const archive = archiver('zip', { 
+            zlib: { level: 6 }
+        });
+        
+        archive.on('error', (err) => {
+            console.error('[ZIP WORKER] ❌ Archiver error:', err);
+            zipStream.destroy(err);
+        });
+        archive.pipe(zipStream);
+        
+        const uploadPromise = this.uploadZipToR2(zipStream, zipFileName, {
+            studyInstanceUID,
+            orthancStudyId,
+            totalInstances: detailedInstances.length,
+            totalSeries: seriesMap.size,
+            patientName: patientName
+        });
+        
+        console.log(`[ZIP WORKER] 📤 Started streaming upload to R2`);
+        job.progress = 40;
+
+        // STEP 5: Process instances in batches
+        let processedInstances = 0;
+        const totalInstances = detailedInstances.length;
+        for (const [seriesUID, seriesData] of seriesMap.entries()) {
+            for (let i = 0; i < seriesData.instances.length; i += this.instanceBatchSize) {
+                const batch = seriesData.instances.slice(i, i + this.instanceBatchSize);
+                const batchPromises = batch.map((instanceId, index) => {
+                    return this.downloadAndAddInstanceToArchive(
+                        archive, 
+                        instanceId, 
+                        seriesData.folderName, 
+                        processedInstances + index + 1
+                    );
+                });
+                await Promise.all(batchPromises);
+                processedInstances += batch.length;
+                job.progress = 40 + Math.floor((processedInstances / totalInstances) * 45); // Progress from 40% to 85%
+                console.log(`[ZIP WORKER] 📦 Processed ${processedInstances}/${totalInstances} instances`);
+            }
+        }
+
+        // STEP 6: Finalize and wait for upload
+        console.log(`[ZIP WORKER] 🔒 Finalizing archive...`);
+        await archive.finalize();
+        job.progress = 85;
+        
+        console.log(`[ZIP WORKER] ⏳ Waiting for R2 upload to complete...`);
+        const r2Result = await uploadPromise;
+        job.progress = 95;
+        
+        const processingTime = Date.now() - startTime;
+        const zipSizeMB = Math.round((r2Result.size || 0) / 1024 / 1024 * 100) / 100;
+        
+        // STEP 7: Generate URLs and update database
+        const cdnUrl = await getCDNOptimizedUrl(r2Result.key, { filename: zipFileName, contentType: 'application/zip' });
+        const publicUrl = getR2PublicUrl(r2Result.key, r2Config.features.enableCustomDomain);
+        
+        const updateData = {
+            'preProcessedDownload.zipUrl': cdnUrl,
+            'preProcessedDownload.zipPublicUrl': publicUrl,
+            'preProcessedDownload.zipFileName': zipFileName,
+            'preProcessedDownload.zipSizeMB': zipSizeMB,
+            'preProcessedDownload.zipCreatedAt': new Date(),
+            'preProcessedDownload.zipStatus': 'completed',
+            // ... add more metadata as needed
         };
         
-        const response = await axios.get(
-            `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/archive`,
-            streamOptions
-        );
+        await DicomStudy.findByIdAndUpdate(studyDatabaseId, updateData);
+        job.progress = 100;
         
-        // 🔥 OPTIMIZED: Transform stream with progress tracking and backpressure handling
-        let processedBytes = 0;
-        const progressStream = new Transform({
-            objectMode: false,
-            highWaterMark: this.streamChunkSize,
-            transform(chunk, encoding, callback) {
-                processedBytes += chunk.length;
+        console.log(`[ZIP WORKER] ✅ ZIP created: ${zipFileName} - ${zipSizeMB}MB in ${processingTime}ms`);
+        
+        return { 
+            success: true, 
+            zipUrl: cdnUrl, 
+            zipPublicUrl: publicUrl,
+            zipFileName, 
+            zipSizeMB, 
+            processingTime
+        };
+
+    } catch (error) {
+        console.error(`[ZIP WORKER] ❌ Failed to create ZIP via decoupled method:`, error);
+        await DicomStudy.findByIdAndUpdate(studyDatabaseId, { 
+            'preProcessedDownload.zipStatus': 'failed',
+            'preProcessedDownload.zipMetadata.error': error.message
+        });
+        throw error;
+    }
+  }
+
+    // 🚀 OPTIMIZED: Enhanced instance processing with better batching
+    async downloadAndAddInstanceToArchive(archive, instanceId, folderName, fileNumber) {
+        let retryCount = 0;
+        
+        while (retryCount < this.maxRetries) {
+            try {
+                const instanceFileUrl = `${ORTHANC_BASE_URL}/instances/${instanceId}/file`;
+                const instanceStreamResponse = await axios.get(instanceFileUrl, {
+                    headers: { 'Authorization': orthancAuth },
+                    responseType: 'stream',
+                    timeout: this.networkTimeouts.instanceTimeout,
+                    maxContentLength: 1024 * 1024 * 1024, // 1GB max per instance
+                    // 🔥 OPTIMIZATION: Better HTTP settings
+                    maxRedirects: 2,
+                    decompress: false,
+                    validateStatus: (status) => status === 200
+                });
                 
-                // Update job progress (40-80% during streaming)
-                if (job) {
-                    const progressPercent = Math.min(80, 40 + (processedBytes / (50 * 1024 * 1024)) * 40); // Estimate based on data
-                    job.progress = Math.floor(progressPercent);
+                const fileName = `${folderName}/${String(fileNumber).padStart(4, '0')}_${instanceId}.dcm`;
+                archive.append(instanceStreamResponse.data, { name: fileName });
+                
+                // 🔥 PROGRESS: Log every 25 files for better tracking
+                if (fileNumber % 25 === 0) {
+                    console.log(`[ZIP] ✅ Processed ${fileNumber} instances: ${fileName}`);
                 }
                 
-                this.push(chunk);
-                callback();
+                return; // Success
+                
+            } catch (error) {
+                retryCount++;
+                console.warn(`[ZIP] ⚠️ Instance ${instanceId} attempt ${retryCount}/${this.maxRetries}:`, error.message);
+                
+                if (retryCount >= this.maxRetries) {
+                    // 🔥 RESILIENCE: Add error placeholder instead of failing entire ZIP
+                    const errorContent = `Error downloading instance ${instanceId}: ${error.message}\nRetries: ${this.maxRetries}\nTimestamp: ${new Date().toISOString()}`;
+                    const errorFileName = `${folderName}/ERROR_${instanceId}.txt`;
+                    archive.append(Buffer.from(errorContent), { name: errorFileName });
+                    console.error(`[ZIP] ❌ Failed to download ${instanceId} - added error file`);
+                    return;
+                }
+                
+                // Exponential backoff with jitter
+                const delay = this.retryDelay * Math.pow(2, retryCount - 1) + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
-        });
-        
-        // Handle backpressure
-        response.data.pipe(progressStream);
-        
-        return progressStream;
+        }
     }
 
-    // 🚀 OPTIMIZED: High-performance R2 upload with monitoring
-    async uploadOptimizedZipToR2(zipStream, fileName, metadata, job) {
+    // 🚀 OPTIMIZED: Enhanced R2 upload configuration
+    async uploadZipToR2(zipStream, fileName, metadata) {
         const year = new Date().getFullYear();
         const month = String(new Date().getMonth() + 1).padStart(2, '0');
         const key = `studies/${year}/${month}/${fileName}`;
         
-        console.log(`[R2-OPT] 📤 Starting optimized upload: ${key}`);
+        console.log(`[R2] 📤 HIGH-PERFORMANCE Upload: ${fileName}`);
         
         try {
             const upload = new Upload({
@@ -433,51 +391,44 @@ class OptimizedCloudflareR2ZipService {
                     Metadata: {
                         'study-instance-uid': metadata.studyInstanceUID || '',
                         'orthanc-study-id': metadata.orthancStudyId || '',
-                        'patient-id': metadata.patientId || '',
-                        'patient-name': metadata.patientName || '',
+                        'total-instances': metadata.totalInstances?.toString() || '0',
+                        'total-series': metadata.totalSeries?.toString() || '0',
                         'created-at': new Date().toISOString(),
-                        'service-version': 'optimized-r2-v2',
-                        'storage-provider': 'cloudflare-r2',
-                        'optimization-level': 'high-performance',
-                        'server-specs': '16GB-8vCPU'
+                        'service-version': 'high-performance-r2-v3',
+                        'server-specs': '8vCPU-16GB',
+                        'optimization-level': 'high-performance'
                     },
                     
                     StorageClass: 'STANDARD'
                 },
                 
-                // 🔥 OPTIMIZED: R2 upload configuration for high throughput
-                partSize: this.maxPartSize, // 50MB parts for maximum throughput
+                // 🚀 HIGH-PERFORMANCE: Optimized for 8vCPU/16GB
+                partSize: this.uploadConfig.partSize,    // 50MB parts
                 leavePartsOnError: false,
-                queueSize: this.queueSize, // 8 parallel uploads
+                queueSize: this.uploadConfig.queueSize,  // 8 concurrent parts
                 
-                // 🚀 OPTIMIZED: Tags for better management
-                tags: {
-                    'service': 'optimized-zip-r2',
-                    'year': year.toString(),
-                    'month': month,
-                    'type': 'dicom-study-archive'
+                requestHandler: {
+                    requestTimeout: this.networkTimeouts.uploadTimeout,
+                    connectionTimeout: this.networkTimeouts.connectionTimeout
                 }
             });
 
+            // 📊 ENHANCED: Progress tracking with throughput monitoring
             let lastProgressTime = Date.now();
             let lastProgressBytes = 0;
-
-            // 📊 OPTIMIZED: Enhanced progress tracking with throughput
+            
             upload.on('httpUploadProgress', (progress) => {
-                if (progress.total && job) {
+                if (progress.total) {
                     const now = Date.now();
                     const timeDiff = (now - lastProgressTime) / 1000;
                     const bytesDiff = progress.loaded - lastProgressBytes;
                     
-                    if (timeDiff > 1) { // Update every second
+                    if (timeDiff > 5) { // Log every 5 seconds
                         const throughputMBps = (bytesDiff / timeDiff) / (1024 * 1024);
                         const percentComplete = Math.round((progress.loaded / progress.total) * 100);
                         const etaSeconds = throughputMBps > 0 ? (progress.total - progress.loaded) / (throughputMBps * 1024 * 1024) : 0;
                         
-                        // Update job progress (80-90% during upload)
-                        job.progress = Math.floor(80 + (percentComplete * 0.1));
-                        
-                        console.log(`[R2-OPT] 📊 Upload: ${percentComplete}% | ${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)} | ${throughputMBps.toFixed(2)} MB/s | ETA: ${Math.round(etaSeconds)}s`);
+                        console.log(`[R2] 📊 ${fileName}: ${percentComplete}% | ${this.formatBytes(progress.loaded)}/${this.formatBytes(progress.total)} | ${throughputMBps.toFixed(2)} MB/s | ETA: ${Math.round(etaSeconds)}s`);
                         
                         lastProgressTime = now;
                         lastProgressBytes = progress.loaded;
@@ -487,162 +438,267 @@ class OptimizedCloudflareR2ZipService {
 
             const result = await upload.done();
             
-            const publicUrl = getR2PublicUrl(key);
-            const cdnUrl = getCDNOptimizedUrl(key, {
-                filename: fileName,
-                contentType: 'application/zip',
-                r2Optimize: true
-            });
+            // Get actual file size
+            let fileSize = 0;
+            try {
+                const headCmd = new HeadObjectCommand({ 
+                    Bucket: this.zipBucket, 
+                    Key: key 
+                });
+                const headResult = await this.r2.send(headCmd);
+                fileSize = headResult.ContentLength || 0;
+            } catch (headError) {
+                console.warn(`[R2] ⚠️ Could not get file size:`, headError.message);
+            }
             
-            console.log(`[R2-OPT] ✅ Upload completed successfully`);
-            console.log(`[R2-OPT] 📡 CDN URL: ${cdnUrl}`);
+            console.log(`[R2] ✅ HIGH-PERFORMANCE Upload completed: ${fileName} (${this.formatBytes(fileSize)})`);
             
             return {
-                url: cdnUrl,
-                publicUrl: publicUrl,
+                url: getCDNOptimizedUrl(key, { filename: fileName, contentType: 'application/zip' }),
+                publicUrl: getR2PublicUrl(key),
                 key: key,
                 bucket: this.zipBucket,
                 etag: result.ETag,
-                size: result.size || 0
+                size: fileSize
             };
             
         } catch (error) {
-            console.error(`[R2-OPT] ❌ Upload failed:`, error);
-            throw new Error(["Optimized R2 upload failed", error.message]);
+            console.error(`[R2] ❌ HIGH-PERFORMANCE Upload failed:`, error.message);
+            throw new Error(`Upload failed: ${error.message}`);
         }
     }
 
-    // 🧠 HELPER: Smart memory estimation
-    estimateMemoryUsage(studyData) {
-        // Base memory for processing
-        let estimatedMemory = 100 * 1024 * 1024; // 100MB base
-        
-        // Estimate based on instance count if available
-        if (studyData.instanceCount) {
-            // Rough estimate: 500KB per instance for processing overhead
-            estimatedMemory += studyData.instanceCount * 500 * 1024;
-        } else {
-            // Conservative estimate for unknown studies
-            estimatedMemory = 1024 * 1024 * 1024; // 1GB
-        }
-        
-        // Cap at maximum allowed per job
-        return Math.min(estimatedMemory, this.maxMemoryPerJob);
+    // ✅ UTILITY: Format bytes helper
+    formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
-    // 🧹 HELPER: Resource cleanup and optimization
-    async performCleanup() {
-        console.log('🧹 Performing resource cleanup...');
-        
-        // Clean completed jobs older than 1 hour
-        const oneHourAgo = Date.now() - (60 * 60 * 1000);
-        const jobsToDelete = [];
-        
-        for (const [jobId, job] of this.zipJobs.entries()) {
-            if ((job.status === 'completed' || job.status === 'failed') && 
-                job.createdAt.getTime() < oneHourAgo) {
-                jobsToDelete.push(jobId);
+    // Get R2 bucket if it doesn't exist
+    async ensureR2Bucket() {
+        try {
+            // Check if bucket exists
+            await this.r2.send(new HeadBucketCommand({ Bucket: this.zipBucket }));
+            console.log(`✅ R2 ZIP Bucket ${this.zipBucket} exists`);
+            return true;
+        } catch (error) {
+            if (error.$metadata?.httpStatusCode === 404) {
+                console.log(`📦 R2 Bucket ${this.zipBucket} not found - it should be created via Cloudflare dashboard`);
+                console.log(`🌐 Please create bucket at: https://dash.cloudflare.com/r2`);
+                return false;
+            } else {
+                console.error(`❌ Error checking R2 ZIP bucket ${this.zipBucket}:`, error.message);
+                throw error;
             }
         }
-        
-        jobsToDelete.forEach(jobId => this.zipJobs.delete(jobId));
-        
-        // Force garbage collection if available
-        if (global.gc) {
-            global.gc();
+    }
+
+    // Set up CORS for R2 bucket
+    async setupR2BucketCORS() {
+        try {
+            const corsParams = {
+                Bucket: this.zipBucket,
+                CORSConfiguration: {
+                    CORSRules: [
+                        {
+                            AllowedHeaders: ['*'],
+                            AllowedMethods: ['GET', 'HEAD'],
+                            AllowedOrigins: ['*'],
+                            ExposeHeaders: ['ETag', 'Content-Length', 'Content-Type'],
+                            MaxAgeSeconds: 3600
+                        }
+                    ]
+                }
+            };
+            
+            await this.r2.send(new PutBucketCorsCommand(corsParams));
+            console.log(`✅ R2 bucket CORS configured`);
+        } catch (error) {
+            console.error(`❌ Error setting up R2 CORS:`, error.message);
         }
-        
-        // Update peak memory usage
-        const currentMemory = process.memoryUsage();
-        this.metrics.peakMemoryUsage = Math.max(this.metrics.peakMemoryUsage, currentMemory.heapUsed);
-        
-        console.log(`🧹 Cleanup completed: ${jobsToDelete.length} old jobs removed`);
-        console.log(`💾 Current memory: ${this.formatBytes(currentMemory.heapUsed)}, Peak: ${this.formatBytes(this.metrics.peakMemoryUsage)}`);
     }
 
-    // 📊 HELPER: Performance metrics
-    updatePerformanceMetrics(processingTime, dataSize) {
-        const currentAvg = this.metrics.avgProcessingTime;
-        const completed = this.metrics.completedJobs;
-        
-        this.metrics.avgProcessingTime = (currentAvg * (completed - 1) + processingTime) / completed;
-        this.metrics.totalDataProcessed += dataSize;
+    // Set up public access for R2 bucket
+    async setupR2PublicAccess() {
+        try {
+            const policyDocument = {
+                Version: '2012-10-17',
+                Statement: [
+                    {
+                        Sid: 'PublicReadGetObject',
+                        Effect: 'Allow',
+                        Principal: '*',
+                        Action: 's3:GetObject',
+                        Resource: `arn:aws:s3:::${this.zipBucket}/*`
+                    }
+                ]
+            };
+            
+            const policyParams = {
+                Bucket: this.zipBucket,
+                Policy: JSON.stringify(policyDocument)
+            };
+            
+            await this.r2.send(new PutBucketPolicyCommand(policyParams));
+            console.log(`✅ R2 bucket public access configured`);
+        } catch (error) {
+            console.error(`❌ Error setting up R2 public access:`, error.message);
+        }
     }
 
-    printPerformanceStats() {
-        console.log('\n📊 PERFORMANCE STATISTICS:');
-        console.log(`Total Jobs: ${this.metrics.totalJobs}`);
-        console.log(`Completed: ${this.metrics.completedJobs}`);
-        console.log(`Failed: ${this.metrics.failedJobs}`);
-        console.log(`Success Rate: ${((this.metrics.completedJobs / this.metrics.totalJobs) * 100).toFixed(2)}%`);
-        console.log(`Avg Processing Time: ${this.metrics.avgProcessingTime.toFixed(0)}ms`);
-        console.log(`Total Data Processed: ${this.formatBytes(this.metrics.totalDataProcessed)}`);
-        console.log(`Peak Memory Usage: ${this.formatBytes(this.metrics.peakMemoryUsage)}`);
-        console.log(`Current Active Jobs: ${this.metrics.currentActiveJobs}`);
+    // Get R2 storage statistics
+    async getR2StorageStats() {
+        try {
+            console.log('📊 Getting R2 storage statistics...');
+            
+            const listParams = {
+                Bucket: this.zipBucket,
+                Prefix: 'studies/',
+                MaxKeys: 1000
+            };
+
+            const result = await this.r2.send(new ListObjectsV2Command(listParams));
+            
+            const files = result.Contents || [];
+            const totalSize = files.reduce((sum, file) => sum + (file.Size || 0), 0);
+            const fileCount = files.length;
+
+            // Group by year/month for statistics
+            const groupedStats = {};
+            files.forEach(file => {
+                const pathParts = file.Key.split('/');
+                if (pathParts.length >= 3) {
+                    const year = pathParts[1];
+                    const month = new Date(file.LastModified).getMonth() + 1;
+                    const yearMonth = `${year}-${month.toString().padStart(2, '0')}`;
+                    
+                    if (!groupedStats[yearMonth]) {
+                        groupedStats[yearMonth] = {
+                            fileCount: 0,
+                            totalSize: 0
+                        };
+                    }
+                    
+                    groupedStats[yearMonth].fileCount++;
+                    groupedStats[yearMonth].totalSize += file.Size || 0;
+                }
+            });
+
+            return {
+                success: true,
+                bucketName: this.zipBucket,
+                storageProvider: 'cloudflare-r2',
+                cdnEnabled: true,
+                summary: {
+                    totalFiles: fileCount,
+                    totalSize,
+                    totalSizeFormatted: this.formatBytes(totalSize),
+                    averageFileSize: fileCount > 0 ? Math.round(totalSize / fileCount) : 0,
+                    averageFileSizeFormatted: fileCount > 0 ? this.formatBytes(Math.round(totalSize / fileCount)) : '0 Bytes'
+                },
+                monthlyStats: Object.keys(groupedStats).map(yearMonth => ({
+                    period: yearMonth,
+                    fileCount: groupedStats[yearMonth].fileCount,
+                    totalSize: groupedStats[yearMonth].totalSize,
+                    totalSizeFormatted: this.formatBytes(groupedStats[yearMonth].totalSize)
+                })).sort((a, b) => b.period.localeCompare(a.period)),
+                generatedAt: new Date(),
+                features: {
+                    cdnEnabled: r2Config.features.enableCaching,
+                    customDomain: r2Config.features.enableCustomDomain,
+                    publicAccess: r2Config.features.enablePublicAccess
+                }
+            };
+
+        } catch (error) {
+            console.error('❌ Error getting R2 storage statistics:', error);
+            throw error;
+        }
     }
 
-    // 🔧 HELPER: Optimized filename generation
-    generateOptimizedFileName(studyMetadata, orthancStudyId) {
-        const patientName = (studyMetadata.PatientMainDicomTags?.PatientName || 'Unknown')
-            .replace(/[^a-zA-Z0-9]/g, '_').substring(0, 20);
-        const patientId = (studyMetadata.PatientMainDicomTags?.PatientID || 'Unknown')
-            .replace(/[^a-zA-Z0-9]/g, '_').substring(0, 15);
-        const studyDate = studyMetadata.MainDicomTags?.StudyDate || '';
-        const timestamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        
-        return `Study_${patientName}_${patientId}_${studyDate}_${orthancStudyId.substring(0, 8)}_${timestamp}.zip`;
-    }
+    // Cleanup expired ZIPs from R2
+    async cleanupExpiredZips() {
+        try {
+            console.log('🧹 Starting R2 ZIP cleanup process...');
+            
+            // Find expired studies in database
+            const expiredStudies = await DicomStudy.find({
+                'preProcessedDownload.zipExpiresAt': { $lt: new Date() },
+                'preProcessedDownload.zipStatus': 'completed',
+                'preProcessedDownload.zipUrl': { $exists: true },
+                'preProcessedDownload.zipMetadata.storageProvider': 'cloudflare-r2'
+            }).select('preProcessedDownload orthancStudyID').lean();
 
-    // 🔧 HELPER: Calculate compression ratio
-    calculateCompressionRatio(studyMetadata, zipSizeMB) {
-        const instanceCount = studyMetadata.Instances?.length || 0;
-        if (instanceCount === 0) return 0;
-        
-        // Rough estimate: average DICOM file is ~1MB
-        const estimatedOriginalSizeMB = instanceCount * 1;
-        return estimatedOriginalSizeMB > 0 ? (zipSizeMB / estimatedOriginalSizeMB) : 0;
-    }
+            let cleanedCount = 0;
+            let failedCount = 0;
 
-    // 🔧 HELPER: Check if error is retryable
-    isRetryableError(error) {
-        const retryableErrors = [
-            'ECONNRESET',
-            'ETIMEDOUT',
-            'ENOTFOUND',
-            'Network Error',
-            'timeout',
-            'socket hang up'
-        ];
-        
-        return retryableErrors.some(errorType => 
-            error.message.includes(errorType) || error.code === errorType
-        );
-    }
+            for (const study of expiredStudies) {
+                try {
+                    const zipInfo = study.preProcessedDownload;
+                    
+                    // Use stored key or extract from URL
+                    let key = zipInfo.zipKey || zipInfo.zipMetadata?.r2Key;
+                    
+                    if (!key && zipInfo.zipUrl) {
+                        // Extract key from R2 URL
+                        const url = new URL(zipInfo.zipUrl);
+                        key = url.pathname.substring(1); // Remove leading slash
+                    }
+                    
+                    if (!key) {
+                        // Fallback: construct key from filename
+                        const year = new Date(zipInfo.zipCreatedAt).getFullYear();
+                        key = `studies/${year}/${zipInfo.zipFileName}`;
+                    }
 
-    // 🚀 PUBLIC: Get optimized job statistics
-    getOptimizedJobStats() {
-        const jobs = Array.from(this.zipJobs.values());
-        return {
-            ...this.getJobStats(),
-            optimization: {
-                maxConcurrentJobs: this.maxConcurrentJobs,
-                maxMemoryPerJob: this.formatBytes(this.maxMemoryPerJob),
-                currentMemoryUsage: this.formatBytes(this.memoryUsage),
-                streamChunkSize: this.formatBytes(this.streamChunkSize),
-                compressionLevel: this.compressionLevel,
-                queuedJobs: this.jobQueue.length
-            },
-            performance: this.metrics,
-            serverSpecs: {
-                cpu: '8vCPU',
-                memory: '16GB',
-                targetThroughput: '2-3 studies/minute',
-                maxImagesPerStudy: '2000+'
+                    // Delete from R2
+                    await this.r2.send(new DeleteObjectCommand({
+                        Bucket: this.zipBucket,
+                        Key: key
+                    }));
+
+                    // Update database
+                    await DicomStudy.findByIdAndUpdate(study._id, {
+                        $unset: {
+                            'preProcessedDownload.zipUrl': 1,
+                            'preProcessedDownload.zipPublicUrl': 1,
+                            'preProcessedDownload.zipFileName': 1,
+                            'preProcessedDownload.zipSizeMB': 1,
+                            'preProcessedDownload.zipKey': 1
+                        },
+                        'preProcessedDownload.zipStatus': 'expired'
+                    });
+
+                    cleanedCount++;
+                    console.log(`🗑️ Cleaned expired R2 ZIP for study: ${study.orthancStudyID}`);
+
+                } catch (error) {
+                    failedCount++;
+                    console.error(`❌ Failed to cleanup R2 ZIP for study ${study.orthancStudyID}:`, error.message);
+                }
             }
-        };
+
+            console.log(`✅ R2 ZIP cleanup completed: ${cleanedCount} cleaned, ${failedCount} failed`);
+            
+            return {
+                success: true,
+                cleanedCount,
+                failedCount,
+                totalProcessed: expiredStudies.length,
+                storageProvider: 'cloudflare-r2'
+            };
+
+        } catch (error) {
+            console.error('❌ Error during R2 ZIP cleanup:', error);
+            throw error;
+        }
     }
 
-    // Existing utility methods remain the same...
+    // Utility methods
     getWaitingZipJobs() {
         return Array.from(this.zipJobs.values()).filter(job => job.status === 'waiting');
     }
@@ -663,38 +719,12 @@ class OptimizedCloudflareR2ZipService {
             active: jobs.filter(j => j.status === 'active').length,
             completed: jobs.filter(j => j.status === 'completed').length,
             failed: jobs.filter(j => j.status === 'failed').length,
-            processing: this.activeJobs.size,
+            processing: this.processing.size,
             isProcessing: this.isProcessing,
-            storageProvider: 'cloudflare-r2-optimized'
+            storageProvider: 'cloudflare-r2',
+            method: 'decoupled-streaming'
         };
-    }
-
-    formatBytes(bytes, decimals = 2) {
-        if (bytes === 0) return '0 Bytes';
-        const k = 1024;
-        const dm = decimals < 0 ? 0 : decimals;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-    }
-
-    // Cleanup on service shutdown
-    async shutdown() {
-        console.log('🛑 Shutting down optimized ZIP service...');
-        
-        clearInterval(this.cleanupInterval);
-        
-        // Wait for active jobs to complete (with timeout)
-        let waitTime = 0;
-        while (this.activeJobs.size > 0 && waitTime < 60000) { // Max 1 minute wait
-            console.log(`⏳ Waiting for ${this.activeJobs.size} active jobs to complete...`);
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            waitTime += 5000;
-        }
-        
-        this.printPerformanceStats();
-        console.log('✅ Optimized ZIP service shutdown complete');
     }
 }
 
-export default new OptimizedCloudflareR2ZipService();
+export default new CloudflareR2ZipService();

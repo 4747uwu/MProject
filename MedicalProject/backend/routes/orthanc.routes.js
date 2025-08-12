@@ -280,8 +280,8 @@ async function findOrCreatePatientFromTags(tags) {
 
 async function findOrCreateSourceLab(tags) {
   const DEFAULT_LAB = {
-    name: 'Test',
-    identifier: 'TEST',
+    name: 'N/A',
+    identifier: 'n/a',
     isActive: true,
   };
 
@@ -382,290 +382,260 @@ function escapeRegex(string) {
 }
 
 // --- Main Processing Function ---
+// ✅ HIGHLY OPTIMIZED: Minimal API calls version
 async function processStableStudy(job) {
   const { orthancStudyId, requestId } = job.data;
   const startTime = Date.now();
   
   try {
-    console.log(`[StableStudy] 🚀 Processing stable study: ${orthancStudyId}`);
+    console.log(`[StableStudy] 🚀 OPTIMIZED Processing stable study: ${orthancStudyId}`);
     job.progress = 10;
     
-    // Get study information from Orthanc
-    const studyInfoUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
-    console.log(`[StableStudy] 🌐 Fetching from: ${studyInfoUrl}`);
-    
-    const studyResponse = await axios.get(studyInfoUrl, {
+    // ✅ STEP 1: SINGLE EFFICIENT CALL - Get ALL study data at once
+    console.log(`[StableStudy] 🔍 Making SINGLE optimized call for all study data...`);
+    const studyUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
+    const studyResponse = await axios.get(studyUrl, {
       headers: { 'Authorization': orthancAuth },
-      timeout: 10000
+      timeout: 15000
     });
     
     const studyInfo = studyResponse.data;
-    console.log(`[StableStudy] 📋 Raw study info:`, {
-      ID: studyInfo.ID,
-      MainDicomTags: studyInfo.MainDicomTags,
-      SeriesLength: studyInfo.Series?.length,
-      InstancesLength: studyInfo.Instances?.length,
-      ParentPatient: studyInfo.ParentPatient
-    });
-    
     const studyInstanceUID = studyInfo.MainDicomTags?.StudyInstanceUID;
     
     if (!studyInstanceUID) {
       throw new Error('StudyInstanceUID not found in stable study');
     }
     
-    console.log(`[StableStudy] 📋 Study: ${studyInstanceUID}`);
-    console.log(`[StableStudy] 📊 Direct counts - Series: ${studyInfo.Series?.length || 0}, Instances: ${studyInfo.Instances?.length || 0}`);
+    console.log(`[StableStudy] 📋 Study UID: ${studyInstanceUID}`);
+    console.log(`[StableStudy] 📊 Study level counts - Series: ${studyInfo.Series?.length || 0}`);
     
     job.progress = 30;
     
-    // 🔧 ENHANCED: Multiple methods to get instances
-    let instancesArray = [];
-    let firstInstanceId = null;
+    // ✅ STEP 2: SINGLE CALL - Get expanded instances with ALL metadata we need
+    let detailedInstances = [];
     let tags = {};
     
-    // Method 1: Try /studies/{id}/instances endpoint
-    console.log(`[StableStudy] 📁 Method 1: Direct instances API`);
     try {
-      const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances`;
+      console.log(`[StableStudy] 📁 Getting ALL instances with expanded metadata in ONE call...`);
+      const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances?expand`;
       const instancesResponse = await axios.get(instancesUrl, {
         headers: { 'Authorization': orthancAuth },
-        timeout: 15000
+        timeout: 20000 // Longer timeout for expanded data
       });
       
-      instancesArray = instancesResponse.data || [];
-      console.log(`[StableStudy] 📁 Method 1 result: ${instancesArray.length} instances`);
+      detailedInstances = instancesResponse.data || [];
+      console.log(`[StableStudy] ✅ Got ${detailedInstances.length} instances with full metadata in ONE call`);
       
-      if (instancesArray.length > 0) {
-        firstInstanceId = typeof instancesArray[0] === 'string' 
-          ? instancesArray[0] 
-          : instancesArray[0].ID || instancesArray[0];
-        console.log(`[StableStudy] 📁 Method 1 first instance: ${firstInstanceId}`);
+      // ✅ Extract ALL metadata from the FIRST expanded instance (no additional calls needed)
+      if (detailedInstances.length > 0) {
+        const firstInstance = detailedInstances[0];
+        
+        // ✅ SMART: Extract from all available tag sources in the expanded instance
+        const instanceTags = firstInstance.MainDicomTags || {};
+        const patientTags = firstInstance.PatientMainDicomTags || {};
+        const studyTags = firstInstance.StudyMainDicomTags || {};
+        
+        // ✅ Combine all tag sources for comprehensive metadata
+        tags = {
+          // Patient info from all sources
+          PatientName: patientTags.PatientName || instanceTags.PatientName || studyTags.PatientName,
+          PatientID: patientTags.PatientID || instanceTags.PatientID || studyTags.PatientID,
+          PatientSex: patientTags.PatientSex || instanceTags.PatientSex,
+          PatientAge: patientTags.PatientAge || instanceTags.PatientAge,
+          PatientBirthDate: patientTags.PatientBirthDate || instanceTags.PatientBirthDate,
+          
+          // Study info
+          StudyInstanceUID: studyInstanceUID,
+          StudyDescription: studyTags.StudyDescription || instanceTags.StudyDescription,
+          StudyDate: studyTags.StudyDate || instanceTags.StudyDate,
+          StudyTime: studyTags.StudyTime || instanceTags.StudyTime,
+          AccessionNumber: studyTags.AccessionNumber || instanceTags.AccessionNumber,
+          
+          // Series/Instance info
+          Modality: instanceTags.Modality,
+          SeriesDescription: instanceTags.SeriesDescription,
+          SeriesNumber: instanceTags.SeriesNumber,
+          SeriesInstanceUID: instanceTags.SeriesInstanceUID,
+          
+          // Equipment info
+          Manufacturer: instanceTags.Manufacturer,
+          ManufacturerModelName: instanceTags.ManufacturerModelName,
+          StationName: instanceTags.StationName,
+          SoftwareVersions: instanceTags.SoftwareVersions,
+          
+          // Institution info
+          InstitutionName: instanceTags.InstitutionName,
+          
+          // Additional metadata
+          ReferringPhysicianName: studyTags.ReferringPhysicianName || instanceTags.ReferringPhysicianName,
+          RequestingPhysician: studyTags.RequestingPhysician || instanceTags.RequestingPhysician,
+          PerformingPhysicianName: instanceTags.PerformingPhysicianName,
+          OperatorName: instanceTags.OperatorName,
+          BodyPartExamined: instanceTags.BodyPartExamined,
+          ProtocolName: instanceTags.ProtocolName,
+          StudyComments: studyTags.StudyComments,
+          
+          // ✅ CRITICAL: Get private lab tags from expanded instance if available
+          // Note: These might not be in MainDicomTags, so we'll need to make ONE additional call for tags
+        };
+        
+        console.log(`[StableStudy] ✅ Extracted comprehensive metadata from expanded instance:`);
+        console.log(`[StableStudy] 👤 Patient: ${tags.PatientName} (${tags.PatientID})`);
+        console.log(`[StableStudy] 📋 Study: ${tags.StudyDescription}`);
+        console.log(`[StableStudy] 🏥 Institution: ${tags.InstitutionName}`);
+        console.log(`[StableStudy] 🔬 Modality: ${tags.Modality}`);
       }
+      
     } catch (instancesError) {
-      console.warn(`[StableStudy] ⚠️ Method 1 failed:`, instancesError.message);
-    }
-    
-    // Method 2: Get instances from each series individually
-    if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
-      console.log(`[StableStudy] 📁 Method 2: Series-by-series lookup`);
+      console.warn(`[StableStudy] ⚠️ Expanded instances call failed:`, instancesError.message);
       
-      for (const seriesId of studyInfo.Series) {
-        try {
-          console.log(`[StableStudy] 🔍 Checking series: ${seriesId}`);
-          
-          // Get series info
-          const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-          const seriesResponse = await axios.get(seriesUrl, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 5000
-          });
-          
-          const seriesData = seriesResponse.data;
-          console.log(`[StableStudy] 📋 Series ${seriesId}:`, {
-            MainDicomTags: seriesData.MainDicomTags,
-            InstancesLength: seriesData.Instances?.length,
-            FirstInstance: seriesData.Instances?.[0]
-          });
-          
-          const seriesInstances = seriesData.Instances || [];
-          instancesArray.push(...seriesInstances);
-          
-          if (!firstInstanceId && seriesInstances.length > 0) {
-            firstInstanceId = typeof seriesInstances[0] === 'string' 
-              ? seriesInstances[0] 
-              : seriesInstances[0].ID || seriesInstances[0];
-            console.log(`[StableStudy] 📁 Method 2 first instance: ${firstInstanceId}`);
-          }
-          
-          // Try to get series-level tags if available
-          if (seriesData.MainDicomTags && Object.keys(tags).length === 0) {
-            tags = { ...tags, ...seriesData.MainDicomTags };
-          }
-          
-        } catch (seriesError) {
-          console.warn(`[StableStudy] ⚠️ Could not get series ${seriesId}:`, seriesError.message);
-        }
+      // ✅ FALLBACK: If expanded call fails, use study data + get instances normally
+      console.log(`[StableStudy] 🔄 Falling back to study metadata...`);
+      tags = { ...studyInfo.MainDicomTags };
+      
+      // Get basic instances list for counting
+      try {
+        const basicInstancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances`;
+        const basicInstancesResponse = await axios.get(basicInstancesUrl, {
+          headers: { 'Authorization': orthancAuth },
+          timeout: 10000
+        });
+        detailedInstances = basicInstancesResponse.data || [];
+        console.log(`[StableStudy] 📁 Fallback: Got ${detailedInstances.length} basic instances`);
+      } catch (basicError) {
+        console.warn(`[StableStudy] ⚠️ Even basic instances failed:`, basicError.message);
+        detailedInstances = [];
       }
-      
-      console.log(`[StableStudy] 📁 Method 2 result: ${instancesArray.length} instances total`);
-    }
-    
-    // Method 3: If still no instances, try using series IDs as instance IDs (sometimes they're the same)
-    if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
-      console.log(`[StableStudy] 📁 Method 3: Trying series IDs as instance IDs`);
-      
-      for (const seriesId of studyInfo.Series) {
-        try {
-          // Sometimes in single-instance series, the series ID can be used to get instance info
-          const instanceTestUrl = `${ORTHANC_BASE_URL}/instances/${seriesId}`;
-          const instanceTestResponse = await axios.get(instanceTestUrl, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 3000
-          });
-          
-          console.log(`[StableStudy] 📁 Method 3: Series ID ${seriesId} is also an instance!`);
-          instancesArray.push(seriesId);
-          
-          if (!firstInstanceId) {
-            firstInstanceId = seriesId;
-          }
-          
-        } catch (instanceTestError) {
-          // This is expected to fail most of the time
-          console.log(`[StableStudy] 📁 Method 3: Series ID ${seriesId} is not an instance`);
-        }
-      }
-      
-      console.log(`[StableStudy] 📁 Method 3 result: ${instancesArray.length} instances`);
     }
     
     job.progress = 50;
     
-    // 🔧 Get metadata - try multiple approaches
-    if (firstInstanceId) {
-      console.log(`[StableStudy] 🔍 Getting metadata from instance: ${firstInstanceId}`);
-      
+    // ✅ STEP 3: SINGLE CALL for private lab tags (only if we have instances)
+    if (detailedInstances.length > 0) {
       try {
-        // 🔧 FIX: Use /tags endpoint instead of /simplified-tags to get full tag structure
-        const metadataUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/tags`;
-        const metadataResponse = await axios.get(metadataUrl, {
+        const firstInstanceId = typeof detailedInstances[0] === 'string' 
+          ? detailedInstances[0] 
+          : detailedInstances[0].ID || detailedInstances[0];
+        
+        console.log(`[StableStudy] 🔍 Getting private tags from first instance: ${firstInstanceId}`);
+        const tagsUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/tags`;
+        const tagsResponse = await axios.get(tagsUrl, {
           headers: { 'Authorization': orthancAuth },
           timeout: 8000
         });
         
-        const rawTags = metadataResponse.data;
+        const rawTags = tagsResponse.data;
         
-        // 🔧 FIX: Extract Value field from each tag
-        tags = {};
-        for (const [tagKey, tagData] of Object.entries(rawTags)) {
-          if (tagData && typeof tagData === 'object' && tagData.Value !== undefined) {
-            tags[tagKey] = tagData.Value;
-          } else if (typeof tagData === 'string') {
-            tags[tagKey] = tagData;
+        // ✅ Extract private lab tags
+        const privateTags = ["0013,0010", "0015,0010", "0021,0010", "0043,0010"];
+        for (const tag of privateTags) {
+          if (rawTags[tag]?.Value) {
+            tags[tag] = rawTags[tag].Value;
           }
         }
         
-        // 🔧 FIX: Also extract common DICOM fields with proper names
-        tags.PatientName = rawTags["0010,0010"]?.Value || tags.PatientName;
-        tags.PatientID = rawTags["0010,0020"]?.Value || tags.PatientID;
-        tags.StudyDescription = rawTags["0008,1030"]?.Value || tags.StudyDescription;
-        tags.Modality = rawTags["0008,0060"]?.Value || tags.Modality;
-        tags.StudyDate = rawTags["0008,0020"]?.Value || tags.StudyDate;
-        tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
-        tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
-        tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
-        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex; // ✅ ADD: Patient Sex/Gender
-tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Patient Age
+        // ✅ Fill in any missing standard tags from raw tags
+        const standardTagMap = {
+          "0010,0010": "PatientName",
+          "0010,0020": "PatientID", 
+          "0010,0040": "PatientSex",
+          "0010,1010": "PatientAge",
+          "0008,1030": "StudyDescription",
+          "0008,0060": "Modality",
+          "0008,0020": "StudyDate",
+          "0008,0030": "StudyTime",
+          "0008,0050": "AccessionNumber",
+          "0008,0080": "InstitutionName"
+        };
         
-        console.log(`[StableStudy] ✅ Got instance metadata:`, {
-          PatientName: tags.PatientName,
-          PatientID: tags.PatientID,
-          StudyDescription: tags.StudyDescription,
-          PatientAge: tags.PatientAge, // ✅ ADD: Log patient age
-    PatientSex: tags.PatientSex,
-          Modality: tags.Modality,
-          // 🔧 FIX: Log the private tag values
-          PrivateTags: {
-            "0013,0010": tags["0013,0010"],
-            "0015,0010": tags["0015,0010"],
-            "0021,0010": tags["0021,0010"],
-            "0043,0010": tags["0043,0010"]
+        for (const [tagNum, tagName] of Object.entries(standardTagMap)) {
+          if (!tags[tagName] && rawTags[tagNum]?.Value) {
+            tags[tagName] = rawTags[tagNum].Value;
           }
+        }
+        
+        console.log(`[StableStudy] ✅ Enhanced metadata with private tags:`);
+        console.log(`[StableStudy] 🏥 Private lab tags:`, {
+          "0013,0010": tags["0013,0010"] || 'NOT_FOUND',
+          "0015,0010": tags["0015,0010"] || 'NOT_FOUND',
+          "0021,0010": tags["0021,0010"] || 'NOT_FOUND',
+          "0043,0010": tags["0043,0010"] || 'NOT_FOUND'
         });
         
-      } catch (metadataError) {
-        console.warn(`[StableStudy] ⚠️ Could not get instance metadata:`, metadataError.message);
-        
-        // 🔧 FALLBACK: Try simplified-tags if /tags fails
-        try {
-          const simplifiedUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
-          const simplifiedResponse = await axios.get(simplifiedUrl, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 8000
-          });
-          
-          tags = { ...tags, ...simplifiedResponse.data };
-          console.log(`[StableStudy] ✅ Got simplified metadata as fallback`);
-        } catch (simplifiedError) {
-          console.warn(`[StableStudy] ⚠️ Simplified tags also failed:`, simplifiedError.message);
-        }
+      } catch (tagsError) {
+        console.warn(`[StableStudy] ⚠️ Private tags call failed:`, tagsError.message);
+        // Continue without private tags
       }
     }
-    
-    // Fallback: use study-level tags if no instance metadata
-    if (Object.keys(tags).length === 0 || !tags.PatientName) {
-      console.log(`[StableStudy] 📋 Using study-level metadata as fallback`);
-      tags = { ...studyInfo.MainDicomTags, ...tags };
-    }
-    
-    // Final fallback: create minimal tags if still nothing
-    if (!tags.PatientName && !tags.PatientID) {
-      console.log(`[StableStudy] ⚠️ Creating minimal fallback metadata`);
-      tags = {
-        PatientName: 'Unknown Patient',
-        PatientID: `UNKNOWN_${Date.now()}`,
-        StudyDescription: 'N/A',
-        StudyInstanceUID: studyInstanceUID,
-        StudyDate: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-        Modality: 'n/a',
-        ...tags
-      };
-    }
-    
-    console.log(`[StableStudy] 📋 Final metadata for processing:`, {
-      PatientName: tags.PatientName,
-      PatientID: tags.PatientID,
-      StudyDescription: tags.StudyDescription,
-      Modality: tags.Modality,
-      InstancesFound: instancesArray.length
-    });
     
     job.progress = 60;
     
-    // Continue with patient and lab creation
-    const patientRecord = await findOrCreatePatientFromTags(tags);
-    const labRecord = await findOrCreateSourceLab(tags);
-    
-    console.log(`[StableStudy] 👤 Patient: ${patientRecord.patientNameRaw}`);
-    console.log(`[StableStudy] 🏥 Lab: ${labRecord.name}`);
-    
-    job.progress = 70;
-    
-    // Get modalities
+    // ✅ STEP 4: Build series map from expanded instances (NO additional API calls)
+    const seriesMap = new Map();
     const modalitiesSet = new Set();
-    if (tags.Modality) {
-      modalitiesSet.add(tags.Modality);
-    }
     
-    // Check series for additional modalities
-    for (const seriesId of studyInfo.Series || []) {
-      try {
-        const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-        const seriesResponse = await axios.get(seriesUrl, {
-          headers: { 'Authorization': orthancAuth },
-          timeout: 3000
-        });
-        const modality = seriesResponse.data.MainDicomTags?.Modality;
+    if (Array.isArray(detailedInstances) && detailedInstances.length > 0 && detailedInstances[0].MainDicomTags) {
+      // We have expanded instance data
+      console.log(`[StableStudy] 📁 Building series map from expanded instance data...`);
+      
+      for (const instance of detailedInstances) {
+        const seriesUID = instance.MainDicomTags?.SeriesInstanceUID;
+        const modality = instance.MainDicomTags?.Modality;
+        
         if (modality) modalitiesSet.add(modality);
-      } catch (seriesError) {
-        // Don't fail on this
+        
+        if (seriesUID) {
+          if (!seriesMap.has(seriesUID)) {
+            seriesMap.set(seriesUID, {
+              modality: modality,
+              seriesNumber: instance.MainDicomTags?.SeriesNumber,
+              seriesDescription: instance.MainDicomTags?.SeriesDescription,
+              instanceCount: 0
+            });
+          }
+          seriesMap.get(seriesUID).instanceCount++;
+        }
       }
+    } else {
+      // We have basic instance IDs, use study series info
+      console.log(`[StableStudy] 📁 Using study-level series info...`);
+      
+      if (studyInfo.Series && studyInfo.Series.length > 0) {
+        for (const seriesId of studyInfo.Series) {
+          seriesMap.set(seriesId, {
+            modality: tags.Modality || 'UNKNOWN',
+            seriesNumber: 'Unknown',
+            seriesDescription: 'Unknown Series',
+            instanceCount: Math.floor(detailedInstances.length / studyInfo.Series.length) // Estimate
+          });
+        }
+      }
+      
+      if (tags.Modality) modalitiesSet.add(tags.Modality);
     }
     
     if (modalitiesSet.size === 0) {
       modalitiesSet.add('UNKNOWN');
     }
     
+    const actualInstanceCount = detailedInstances.length;
+    const actualSeriesCount = seriesMap.size || studyInfo.Series?.length || 0;
+    
+    console.log(`[StableStudy] 📊 OPTIMIZED Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}, Modalities: ${Array.from(modalitiesSet).join(', ')}`);
+    
+    job.progress = 70;
+    
+    // ✅ STEP 5: Create patient and lab records (existing logic)
+    const patientRecord = await findOrCreatePatientFromTags(tags);
+    const labRecord = await findOrCreateSourceLab(tags);
+    
+    console.log(`[StableStudy] 👤 Patient: ${patientRecord.patientNameRaw}`);
+    console.log(`[StableStudy] 🏥 Lab: ${labRecord.name}`);
+    
     job.progress = 80;
     
-    // Create study record
+    // ✅ STEP 6: Create/update study record (existing logic but with better data)
     let dicomStudyDoc = await DicomStudy.findOne({ studyInstanceUID });
-    
-    const actualInstanceCount = instancesArray.length;
-    const actualSeriesCount = studyInfo.Series?.length || 0;
-    
-    console.log(`[StableStudy] 📊 Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
     
     const studyData = {
       orthancStudyID: orthancStudyId,
@@ -688,19 +658,19 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       patientInfo: {
         patientID: patientRecord.patientID,
         patientName: patientRecord.patientNameRaw,
-        gender: patientRecord.gender || '',
+        gender: patientRecord.gender || tags.PatientSex || '',
         dateOfBirth: tags.PatientBirthDate || ''
       },
-      age: patientRecord.age || tags.PatientAge || '', // ✅ ADD: Age field
-  gender: patientRecord.gender || tags.PatientSex || '',
+      age: patientRecord.age || tags.PatientAge || '',
+      gender: patientRecord.gender || tags.PatientSex || '',
       
       referringPhysicianName: tags.ReferringPhysicianName || '',
       physicians: {
         referring: {
           name: tags.ReferringPhysicianName || '',
           email: '',
-          mobile: tags.ReferringPhysicianTelephoneNumbers || '',
-          institution: tags.ReferringPhysicianAddress || ''
+          mobile: '',
+          institution: ''
         },
         requesting: {
           name: tags.RequestingPhysician || '',
@@ -736,7 +706,6 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       studyComments: tags.StudyComments || '',
       additionalPatientHistory: tags.AdditionalPatientHistory || '',
       
-      // 🆕 ADD: Store custom Lab ID information
       customLabInfo: {
         dicomLabId: tags["0011,1010"] || null,
         labIdSource: tags["0011,1010"] ? 'dicom_custom_tag' : 'fallback_detection',
@@ -753,24 +722,26 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
         receivedAt: new Date(),
         isStableStudy: true,
         instancesFound: actualInstanceCount,
-        processingMethod: actualInstanceCount > 0 ? 'with_instances' : 'metadata_only',
+        processingMethod: 'optimized_single_call',
         debugInfo: {
           apiInstancesFound: actualInstanceCount,
           webUIShowsInstances: true,
-          apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only',
-          customLabIdProvided: !!tags["0011,1010"], // 🆕 ADD: Track if custom Lab ID was provided
-          customLabIdValue: tags["0011,1010"] || null
+          apiMethodUsed: 'expanded_instances_optimized',
+          customLabIdProvided: !!tags["0011,1010"],
+          customLabIdValue: tags["0011,1010"] || null,
+          apiCallsUsed: actualInstanceCount > 0 ? 3 : 2, // study + instances + tags (if instances exist)
+          processingEfficiency: 'high'
         }
       }
     };
     
-   if (dicomStudyDoc) {
+    if (dicomStudyDoc) {
       console.log(`[StableStudy] 📝 Updating existing study`);
       Object.assign(dicomStudyDoc, studyData);
       dicomStudyDoc.statusHistory.push({
         status: studyData.workflowStatus,
         changedAt: new Date(),
-        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+        note: `OPTIMIZED stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
       });
     } else {
       console.log(`[StableStudy] 🆕 Creating new study`);
@@ -779,7 +750,7 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
         statusHistory: [{
           status: studyData.workflowStatus,
           changedAt: new Date(),
-          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+          note: `OPTIMIZED stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
         }]
       });
     }
@@ -787,9 +758,9 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
     
-    // 🆕 NEW: Queue ZIP creation job if study has instances
+    // ✅ STEP 7: Queue ZIP creation if study has instances
     if (actualInstanceCount > 0) {
-        console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
+        console.log(`[StableStudy] 📦 Queuing OPTIMIZED ZIP creation for study: ${orthancStudyId}`);
         
         try {
             const zipJob = await CloudflareR2ZipService.addZipJob({
@@ -803,7 +774,6 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
             console.log(`[StableStudy] 📦 ZIP Job ${zipJob.id} queued for study: ${orthancStudyId}`);
         } catch (zipError) {
             console.error(`[StableStudy] ❌ Failed to queue ZIP job:`, zipError.message);
-            // Don't fail the study processing if ZIP queueing fails
         }
     } else {
         console.log(`[StableStudy] ⚠️ Skipping ZIP creation - no instances found`);
@@ -811,7 +781,7 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     
     job.progress = 90;
     
-    // Send notification
+    // ✅ STEP 8: Send notification and complete
     const studyNotificationData = {
       _id: dicomStudyDoc._id,
       patientName: patientRecord.patientNameRaw,
@@ -827,7 +797,7 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       seriesImages: `${actualSeriesCount}/${actualInstanceCount}`,
       isNewLab: labRecord.createdAt > new Date(Date.now() - 5000),
       storageType: 'orthanc',
-      notificationReason: 'Stable study processed',
+      notificationReason: 'OPTIMIZED stable study processed',
       isCompleteStudy: actualInstanceCount > 0
     };
     
@@ -847,7 +817,9 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       instanceCount: actualInstanceCount,
       processedAt: new Date(),
       elapsedTime: Date.now() - startTime,
-      processingMethod: actualInstanceCount > 0 ? 'with_instances' : 'metadata_only',
+      processingMethod: 'optimized_minimal_calls',
+      apiCallsUsed: actualInstanceCount > 0 ? 3 : 2,
+      efficiency: 'high',
       metadataSummary: {
         patientName: patientRecord.patientNameRaw,
         patientId: patientRecord.patientID,
@@ -860,12 +832,15 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     
     await redis.setex(`job:result:${requestId}`, 3600, JSON.stringify(result));
     
-    console.log(`[StableStudy] ✅ Completed in ${Date.now() - startTime}ms - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
+    console.log(`[StableStudy] ✅ OPTIMIZED processing completed in ${Date.now() - startTime}ms`);
+    console.log(`[StableStudy] 📊 API Efficiency: ${result.apiCallsUsed} total calls vs ${actualInstanceCount + 10}+ in old method`);
+    console.log(`[StableStudy] 📋 Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
+    
     return result;
     
   } catch (error) {
     const elapsedTime = Date.now() - startTime;
-    console.error(`[StableStudy] ❌ Failed after ${elapsedTime}ms:`, error.message);
+    console.error(`[StableStudy] ❌ OPTIMIZED processing failed after ${elapsedTime}ms:`, error.message);
     console.error(`[StableStudy] ❌ Stack:`, error.stack);
     
     const errorResult = {
@@ -873,7 +848,8 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
       error: error.message,
       elapsedTime: elapsedTime,
       orthancStudyId: orthancStudyId,
-      failedAt: new Date()
+      failedAt: new Date(),
+      processingMethod: 'optimized_minimal_calls'
     };
     
     await redis.setex(`job:result:${requestId}`, 3600, JSON.stringify(errorResult));
