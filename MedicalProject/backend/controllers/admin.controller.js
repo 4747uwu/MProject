@@ -423,6 +423,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     patientId: 1,
                     age:1,
                     gender:1,
+                    
+clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
             }
@@ -704,7 +706,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
                 caseType: study.caseType || 'routine',
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',  
                 // tat: tat,
                 // ...legacyTATFields,
                 // totalTATDays: tat.totalTATDays,
@@ -3730,6 +3732,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     patientId: 1,
                     age:1,
                     gender:1,
+                    clinicalHistory: 1,
                                         preProcessedDownload: 1
 
                 }
@@ -3990,8 +3993,7 @@ const patientAgeGenderDisplay = study.age && study.gender ?
                 assignedDate: study.lastAssignmentAt || study.assignment?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: study.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '', 
-                
+clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',                  
                 // 🔥 NEW: Return properly formatted doctor assignments array
                 doctorAssignments: allDoctorAssignments,
 
@@ -4339,6 +4341,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     lastAssignmentAt: 1,
                     age: 1,
                     gender: 1,
+                    clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
             }
@@ -4592,7 +4595,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 assignedDate: study.lastAssignmentAt || study.assignment?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 
                 // 🔥 NEW: Doctor assignments array with full details
                 doctorAssignments: allDoctorAssignments,
@@ -4924,6 +4927,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     timingInfo: 1,
                     age: 1,
                     gender: 1,
+                    clinicalHistory: 1,
                                         preProcessedDownload: 1
 
                 }
@@ -5189,7 +5193,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 assignedDate: study.lastAssignmentAt || study.assignment?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
                 reportFinalizedAt: study.reportFinalizedAt,
-                clinicalHistory: patient?.clinicalInfo?.clinicalHistory || '',
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',  
                 
                 // 🔥 NEW: Include TAT information for completed studies
                 timingInfo: study.timingInfo || {},

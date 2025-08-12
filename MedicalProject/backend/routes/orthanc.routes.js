@@ -34,7 +34,7 @@ class StableStudyQueue {
     this.processing = new Set();
     this.nextJobId = 1;
     this.isProcessing = false;
-    this.concurrency = 10; // Process max 2 stable studies simultaneously
+    this.concurrency = 8; // Process max 8 stable studies simultaneously
   }
 
   async add(jobData) {
@@ -557,6 +557,7 @@ async function processStableStudy(job) {
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
         tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex; // ✅ ADD: Patient Sex/Gender
 tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Patient Age
+tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
         
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
@@ -726,6 +727,15 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
         stationName: tags.StationName || '',
         softwareVersion: tags.SoftwareVersions || ''
       },
+      clinicalHistory: dicomStudyDoc?.clinicalHistory || {
+        clinicalHistory: '',
+        previousInjury: '',
+        previousSurgery: '',
+        lastModifiedBy: null,
+        lastModifiedAt: null,
+        lastModifiedFrom: 'system',
+        dataSource: 'dicom_study_primary'
+    },
       
       protocolName: tags.ProtocolName || '',
       bodyPartExamined: tags.BodyPartExamined || '',
@@ -765,24 +775,46 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     };
     
    if (dicomStudyDoc) {
-      console.log(`[StableStudy] 📝 Updating existing study`);
-      Object.assign(dicomStudyDoc, studyData);
-      dicomStudyDoc.statusHistory.push({
-        status: studyData.workflowStatus,
+    console.log(`[StableStudy] 📝 Updating existing study - preserving clinical history`);
+    
+    // 🔧 PRESERVE CRITICAL USER DATA
+    const preservedFields = {
+        // 🆕 NEW: Preserve clinical history (primary goal)
+        clinicalHistory: dicomStudyDoc.clinicalHistory,
+        legacyClinicalHistoryRef: dicomStudyDoc.legacyClinicalHistoryRef,
+        
+        // 🔧 PRESERVE OTHER USER DATA
+        assignment: dicomStudyDoc.assignment,
+        reportInfo: dicomStudyDoc.reportInfo,
+        uploadedReports: dicomStudyDoc.uploadedReports,
+        doctorReports: dicomStudyDoc.doctorReports,
+        discussions: dicomStudyDoc.discussions,
+        calculatedTAT: dicomStudyDoc.calculatedTAT,
+        timingInfo: dicomStudyDoc.timingInfo,
+        workflowStatus: dicomStudyDoc.workflowStatus // Preserve workflow status too
+    };
+    
+    // Update with new DICOM data but preserve critical fields
+    Object.assign(dicomStudyDoc, studyData, preservedFields);
+    
+    dicomStudyDoc.statusHistory.push({
+        status: preservedFields.workflowStatus || studyData.workflowStatus,
         changedAt: new Date(),
-        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
-      });
-    } else {
-      console.log(`[StableStudy] 🆕 Creating new study`);
-      dicomStudyDoc = new DicomStudy({
+        note: `OPTIMIZED stable study updated (preserved clinical history): ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
+    });
+    
+    console.log(`[StableStudy] ✅ Preserved clinical history: ${dicomStudyDoc.clinicalHistory?.clinicalHistory ? 'HAS_DATA' : 'EMPTY'}`);
+} else {
+    console.log(`[StableStudy] 🆕 Creating new study with empty clinical history`);
+    dicomStudyDoc = new DicomStudy({
         ...studyData,
         statusHistory: [{
-          status: studyData.workflowStatus,
-          changedAt: new Date(),
-          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+            status: studyData.workflowStatus,
+            changedAt: new Date(),
+            note: `OPTIMIZED stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
         }]
-      });
-    }
+    });
+}
     
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);

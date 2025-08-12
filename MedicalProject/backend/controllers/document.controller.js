@@ -526,8 +526,8 @@ static async getInitialReportData(req, res) {
       const initialData = {
           studyId: study._id.toString(),
           patientName: patientName,
-          age: patientAge,
-          sex: patientGender,
+          age: study.age,
+          sex: study.gender,
           patientID: patientID,
           
           // 🔧 NEW: Additional required fields for C# application
@@ -546,7 +546,7 @@ static async getInitialReportData(req, res) {
           
           // 🔧 OPTIONAL: Add disclaimer if needed
           // disclaimer: 'This is a computer-generated report. Please verify all information before use.'
-          disclaimer: "It is an online interpretation of medical imaging based on clinical data. All modern machines/procedures have their own limitation. If there is any clinical discrepancy, this investigation may be repeated or reassessed by other tests. Patients identification in online reporting is not established, so in no way can this report be utilized for any medico legal purpose. In case of any discrepancy due to typing error or machinery error please get it rectified immediately",
+          disclaimer: " an online interpretation of medical imaging based on clinical data. All modern machines/procedures have their own limitation. If there is any clinical discrepancy, this investigation may be repeated or reassessed by other tests. Patients identification in online reporting is not established, so in no way can this report be utilized for any medico legal purpose. In case of any discrepancy due to typing error or machinery error please get it rectified immediately",
       };
 
       console.log("✅ Sending complete initial data (signature redacted):", { 

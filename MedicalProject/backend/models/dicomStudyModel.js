@@ -479,6 +479,53 @@ const DicomStudySchema = new mongoose.Schema({
         lastCalculated: { type: Date },
         calculationMethod: { type: String, default: 'tatCalculator' }
     },
+    clinicalHistory: {
+        clinicalHistory: { 
+            type: String, 
+            trim: true, 
+            default: '',
+            index: { sparse: true, background: true } // For searching clinical notes
+        },
+        previousInjury: { 
+            type: String, 
+            trim: true, 
+            default: '' 
+        },
+        previousSurgery: { 
+            type: String, 
+            trim: true, 
+            default: '' 
+        },
+        lastModifiedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            index: { sparse: true, background: true }
+        },
+        lastModifiedAt: { 
+            type: Date, 
+            index: { sparse: true, background: true }
+        },
+        lastModifiedFrom: {
+            type: String,
+            enum: ['patient_modal', 'study_detail', 'admin_panel', 'system'],
+            default: 'study_detail'
+        },
+        // 🔧 MIGRATION: Track data source for debugging
+        dataSource: {
+            type: String,
+            enum: ['dicom_study_primary', 'migrated_from_patient', 'user_input'],
+            default: 'dicom_study_primary'
+        }
+    },
+
+    // 🔧 LEGACY: Keep reference to patient clinical history for backward compatibility
+    legacyClinicalHistoryRef: {
+        fromPatientModel: { type: Boolean, default: false },
+        lastSyncedAt: { type: Date },
+        syncedBy: { type: String, default: 'system' }
+    }
+
+
 
 }, { 
     timestamps: true,
