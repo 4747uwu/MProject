@@ -77,7 +77,7 @@ const getCategoryForStatus = (status) => {
 export const getAssignedStudies = async (req, res) => {
     try {
         const startTime = Date.now();
-        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const limit = Math.min(parseInt(req.query.limit) || 20, 1000);
 
         // 🔥 STEP 1: Get doctor with lean query for better performance
         const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
