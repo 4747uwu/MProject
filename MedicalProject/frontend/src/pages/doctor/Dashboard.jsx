@@ -203,7 +203,7 @@ const DoctorDashboard = React.memo(() => {
     console.log(`📊 DOCTOR: Changing records per page from ${recordsPerPage} to ${newRecordsPerPage}`);
     setRecordsPerPage(newRecordsPerPage);
     setNextRefreshIn(300); // Reset countdown
-  }, [recordsPerPage]);
+  }, []);
 
   // Handle assignment completion (refresh data)
   const handleAssignmentComplete = useCallback(() => {

@@ -492,6 +492,8 @@ async function processStableStudy(job) {
     }
     
     // Method 3: If still no instances, try using series IDs as instance IDs (sometimes they're the same)
+    // ❌ REMOVE THIS ENTIRE SECTION - IT'S CAUSING THE FLOOD
+    /*
     if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
       console.log(`[StableStudy] 📁 Method 3: Trying series IDs as instance IDs`);
       
@@ -518,6 +520,12 @@ async function processStableStudy(job) {
       }
       
       console.log(`[StableStudy] 📁 Method 3 result: ${instancesArray.length} instances`);
+    }
+    */
+    
+    // ✅ REPLACE WITH: Simple fallback without API calls
+    if (instancesArray.length === 0) {
+      console.log(`[StableStudy] 📁 No instances found via API methods, using study-level data only`);
     }
     
     job.progress = 50;
@@ -633,30 +641,69 @@ tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysi
     
     job.progress = 70;
     
-    // Get modalities
+    // ✅ FLOOD-PROOF MODALITY DETECTION
     const modalitiesSet = new Set();
-    if (tags.Modality) {
+
+    // ✅ STEP 1: Use the modality we already successfully extracted (PRIMARY)
+    if (tags.Modality && tags.Modality !== 'n/a' && tags.Modality !== 'UNKNOWN') {
       modalitiesSet.add(tags.Modality);
+      console.log(`[StableStudy] ✅ Primary modality from instance tags: ${tags.Modality}`);
     }
-    
-    // Check series for additional modalities
-    for (const seriesId of studyInfo.Series || []) {
-      try {
-        const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-        const seriesResponse = await axios.get(seriesUrl, {
-          headers: { 'Authorization': orthancAuth },
-          timeout: 3000
-        });
-        const modality = seriesResponse.data.MainDicomTags?.Modality;
-        if (modality) modalitiesSet.add(modality);
-      } catch (seriesError) {
-        // Don't fail on this
+
+    // ✅ STEP 2: Only check series if we have a reasonable number (prevent flood)
+    const maxSeriesToCheck = 10; // Limit to prevent API flood
+    const seriesToCheck = (studyInfo.Series || []).slice(0, maxSeriesToCheck);
+
+    if (seriesToCheck.length > 0 && seriesToCheck.length <= maxSeriesToCheck) {
+      console.log(`[StableStudy] 🔍 Checking ${seriesToCheck.length} series for additional modalities (flood-protected)...`);
+      
+      // Check series in batches to prevent overwhelming Orthanc
+      for (let i = 0; i < seriesToCheck.length; i++) {
+        const seriesId = seriesToCheck[i];
+        
+        try {
+          const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
+          const seriesResponse = await axios.get(seriesUrl, {
+            headers: { 'Authorization': orthancAuth },
+            timeout: 2000  // ✅ Shorter timeout to fail fast
+          });
+          
+          const seriesModality = seriesResponse.data.MainDicomTags?.Modality;
+          if (seriesModality && !modalitiesSet.has(seriesModality)) {
+            modalitiesSet.add(seriesModality);
+            console.log(`[StableStudy] 🆕 Additional modality found: ${seriesModality}`);
+          }
+          
+          // ✅ Small delay to prevent overwhelming Orthanc
+          if (i < seriesToCheck.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          
+        } catch (seriesError) {
+          // ✅ SILENT FAIL - don't log every failure to reduce noise
+          if (seriesError.response?.status !== 404) {
+            console.warn(`[StableStudy] ⚠️ Series ${seriesId}: ${seriesError.message}`);
+          }
+        }
       }
+    } else if (seriesToCheck.length > maxSeriesToCheck) {
+      console.log(`[StableStudy] ⚠️ Too many series (${seriesToCheck.length}), skipping series-level modality check to prevent API flood`);
+    } else {
+      console.log(`[StableStudy] 📋 No series to check for additional modalities`);
     }
-    
+
+    // ✅ STEP 3: Final fallback only if absolutely no modality found
     if (modalitiesSet.size === 0) {
+      console.warn(`[StableStudy] ⚠️ No modalities detected anywhere, using UNKNOWN`);
       modalitiesSet.add('UNKNOWN');
+    } else {
+      console.log(`[StableStudy] ✅ Final modalities: ${Array.from(modalitiesSet).join(', ')}`);
+      console.log(`[StableStudy] 📊 Total modalities detected: ${modalitiesSet.size}`);
     }
+
+    // ✅ STEP 4: Create modality summary
+    const modalityList = Array.from(modalitiesSet);
+    console.log(`[StableStudy] 📋 Modality summary: ${modalityList.join(', ')} (${modalityList.length} total)`);
     
     job.progress = 80;
     
