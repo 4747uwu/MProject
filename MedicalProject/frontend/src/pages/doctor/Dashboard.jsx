@@ -138,7 +138,7 @@ const DoctorDashboard = React.memo(() => {
         
         [studiesResponse, valuesResponse] = await Promise.all([
           api.get(studiesEndpoint, { params: doctorParams }),
-          api.get('/admin/values', { params: doctorParams })
+          api.get('/doctor/values', { params: doctorParams })
         ]);
       }
       
