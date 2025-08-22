@@ -34,30 +34,12 @@ import {
     getLabForAdmin,
     updateLabForAdmin,
     deleteLabForAdmin,
-    uploadDoctorSignature as uploadSignature,
-    getAllOwnersForAdmin,  // ✅ ADD
-    getOwnerForAdmin,      // ✅ ADD
-    createOwnerForAdmin,   // ✅ ADD
-    updateOwnerForAdmin,   // ✅ ADD
-    deleteOwnerForAdmin,
-    searchStudiesForAdmin
+    uploadDoctorSignature as uploadSignature
 } from '../controllers/adminCRUD.controller.js';
-
-import { 
-    searchStudies, 
-    getSearchSuggestions, 
-    getSearchValues // ✅ NEW: Search-based values
-} from '../controllers/search.controller.js';
 
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
-// ===============================
-// 🔧 SEARCH ROUTES: Only for actual searches
-// ===============================
-router.get('/studies/search', protect, authorize('admin'), searchStudies);
-router.get('/search/suggestions', protect, getSearchSuggestions);
-router.get('/search/values', protect, authorize('admin'), getSearchValues);
 
 // ===============================
 // 🆕 DOCTORS MANAGEMENT ROUTES
@@ -71,7 +53,6 @@ router.put('/doctors/update/:doctorId',
     updateDoctorForAdmin
 );
 router.delete('/doctors/delete/:doctorId', protect, authorize('admin'), deleteDoctorForAdmin);
-// router.get('/studies/search', protect, authorize('admin'), searchStudiesForAdmin);
 
 // ===============================
 // 🆕 LABS MANAGEMENT ROUTES  
@@ -80,6 +61,8 @@ router.get('/labs/list', protect, authorize('admin'), getAllLabsForAdmin);
 router.get('/labs/details/:labId', protect, authorize('admin'), getLabForAdmin);
 router.put('/labs/update/:labId', protect, authorize('admin'), updateLabForAdmin);
 router.delete('/labs/delete/:labId', protect, authorize('admin'), deleteLabForAdmin);
+router.post('/studies/:studyId/unassign', protect, authorize('admin'), unassignDoctorFromStudy);
+
 
 
 // Routes that require admin only
@@ -102,8 +85,7 @@ router.get('/studies/pending', protect, authorize('admin'), getPendingStudies);
 router.get('/studies/inprogress', protect, authorize('admin'), getInProgressStudies);
 router.get('/studies/completed', protect, authorize('admin'), getCompletedStudies);
 router.post('/admins/register', protect, authorize('admin'), registerAdmin);
-// ✅ ADD: In admin.routes.js
-router.post('/studies/:studyId/unassign', protect, authorize('admin'), unassignDoctorFromStudy);
+
 
 
 // Route that allows multiple roles (admin, lab_staff, doctor_account)
@@ -115,13 +97,8 @@ router.patch('/doctors/:doctorId/toggle-status', toggleDoctorStatus);
 router.post('/doctors/:doctorId/send-email', sendDoctorEmail);
 router.get('/doctors/:doctorId/stats', getDoctorStats);
 router.post('/doctors/:doctorId/reset-password', resetDoctorPassword)
-router.get('/owners', getAllOwnersForAdmin);
-router.get('/owners/:ownerId', getOwnerForAdmin);
-router.post('/owners', createOwnerForAdmin);
-router.put('/owners/:ownerId', updateOwnerForAdmin);
-router.delete('/owners/:ownerId', deleteOwnerForAdmin);
 
- router.post('/doctors/register-with-signature', 
+/ router.post('/doctors/register-with-signature', 
         protect, 
         authorize('admin'), 
         uploadDoctorSignature,

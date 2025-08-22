@@ -64,58 +64,93 @@ const AdminDashboard = React.memo(() => {
   const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
-      console.log(`🔄 Fetching ${activeCategory} studies with synchronized filters`);
+      console.log(`🔄 DASHBOARD: Fetching data for category: ${activeCategory}`);
+      console.log(`🔍 DASHBOARD: Search params:`, searchParams);
       
-      // 🆕 NEW: Use category-specific endpoint
-      const endpoint = getEndpointForCategory(activeCategory);
-      
-      // Build common API parameters
-      const apiParams = {
-        limit: recordsPerPage,
-        dateType: dateType,
-        ...searchParams
-      };
+      // ✅ CHECK: If this is a hybrid search (quick search + lab selection)
+      const hasHybridSearchParams = searchParams && 
+        searchParams !== null && 
+        typeof searchParams === 'object' &&
+        Object.keys(searchParams).length > 0 && (
+          searchParams.searchTerm || 
+          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL')
+        );
 
-      // Add date filter parameters
-      if (dateFilter === 'custom') {
-        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
-        if (customDateTo) apiParams.customDateTo = customDateTo;
-        apiParams.quickDatePreset = 'custom';
-      } else if (dateFilter && dateFilter !== 'all') {
-        apiParams.quickDatePreset = dateFilter;
+      console.log(`🔍 DASHBOARD: Has hybrid search params: ${hasHybridSearchParams}`);
+
+      let studiesResponse, valuesResponse;
+
+      if (hasHybridSearchParams) {
+        // 🔍 HYBRID SEARCH MODE: Use search endpoint for quick search + lab
+        console.log('🔍 DASHBOARD: Using HYBRID search endpoint');
+        
+        const searchApiParams = {
+          limit: recordsPerPage,
+          dateType: dateType,
+          ...searchParams
+        };
+        
+        // Add date filter parameters for search
+        if (dateFilter === 'custom') {
+          if (customDateFrom) searchApiParams.customDateFrom = customDateFrom;
+          if (customDateTo) searchApiParams.customDateTo = customDateTo;
+          searchApiParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          searchApiParams.quickDatePreset = dateFilter;
+        }
+        
+        console.log('📤 DASHBOARD: Hybrid search API params:', searchApiParams);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get('/admin/studies/search', { params: searchApiParams }),
+          api.get('/admin/search/values', { params: searchApiParams })
+        ]);
+        
+      } else {
+        // 📊 NORMAL MODE: Use admin controller endpoint
+        console.log('📊 DASHBOARD: Using ADMIN controller for normal data fetching');
+        
+        const adminParams = {
+          limit: recordsPerPage,
+          dateType: dateType
+        };
+        
+        // Add date filter parameters for admin endpoint
+        if (dateFilter === 'custom') {
+          if (customDateFrom) adminParams.customDateFrom = customDateFrom;
+          if (customDateTo) adminParams.customDateTo = customDateTo;
+          adminParams.dateFilter = 'custom';
+        } else if (dateFilter && dateFilter !== 'all') {
+          adminParams.quickDatePreset = dateFilter;
+        }
+        
+        // Add category filter for admin endpoint
+        if (activeCategory && activeCategory !== 'all') {
+          adminParams.category = activeCategory;
+        }
+        
+        console.log('📤 DASHBOARD: Admin API params:', adminParams);
+        
+        // Use different endpoints based on category
+        const studiesEndpoint = getEndpointForCategory(activeCategory);
+        
+        [studiesResponse, valuesResponse] = await Promise.all([
+          api.get(studiesEndpoint, { params: adminParams }),
+          api.get('/admin/values', { params: adminParams })
+        ]);
       }
-      
-      // Remove undefined values
-      Object.keys(apiParams).forEach(key => 
-        apiParams[key] === undefined && delete apiParams[key]
-      );
-
-      console.log(`📤 API Parameters for ${activeCategory}:`, apiParams);
-      console.log(`🎯 Using endpoint: ${endpoint}`);
-      
-      // 🔧 UPDATED: Make API calls to category-specific endpoints
-      const [studiesResponse, valuesResponse] = await Promise.all([
-        api.get(endpoint, { params: apiParams }),
-        api.get('/admin/values', { params: apiParams })
-      ]);
       
       // Process studies response
       if (studiesResponse.data.success) {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         
-        // Update dashboard stats from backend response
-        if (studiesResponse.data.summary?.byCategory) {
-          setDashboardStats({
-            totalStudies: studiesResponse.data.summary.byCategory.all || studiesResponse.data.totalRecords,
-            pendingStudies: studiesResponse.data.summary.byCategory.pending || 0,
-            inProgressStudies: studiesResponse.data.summary.byCategory.inprogress || 0,
-            completedStudies: studiesResponse.data.summary.byCategory.completed || 0,
-            activeLabs: studiesResponse.data.summary.activeLabs || 
-                        [...new Set(studiesResponse.data.data.map(s => s.sourceLab?._id).filter(Boolean))].length,
-            activeDoctors: studiesResponse.data.summary.activeDoctors || 
-                           [...new Set(studiesResponse.data.data.map(s => s.lastAssignedDoctor?._id).filter(Boolean))].length
-          });
+        console.log(`✅ DASHBOARD: Data fetch successful: ${studiesResponse.data.data.length} studies`);
+        console.log(`📊 DASHBOARD: Using ${hasHybridSearchParams ? 'HYBRID SEARCH' : 'ADMIN'} controller`);
+        
+        // Log hybrid mode info
+        if (studiesResponse.data.hybridMode) {
+          console.log(`🔄 DASHBOARD: Hybrid mode active - Backend: ${JSON.stringify(studiesResponse.data.backendFilters)}`);
         }
       }
 
@@ -130,10 +165,10 @@ const AdminDashboard = React.memo(() => {
       }
     
       
-      console.log(`✅ ${activeCategory} data fetched successfully`);
+      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : 'Admin'} data fetched successfully`);
       
     } catch (error) {
-      console.error(`❌ Error fetching ${activeCategory} data:`, error);
+      console.error(`❌ Error fetching data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
