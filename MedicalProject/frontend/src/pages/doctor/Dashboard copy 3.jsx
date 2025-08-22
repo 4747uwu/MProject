@@ -66,95 +66,46 @@ const DoctorDashboard = React.memo(() => {
   const fetchAllData = useCallback(async (searchParams = {}) => {
     try {
       setLoading(true);
-      console.log(`🔄 DOCTOR: Fetching data for category: ${activeCategory}`);
-      console.log(`🔍 DOCTOR: Search params:`, searchParams);
+      console.log(`🔄 DOCTOR: Fetching ${activeCategory} studies with synchronized filters`);
       
-      // ✅ CHECK: If this is a hybrid search (quick search + lab selection)
-      const hasHybridSearchParams = searchParams && 
-        searchParams !== null && 
-        typeof searchParams === 'object' &&
-        Object.keys(searchParams).length > 0 && (
-          searchParams.searchTerm || 
-          (searchParams.selectedLocation && searchParams.selectedLocation !== 'ALL')
-        );
+      // 🆕 NEW: Use category-specific endpoint
+      const endpoint = getEndpointForCategory(activeCategory);
+      
+      // Build common API parameters
+      const apiParams = {
+        limit: recordsPerPage,
+        dateType: dateType,
+        ...searchParams
+      };
 
-      console.log(`🔍 DOCTOR: Has hybrid search params: ${hasHybridSearchParams}`);
-
-      let studiesResponse, valuesResponse;
-
-      if (hasHybridSearchParams) {
-        // 🔍 HYBRID SEARCH MODE: Use doctor search endpoint for quick search + lab
-        console.log('🔍 DOCTOR: Using HYBRID search endpoint');
-        
-        const searchApiParams = {
-          limit: recordsPerPage,
-          dateType: dateType,
-          ...searchParams
-        };
-        
-        // Add date filter parameters for search
-        if (dateFilter === 'custom') {
-          if (customDateFrom) searchApiParams.customDateFrom = customDateFrom;
-          if (customDateTo) searchApiParams.customDateTo = customDateTo;
-          searchApiParams.dateFilter = 'custom';
-        } else if (dateFilter && dateFilter !== 'all') {
-          searchApiParams.quickDatePreset = dateFilter;
-        }
-        
-        console.log('📤 DOCTOR: Hybrid search API params:', searchApiParams);
-        
-        [studiesResponse, valuesResponse] = await Promise.all([
-          api.get('/admin/studies/search', { params: searchApiParams }),
-          api.get('/admin/search/values', { params: searchApiParams })
-        ]);
-        
-      } else {
-        // 📊 NORMAL MODE: Use doctor controller endpoint
-        console.log('📊 DOCTOR: Using DOCTOR controller for normal data fetching');
-        
-        const doctorParams = {
-          limit: recordsPerPage,
-          dateType: dateType
-        };
-        
-        // Add date filter parameters for doctor endpoint
-        if (dateFilter === 'custom') {
-          if (customDateFrom) doctorParams.customDateFrom = customDateFrom;
-          if (customDateTo) doctorParams.customDateTo = customDateTo;
-          doctorParams.dateFilter = 'custom';
-        } else if (dateFilter && dateFilter !== 'all') {
-          doctorParams.quickDatePreset = dateFilter;
-        }
-        
-        // Add category filter for doctor endpoint
-        if (activeCategory && activeCategory !== 'all') {
-          doctorParams.category = activeCategory;
-        }
-        
-        console.log('📤 DOCTOR: Doctor API params:', doctorParams);
-        
-        // Use different endpoints based on category
-        const studiesEndpoint = getEndpointForCategory(activeCategory);
-        
-        [studiesResponse, valuesResponse] = await Promise.all([
-          api.get(studiesEndpoint, { params: doctorParams }),
-          api.get('/admin/values', { params: doctorParams })
-        ]);
+      // Add date filter parameters
+      if (dateFilter === 'custom') {
+        if (customDateFrom) apiParams.customDateFrom = customDateFrom;
+        if (customDateTo) apiParams.customDateTo = customDateTo;
+        apiParams.quickDatePreset = 'custom';
+      } else if (dateFilter && dateFilter !== 'all') {
+        apiParams.quickDatePreset = dateFilter;
       }
+      
+      // Remove undefined values
+      Object.keys(apiParams).forEach(key => 
+        apiParams[key] === undefined && delete apiParams[key]
+      );
+
+      console.log(`📤 DOCTOR: API Parameters for ${activeCategory}:`, apiParams);
+      console.log(`🎯 DOCTOR: Using endpoint: ${endpoint}`);
+      
+      // 🔧 UPDATED: Make API calls to category-specific endpoints
+      const [studiesResponse, valuesResponse] = await Promise.all([
+        api.get(endpoint, { params: apiParams }),
+        api.get('/doctor/values', { params: apiParams })
+      ]);
       
       // Process studies response
       if (studiesResponse.data.success) {
         setAllStudies(studiesResponse.data.data);
         setTotalRecords(studiesResponse.data.totalRecords);
         setLastRefresh(new Date());
-        
-        console.log(`✅ DOCTOR: Data fetch successful: ${studiesResponse.data.data.length} studies`);
-        console.log(`📊 DOCTOR: Using ${hasHybridSearchParams ? 'HYBRID SEARCH' : 'DOCTOR'} controller`);
-        
-        // Log hybrid mode info
-        if (studiesResponse.data.hybridMode) {
-          console.log(`🔄 DOCTOR: Hybrid mode active - Backend: ${JSON.stringify(studiesResponse.data.backendFilters)}`);
-        }
         
         // Update dashboard stats from backend response
         if (studiesResponse.data.summary?.byCategory) {
@@ -168,7 +119,7 @@ const DoctorDashboard = React.memo(() => {
             todayAssigned: studiesResponse.data.summary.todayAssigned || 
                           studiesResponse.data.data.filter(s => {
                             const today = new Date().toDateString();
-                            return new Date(s.assignedAt || s.assignedDate).toDateString() === today;
+                            return new Date(s.assignedDate).toDateString() === today;
                           }).length
           });
         }
@@ -184,10 +135,10 @@ const DoctorDashboard = React.memo(() => {
         });
       }
       
-      console.log(`✅ ${hasHybridSearchParams ? 'Hybrid search' : 'Doctor'} data fetched successfully`);
+      console.log(`✅ DOCTOR: ${activeCategory} data fetched successfully`);
       
     } catch (error) {
-      console.error(`❌ DOCTOR: Error fetching data:`, error);
+      console.error(`❌ DOCTOR: Error fetching ${activeCategory} data:`, error);
       setAllStudies([]);
       setTotalRecords(0);
       setValues({
