@@ -779,9 +779,9 @@ const TATReport = () => {
                                             <div className="text-xs text-gray-400">{doctor.email}</div>
                                         )}
                                         {/* ✅ BACKEND REPORTS: Should match frontend count */}
-                                        <div className="text-xs text-blue-600">
+                                        {/* <div className="text-xs text-blue-600">
                                             Backend Reports: {doctor.reportCount || 0}
-                                        </div>
+                                        </div> */}
                                     </div>
                                 </div>
                                 <div className="flex items-center space-x-2">
