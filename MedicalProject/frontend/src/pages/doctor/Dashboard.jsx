@@ -233,7 +233,7 @@ const DoctorDashboard = React.memo(() => {
   // 🆕 NEW: Handle search with backend parameters (matching admin)
   const handleSearchWithBackend = useCallback((searchParams) => {
     console.log('🔍 DOCTOR: Handling search with backend params:', searchParams);
-    fetchAllData(searchParams);
+    fetchAllData(searchParams || {});
   }, [fetchAllData]);
 
   // Handle category change (EXACTLY like admin)

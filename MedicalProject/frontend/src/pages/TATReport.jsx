@@ -11,10 +11,10 @@ const TATReport = () => {
   // State management
   const [studies, setStudies] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [doctors, setDoctors] = useState([]); // 🆕 NEW
+  const [doctors, setDoctors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState('');
-  const [selectedDoctor, setSelectedDoctor] = useState(''); // 🆕 NEW
+  const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedModalities, setSelectedModalities] = useState([]);
   const [recordsPerPage, setRecordsPerPage] = useState(100);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,17 +25,16 @@ const TATReport = () => {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  // ✅ NEW: Searchable location dropdown state
+  // Dropdown state
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
   const [isLocationDropdownOpen, setIsLocationDropdownOpen] = useState(false);
   const locationDropdownRef = useRef(null);
 
-  // 🆕 NEW: Searchable doctor dropdown state
   const [doctorSearchTerm, setDoctorSearchTerm] = useState('');
   const [isDoctorDropdownOpen, setIsDoctorDropdownOpen] = useState(false);
   const doctorDropdownRef = useRef(null);
 
-  // ✅ COMPACT: Modality options
+  // ✅ FIX: Define constants before using them in useMemo/useCallback
   const modalityOptions = [
     'CT', 'MR', 'CR', 'DX', 'PR', 'US', 'XR', 'MG', 'NM', 'PT',
     'MR/SR', 'CT/SR', 'CR/SR', 'DX/SR', 'PR/MR', 'CT/MR'
@@ -43,297 +42,13 @@ const TATReport = () => {
 
   const recordOptions = [25, 50, 100, 250, 500];
 
-  // Fetch locations
-  useEffect(() => {
-    const fetchLocations = async () => {
-      try {
-        const response = await api.get('/tat/locations');
-        if (response.data.success) {
-          setLocations(response.data.locations);
-        }
-      } catch (error) {
-        console.error('❌ Error fetching locations:', error);
-        toast.error('Failed to load locations');
-      }
-    };
-    fetchLocations();
-  }, []);
-
-  // 🆕 NEW: Fetch doctors
-  useEffect(() => {
-    const fetchDoctors = async () => {
-      try {
-        const response = await api.get('/tat/doctors');
-        if (response.data.success) {
-          setDoctors(response.data.doctors);
-        }
-      } catch (error) {
-        console.error('❌ Error fetching doctors:', error);
-        toast.error('Failed to load doctors');
-      }
-    };
-    fetchDoctors();
-  }, []);
-
-  // ✅ NEW: Filtered locations based on search
-  const filteredLocations = useMemo(() => {
-    if (!locationSearchTerm.trim()) return locations;
-    
-    const search = locationSearchTerm.toLowerCase();
-    return locations.filter(location => 
-      location.label.toLowerCase().includes(search) ||
-      location.value.toLowerCase().includes(search)
-    );
-  }, [locations, locationSearchTerm]);
-
-  // 🆕 NEW: Filtered doctors based on search
-  const filteredDoctors = useMemo(() => {
-    if (!doctorSearchTerm.trim()) return doctors;
-    
-    const search = doctorSearchTerm.toLowerCase();
-    return doctors.filter(doctor => 
-      doctor.label.toLowerCase().includes(search) ||
-      (doctor.specialization && doctor.specialization.toLowerCase().includes(search)) ||
-      (doctor.email && doctor.email.toLowerCase().includes(search))
-    );
-  }, [doctors, doctorSearchTerm]);
-
-  // ✅ NEW: Handle location selection
-  const handleLocationSelect = (location) => {
-    setSelectedLocation(location ? location.value : '');
-    setLocationSearchTerm(location ? location.label : '');
-    setIsLocationDropdownOpen(false);
-  };
-
-  // 🆕 NEW: Handle doctor selection
-  const handleDoctorSelect = (doctor) => {
-    setSelectedDoctor(doctor ? doctor.value : '');
-    setDoctorSearchTerm(doctor ? doctor.label : '');
-    setIsDoctorDropdownOpen(false);
-    setCurrentPage(1); // 🔧 ADDED: Reset to first page when doctor changes
-  };
-
-  // ✅ NEW: Handle search input
-  const handleLocationSearchChange = (e) => {
-    const value = e.target.value;
-    setLocationSearchTerm(value);
-    setIsLocationDropdownOpen(true);
-    
-    // Clear selection if search doesn't match current selection
-    if (selectedLocation && !value) {
-      setSelectedLocation('');
-    }
-  };
-
-  // 🆕 NEW: Handle doctor search input
-  const handleDoctorSearchChange = (e) => {
-    const value = e.target.value;
-    setDoctorSearchTerm(value);
-    setIsDoctorDropdownOpen(true);
-    
-    // Clear selection if search doesn't match current selection
-    if (selectedDoctor && !value) {
-      setSelectedDoctor('');
-    }
-  };
-
-  // ✅ NEW: Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
-        setIsLocationDropdownOpen(false);
-      }
-      if (doctorDropdownRef.current && !doctorDropdownRef.current.contains(event.target)) {
-        setIsDoctorDropdownOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  // ✅ NEW: Set initial search term when location is selected externally
-  useEffect(() => {
-    if (selectedLocation) {
-      const location = locations.find(loc => loc.value === selectedLocation);
-      if (location) {
-        setLocationSearchTerm(location.label);
-      }
-    } else {
-      setLocationSearchTerm('');
-    }
-  }, [selectedLocation, locations]);
-
-  // 🆕 NEW: Set initial search term when doctor is selected externally
-  useEffect(() => {
-    if (selectedDoctor) {
-      const doctor = doctors.find(doc => doc.value === selectedDoctor);
-      if (doctor) {
-        setDoctorSearchTerm(doctor.label);
-      }
-    } else {
-      setDoctorSearchTerm('');
-    }
-  }, [selectedDoctor, doctors]);
-
-  // Fetch TAT data
-  const fetchTATData = useCallback(async () => {
-    // 🔧 REMOVED: Location requirement - allow fetching from all locations
-
-    setLoading(true);
-    try {
-      const params = {
-        dateType,
-        fromDate,
-        toDate
-      };
-
-      // 🔧 MODIFIED: Only add location param if a specific location is selected
-      if (selectedLocation) {
-        params.location = selectedLocation;
-      }
-
-      if (selectedModalities.length > 0) {
-        params.modality = selectedModalities.join(',');
-      }
-
-      const response = await api.get('/tat/report', { params });
-      
-      if (response.data.success) {
-        setStudies(response.data.studies);
-        setCurrentPage(1);
-        console.log(`✅ Fetched ${response.data.studies.length} studies from ${selectedLocation ? 'selected location' : 'ALL locations'}`);
-      } else {
-        toast.error('Failed to load TAT data');
-        setStudies([]);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching TAT data:', error);
-      toast.error('Failed to load TAT data');
-      setStudies([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]);
-
-  // 🔧 MODIFIED: Export function also works without location
-  const exportToExcel = useCallback(async () => {
-    // 🔧 REMOVED: Location requirement for export
-    // if (!selectedLocation) {
-    //   toast.error('Please select a location first');  
-    //   return;
-    // }
-
-    try {
-      setLoading(true);
-      const params = {
-        dateType,
-        fromDate,
-        toDate
-      };
-
-      // 🔧 MODIFIED: Only add location param if a specific location is selected
-      if (selectedLocation) {
-        params.location = selectedLocation;
-      }
-
-      const response = await api.get('/tat/report/export', { 
-        params,
-        responseType: 'blob'
-      });
-
-      // Create blob link to download
-      const blob = new Blob([response.data], { 
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
-      });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // 🔧 MODIFIED: Generate filename with proper location handling
-      const locationName = selectedLocation 
-        ? locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown'
-        : 'All_Locations';
-      const doctorName = selectedDoctor 
-        ? doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown_Doctor' 
-        : 'All_Doctors';
-      const dateStr = new Date().toISOString().split('T')[0];
-      link.download = `TAT_Report_${locationName}_${doctorName}_${dateStr}.xlsx`;
-      
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-
-      toast.success('Excel report downloaded successfully!');
-    } catch (error) {
-      console.error('❌ Error exporting Excel:', error);
-      toast.error('Failed to export Excel report');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedLocation, dateType, fromDate, toDate, locations, selectedDoctor, doctors]);
-
-  // 🔧 ENHANCED: Reorder filtering - Doctor filter BEFORE pagination
-  const filteredStudies = useMemo(() => {
-    let filtered = [...studies];
-
-    // 🆕 STEP 1: Doctor filter FIRST (on full dataset before any pagination)
-    if (selectedDoctor) {
-      filtered = filtered.filter(study => {
-        const reportedBy = study.reportedBy || '';
-        // Get the selected doctor's name
-        const selectedDoctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || '';
-        
-        // Check if the study's reportedBy matches the selected doctor
-        return reportedBy.toLowerCase().includes(selectedDoctorName.toLowerCase()) ||
-               reportedBy === selectedDoctorName;
-      });
-    }
-
-    // 🔧 STEP 2: Search filter (after doctor filter)
-    if (searchTerm.trim()) {
-      const search = searchTerm.toLowerCase();
-      filtered = filtered.filter(study => 
-        (study.patientName || '').toLowerCase().includes(search) ||
-        (study.patientId || '').toLowerCase().includes(search) ||
-        (study.accessionNumber || '').toLowerCase().includes(search) ||
-        (study.referredBy || '').toLowerCase().includes(search) ||
-        (study.reportedBy || '').toLowerCase().includes(search) ||
-        (study.studyDescription || '').toLowerCase().includes(search)
-      );
-    }
-
-    // 🔧 STEP 3: Modality filter (after search filter)
-    if (selectedModalities.length > 0) {
-      filtered = filtered.filter(study => {
-        const studyModality = study.modality || '';
-        return selectedModalities.some(selectedMod => {
-          if (selectedMod.includes('/')) {
-            const modalityParts = selectedMod.split('/');
-            return modalityParts.every(part => studyModality.includes(part));
-          } else {
-            return studyModality.includes(selectedMod);
-          }
-        });
-      });
-    }
-
-    return filtered;
-  }, [studies, selectedDoctor, doctors, searchTerm, selectedModalities]);
-
-  // Pagination
-  const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
-  const startIndex = (currentPage - 1) * recordsPerPage;
-  const paginatedStudies = filteredStudies.slice(startIndex, startIndex + recordsPerPage);
-
-  // ✅ OPTIMIZED: Helper functions
-  const safeValue = (value, defaultVal = '-') => {
+  // ✅ FIX: Move helper functions before they're used
+  const safeValue = useCallback((value, defaultVal = '-') => {
     if (value === null || value === undefined || value === '') return defaultVal;
     return String(value);
-  };
+  }, []);
 
-  const getTATStatusColor = (tatValue) => {
+  const getTATStatusColor = useCallback((tatValue) => {
     if (!tatValue || tatValue === '-' || tatValue === null || tatValue === undefined) {
       return 'bg-gray-100 text-gray-700 border border-gray-200';
     }
@@ -350,9 +65,9 @@ const TATReport = () => {
     if (minutes <= 480) return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
     if (minutes <= 1440) return 'bg-orange-100 text-orange-800 border border-orange-200';
     return 'bg-red-100 text-red-800 border border-red-200';
-  };
+  }, []);
 
-  const getStatusColor = (status) => {
+  const getStatusColor = useCallback((status) => {
     const statusString = status ? String(status).toLowerCase() : '';
     
     switch (statusString) {
@@ -375,9 +90,9 @@ const TATReport = () => {
       default:
         return 'bg-gray-100 text-gray-600 border border-gray-200';
     }
-  };
+  }, []);
 
-  const getSafeNestedValue = (obj, path, defaultValue = '-') => {
+  const getSafeNestedValue = useCallback((obj, path, defaultValue = '-') => {
     try {
       const keys = path.split('.');
       let current = obj;
@@ -393,9 +108,9 @@ const TATReport = () => {
     } catch (error) {
       return defaultValue;
     }
-  };
+  }, []);
 
-  const formatDateTime = (dateValue) => {
+  const formatDateTime = useCallback((dateValue) => {
     if (!dateValue) return '-';
     
     try {
@@ -409,44 +124,361 @@ const TATReport = () => {
     } catch (error) {
       return '-';
     }
-  };
+  }, []);
 
-  // Event handlers
-  const handleModalityToggle = (modality) => {
+  // ✅ FIX: Define filtered studies with proper dependencies
+  const filteredStudies = useMemo(() => {
+    let filtered = [...studies];
+
+    // ✅ CRITICAL FIX: Only check uploadedById, no fallback to assignedDoctorId
+    if (selectedDoctor) {
+        const beforeFilter = filtered.length;
+        
+        filtered = filtered.filter(study => {
+            return study.uploadedById === selectedDoctor; // ✅ Simple match
+        });
+        
+        console.log(`🔍 Frontend doctor filter: ${selectedDoctor} - Before: ${beforeFilter}, After: ${filtered.length} studies`);
+        
+        // 🔍 DEBUG: Show which studies matched for Dr. Gamma Ray
+        if (selectedDoctor === '687f7dba53b984fce60ce30c') {
+            console.log('🎯 Filtered studies for Dr. Gamma Ray:', filtered.map(s => ({
+                acc: s.accessionNumber,
+                patientName: s.patientName,
+                uploadedById: s.uploadedById
+            })));
+        }
+    }
+
+    // Rest of filtering logic remains the same...
+    if (searchTerm.trim()) {
+        const search = searchTerm.toLowerCase();
+        filtered = filtered.filter(study => 
+            (study.patientName || '').toLowerCase().includes(search) ||
+            (study.patientId || '').toLowerCase().includes(search) ||
+            (study.accessionNumber || '').toLowerCase().includes(search) ||
+            (study.referredBy || '').toLowerCase().includes(search) ||
+            (study.reportedBy || '').toLowerCase().includes(search) ||
+            (study.studyDescription || '').toLowerCase().includes(search)
+        );
+    }
+
+    if (selectedModalities.length > 0) {
+        filtered = filtered.filter(study => {
+            const studyModality = study.modality || '';
+            return selectedModalities.some(selectedMod => {
+                if (selectedMod.includes('/')) {
+                    const modalityParts = selectedMod.split('/');
+                    return modalityParts.every(part => studyModality.includes(part));
+                } else {
+                    return studyModality.includes(selectedMod);
+                }
+            });
+        });
+    }
+
+    return filtered;
+  }, [studies, selectedDoctor, searchTerm, selectedModalities]);
+
+  // ✅ FIX: Define filtered locations and doctors after their dependencies
+  const filteredLocations = useMemo(() => {
+    if (!locationSearchTerm.trim()) return locations;
+    
+    const search = locationSearchTerm.toLowerCase();
+    return locations.filter(location => 
+      location.label.toLowerCase().includes(search) ||
+      location.value.toLowerCase().includes(search)
+    );
+  }, [locations, locationSearchTerm]);
+
+  const filteredDoctors = useMemo(() => {
+    if (!doctorSearchTerm.trim()) return doctors;
+    
+    const search = doctorSearchTerm.toLowerCase();
+    return doctors.filter(doctor => 
+      doctor.label.toLowerCase().includes(search) ||
+      (doctor.specialization && doctor.specialization.toLowerCase().includes(search)) ||
+      (doctor.email && doctor.email.toLowerCase().includes(search))
+    );
+  }, [doctors, doctorSearchTerm]);
+
+  // Fetch locations
+  useEffect(() => {
+    const fetchLocations = async () => {
+      try {
+        const response = await api.get('/tat/locations');
+        if (response.data.success) {
+          setLocations(response.data.locations);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching locations:', error);
+        toast.error('Failed to load locations');
+      }
+    };
+    fetchLocations();
+  }, []);
+
+  // Fetch doctors
+  useEffect(() => {
+    const fetchDoctors = async () => {
+      try {
+        const response = await api.get('/tat/doctors');
+        console.log(response.data);
+        if (response.data.success) {
+          setDoctors(response.data.doctors);
+        }
+      } catch (error) {
+        console.error('❌ Error fetching doctors:', error);
+        toast.error('Failed to load doctors');
+      }
+    };
+    fetchDoctors();
+  }, []);
+
+  // ✅ FIX: Event handlers defined after their dependencies
+  const handleLocationSelect = useCallback((location) => {
+    setSelectedLocation(location ? location.value : '');
+    setLocationSearchTerm(location ? location.label : '');
+    setIsLocationDropdownOpen(false);
+  }, []);
+
+  const handleDoctorSelect = useCallback((doctor) => {
+    setSelectedDoctor(doctor ? doctor.value : '');
+    setDoctorSearchTerm(doctor ? doctor.label : '');
+    setIsDoctorDropdownOpen(false);
+    setCurrentPage(1);
+  }, []);
+
+  const handleLocationSearchChange = useCallback((e) => {
+    const value = e.target.value;
+    setLocationSearchTerm(value);
+    setIsLocationDropdownOpen(true);
+    
+    if (selectedLocation && !value) {
+      setSelectedLocation('');
+    }
+  }, [selectedLocation]);
+
+  const handleDoctorSearchChange = useCallback((e) => {
+    const value = e.target.value;
+    setDoctorSearchTerm(value);
+    setIsDoctorDropdownOpen(true);
+    
+    if (selectedDoctor && !value) {
+      setSelectedDoctor('');
+    }
+  }, [selectedDoctor]);
+
+  const handleModalityToggle = useCallback((modality) => {
     const newSelection = selectedModalities.includes(modality)
       ? selectedModalities.filter(m => m !== modality)
       : [...selectedModalities, modality];
     
     setSelectedModalities(newSelection);
     setCurrentPage(1);
-  };
+  }, [selectedModalities]);
 
-  const handlePageChange = (page) => {
+  const handlePageChange = useCallback((page) => {
     setCurrentPage(page);
-  };
+  }, []);
 
-  // 🔧 ENHANCED: Update the title to show active filters
-  const getFilterSummary = () => {
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (locationDropdownRef.current && !locationDropdownRef.current.contains(event.target)) {
+        setIsLocationDropdownOpen(false);
+      }
+      if (doctorDropdownRef.current && !doctorDropdownRef.current.contains(event.target)) {
+        setIsDoctorDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Set initial search terms
+  useEffect(() => {
+    if (selectedLocation) {
+      const location = locations.find(loc => loc.value === selectedLocation);
+      if (location) {
+        setLocationSearchTerm(location.label);
+      }
+    } else {
+      setLocationSearchTerm('');
+    }
+  }, [selectedLocation, locations]);
+
+  useEffect(() => {
+    if (selectedDoctor) {
+      const doctor = doctors.find(doc => doc.value === selectedDoctor);
+      if (doctor) {
+        setDoctorSearchTerm(doctor.label);
+      }
+    } else {
+      setDoctorSearchTerm('');
+    }
+  }, [selectedDoctor, doctors]);
+
+  // Fetch TAT data
+  const fetchTATData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = {
+        dateType,
+        fromDate,
+        toDate
+      };
+
+      if (selectedLocation) {
+        params.location = selectedLocation;
+      }
+
+      if (selectedModalities.length > 0) {
+        params.modality = selectedModalities.join(',');
+      }
+
+      const response = await api.get('/tat/report', { params });
+      console.log('📊 DEBUG: Raw TAT data received:', response.data);
+
+      if (response.data.success) {
+        const studies = response.data.studies;
+        setStudies(studies);
+        setCurrentPage(1);
+        
+        // 🔍 DEBUG: Log sample studies to see uploadedById values
+        console.log('🔍 DEBUG: Sample studies with uploadedById:');
+        studies.slice(0, 5).forEach(study => {
+            console.log(`Study ${study.accessionNumber}:`, {
+                uploadedById: study.uploadedById,
+                assignedDoctorId: study.assignedDoctorId,
+                reportedBy: study.reportedBy
+            });
+        });
+        
+        console.log(`✅ Fetched ${studies.length} studies from ${selectedLocation ? 'selected location' : 'ALL locations'}`);
+      } else {
+        toast.error('Failed to load TAT data');
+        setStudies([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching TAT data:', error);
+      toast.error('Failed to load TAT data');
+      setStudies([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedLocation, dateType, fromDate, toDate, selectedModalities]);
+
+  // Export function
+  const exportToExcel = useCallback(async () => {
+    if (loading) return;
+    
+    setLoading(true);
+
+    try {
+        const exportParams = new URLSearchParams({
+            dateType,
+            fromDate,
+            toDate
+        });
+
+        if (selectedLocation) {
+            exportParams.append('location', selectedLocation);
+        }
+
+        if (selectedDoctor) {
+            exportParams.append('selectedDoctor', selectedDoctor);
+            console.log(`📊 Exporting TAT report with doctor filter: ${selectedDoctor}`);
+        }
+
+        if (selectedModalities.length > 0) {
+            exportParams.append('modality', selectedModalities.join(','));
+        }
+
+        const response = await api.get('/tat/report/export', { 
+            params: Object.fromEntries(exportParams),
+            responseType: 'blob'
+        });
+
+        if (!response.data || response.data.size === 0) {
+            throw new Error('No data received from server');
+        }
+
+        const blob = new Blob([response.data], { 
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+        });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        let filename = 'TAT_Report';
+        if (selectedLocation) {
+            const locationName = locations.find(loc => loc.value === selectedLocation)?.label || 'Unknown';
+            filename += `_${locationName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        } else {
+            filename += '_All_Locations';
+        }
+        
+        if (selectedDoctor) {
+            const doctor = doctors.find(d => d.value === selectedDoctor);
+            const doctorName = doctor?.label?.replace(/[^a-zA-Z0-9]/g, '_') || 'Selected_Doctor';
+            filename += `_${doctorName}`;
+        }
+        
+        filename += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+        
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+
+        const successMessage = selectedDoctor 
+            ? `✅ TAT report exported successfully with doctor filter (${filteredStudies.length} studies)`
+            : `✅ TAT report exported successfully (${filteredStudies.length} studies)`;
+        
+        console.log(successMessage);
+        toast.success('Excel report downloaded successfully!');
+
+    } catch (error) {
+        console.error('❌ Export failed:', error);
+        toast.error('Failed to export Excel report');
+    } finally {
+        setLoading(false);
+    }
+  }, [selectedLocation, selectedDoctor, dateType, fromDate, toDate, selectedModalities, locations, doctors, filteredStudies.length, loading]);
+
+  // ✅ FIX: Add debug logging and fix getFilterSummary
+  const getFilterSummary = useCallback(() => {
     const filters = [];
     if (selectedDoctor) {
-      const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
-      // Show how many studies match this doctor
-      const doctorStudies = studies.filter(study => {
-        const reportedBy = study.reportedBy || '';
-        return reportedBy.toLowerCase().includes(doctorName.toLowerCase()) ||
-               reportedBy === doctorName;
-      });
-      filters.push(`Doctor: ${doctorName} (${doctorStudies.length} studies)`);
+        const doctorName = doctors.find(doc => doc.value === selectedDoctor)?.label || 'Unknown Doctor';
+        
+        // ✅ CRITICAL FIX: Use same logic as filteredStudies - only check uploadedById
+        const doctorStudies = studies.filter(study => {
+            return study.uploadedById === selectedDoctor; // ✅ Simple match
+        });
+        
+        console.log(`🎯 DEBUG Filter Summary: Doctor ${doctorName} has ${doctorStudies.length} studies with uploadedById match`);
+        filters.push(`Doctor: ${doctorName} (${doctorStudies.length} studies)`);
     }
     if (selectedModalities.length > 0) {
-      filters.push(`Modalities: ${selectedModalities.join(', ')}`);
+        filters.push(`Modalities: ${selectedModalities.join(', ')}`);
     }
     if (searchTerm.trim()) {
-      filters.push(`Search: "${searchTerm}"`);
+        filters.push(`Search: "${searchTerm}"`);
     }
     return filters.length > 0 ? ` (${filters.join(' | ')})` : '';
-  };
+}, [selectedDoctor, doctors, studies, selectedModalities, searchTerm]);
 
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredStudies.length / recordsPerPage);
+  const startIndex = (currentPage - 1) * recordsPerPage;
+  const paginatedStudies = filteredStudies.slice(startIndex, startIndex + recordsPerPage);
+
+  // Rest of your JSX remains the same...
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
       <UniversalNavbar />
@@ -566,7 +598,7 @@ const TATReport = () => {
                 stroke="currentColor" 
                 viewBox="0 0 24 24"
               >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
               
             
@@ -709,54 +741,66 @@ const TATReport = () => {
                 {/* Filtered doctors with study counts */}
                 {filteredDoctors.length > 0 ? (
                   filteredDoctors.map((doctor) => {
-                    // 🔧 Calculate study count for this doctor from FULL dataset
+                    // 🔧 Calculate study count for this doctor using uploadedById
                     const doctorStudyCount = studies.filter(study => {
-                      const reportedBy = study.reportedBy || '';
-                      return reportedBy.toLowerCase().includes(doctor.label.toLowerCase()) ||
-                             reportedBy === doctor.label;
+                        return study.uploadedById === doctor.value 
+                               
                     }).length;
 
+                    // 🔍 DEBUG: Log for specific doctor
+                    if (doctor.value === '67037c32e4b23a8c8fb9b5a5') { // Dr. Gamma Ray's ID
+                        console.log(`🔍 DEBUG Dropdown Count ${study.accessionNumber}:`, {
+                            uploadedById: study.uploadedById,
+                            doctorValue: doctor.value,
+                            matches: match,
+                            assignedDoctorId: study.assignedDoctorId // Show but don't use
+                        });
+                    }
+                    
                     return (
-                      <div
-                        key={doctor.value}
-                        onClick={() => handleDoctorSelect(doctor)}
-                        className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
-                          selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                            </svg>
-                            <div>
-                              <div className="font-medium">{doctor.label}</div>
-                              {doctor.specialization && doctor.specialization !== 'N/A' && (
-                                <div className="text-xs text-gray-500">{doctor.specialization}</div>
-                              )}
-                              {doctor.email && (
-                                <div className="text-xs text-gray-400">{doctor.email}</div>
-                              )}
+                        <div
+                            key={doctor.value}
+                            onClick={() => handleDoctorSelect(doctor)}
+                            className={`px-3 py-2 text-sm cursor-pointer hover:bg-blue-50 border-b border-gray-100 last:border-b-0 ${
+                                selectedDoctor === doctor.value ? 'bg-blue-50 text-blue-700 font-medium' : 'text-gray-700'
+                            }`}
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                    <svg className="w-4 h-4 mr-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                    <div>
+                                        <div className="font-medium">{doctor.label}</div>
+                                        {doctor.specialization && doctor.specialization !== 'N/A' && (
+                                            <div className="text-xs text-gray-500">{doctor.specialization}</div>
+                                        )}
+                                        {doctor.email && (
+                                            <div className="text-xs text-gray-400">{doctor.email}</div>
+                                        )}
+                                        {/* ✅ BACKEND REPORTS: Should match frontend count */}
+                                        <div className="text-xs text-blue-600">
+                                            Backend Reports: {doctor.reportCount || 0}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    {/* ✅ FRONTEND COUNT: Should now match backend count */}
+                                    <span className={`text-xs px-2 py-1 rounded-full ${
+                                        doctorStudyCount > 0 
+                                            ? 'bg-blue-100 text-blue-800' 
+                                            : 'bg-gray-100 text-gray-500'
+                                    }`}>
+                                        {doctorStudyCount}
+                                    </span>
+                                    {selectedDoctor === doctor.value && (
+                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
+                                </div>
                             </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {/* Study count badge */}
-                            <span className={`text-xs px-2 py-1 rounded-full ${
-                              doctorStudyCount > 0 
-                                ? 'bg-blue-100 text-blue-800' 
-                                : 'bg-gray-100 text-gray-500'
-                            }`}>
-                              {doctorStudyCount}
-                            </span>
-                            {/* Selected checkmark */}
-                            {selectedDoctor === doctor.value && (
-                              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                              </svg>
-                            )}
-                          </div>
                         </div>
-                      </div>
                     );
                   })
                 ) : (

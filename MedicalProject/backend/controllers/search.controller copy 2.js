@@ -60,7 +60,7 @@ export const searchStudies = async (req, res) => {
         const skip = (parseInt(page) - 1) * parseInt(limit);
         const matchConditions = {};
 
-        // ✅ Doctor filter logic (unchanged)
+        // ✅ SIMPLE: Check if user is a doctor and add restriction
         if (req.user.role === 'doctor_account') {
             const doctorProfile = await Doctor.findOne({ userAccount: req.user._id })
                 .select('_id userAccount')
@@ -69,16 +69,17 @@ export const searchStudies = async (req, res) => {
             if (doctorProfile) {
                 console.log(`🏥 DOCTOR SEARCH: Restricting to doctor ${doctorProfile._id}`);
                 
+                // ✅ SIMPLE: Just add doctor filter to match conditions
                 matchConditions.$or = [
                     { 'lastAssignedDoctor.doctorId': doctorProfile._id },
-                    { 'assignment.assignedTo': doctorProfile.userAccount }
+                    { 'assignment.assignedTo': doctorProfile.userAccount }  // Use userAccount for assignment
                 ];
                 
                 console.log(`🔒 DOCTOR SEARCH: Applied simple doctor restriction`);
             }
         }
 
-        // ✅ Search logic (unchanged)
+        // Search logic
         if (searchTerm && searchTerm.trim()) {
             const trimmedSearchTerm = searchTerm.trim();
             console.log(`🔍 BACKEND SEARCH: Quick search "${trimmedSearchTerm}" (type: ${searchType})`);
@@ -112,20 +113,23 @@ export const searchStudies = async (req, res) => {
                     );
             }
             
+            // ✅ SIMPLE: Combine doctor restriction with search conditions
             if (searchConditions.length > 0) {
                 if (matchConditions.$or) {
+                    // If doctor restriction exists, combine with AND
                     matchConditions.$and = [
-                        { $or: matchConditions.$or },
-                        { $or: searchConditions }
+                        { $or: matchConditions.$or },  // Doctor restriction
+                        { $or: searchConditions }      // Search conditions
                     ];
                     delete matchConditions.$or;
                 } else {
+                    // No doctor restriction, just search
                     matchConditions.$or = searchConditions;
                 }
             }
         }
 
-        // ✅ Lab filter logic (unchanged)
+        // Lab filter
         const locationFilter = selectedLocation !== 'ALL' ? selectedLocation : location;
         if (locationFilter && locationFilter !== 'ALL') {
             console.log(`📍 BACKEND SEARCH: Lab filter: ${locationFilter}`);
@@ -143,6 +147,7 @@ export const searchStudies = async (req, res) => {
                 if (lab) {
                     matchConditions.sourceLab = lab._id;
                 } else {
+                    // Fallback - combine with existing $or if it exists
                     if (matchConditions.$or && !matchConditions.$and) {
                         matchConditions.$or.push(
                             { location: { $regex: locationFilter, $options: 'i' } },
@@ -164,12 +169,15 @@ export const searchStudies = async (req, res) => {
             }
         }
 
-        // ✅ CRITICAL FIX: Correct date filtering with proper IST handling
+        // Date filtering
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         const activeDateFilter = quickDatePreset !== 'all' ? quickDatePreset : dateFilter;
         
         if (activeDateFilter && activeDateFilter !== 'all') {
-            console.log(`📅 BACKEND SEARCH: Applying ${activeDateFilter} filter to ${dateField}`);
+            const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+            const now = new Date();
+            const today = new Date(now.getTime() + IST_OFFSET);
+            today.setUTCHours(18, 30, 0, 0);
             
             if (activeDateFilter === 'custom' && (customDateFrom || customDateTo)) {
                 const dateQuery = {};
@@ -182,79 +190,51 @@ export const searchStudies = async (req, res) => {
                 if (Object.keys(dateQuery).length > 0) {
                     matchConditions[dateField] = dateQuery;
                 }
-                console.log(`📅 CUSTOM: Applied custom date filter:`, dateQuery);
             } else {
-                // ✅ CRITICAL FIX: Use current server time and calculate IST properly
-                const now = new Date();
-                console.log(`📅 DEBUG: Current server time: ${now.toISOString()}`);
-                
-                // ✅ Get current date in IST (UTC+5:30)
-                const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-                console.log(`📅 DEBUG: IST time: ${istNow.toISOString()}`);
-                
-                // ✅ Create today start at 00:00:00 IST
-                const todayIST = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
-                const todayStartUTC = new Date(todayIST.getTime() - (5.5 * 60 * 60 * 1000));
-                const todayEndUTC = new Date(todayStartUTC.getTime() + (24 * 60 * 60 * 1000));
-                
-                console.log(`📅 DEBUG: Today start IST: ${todayIST.toISOString()}`);
-                console.log(`📅 DEBUG: Today start UTC: ${todayStartUTC.toISOString()}`);
-                console.log(`📅 DEBUG: Today end UTC: ${todayEndUTC.toISOString()}`);
-                
                 const dateQuery = {};
                 
                 switch (activeDateFilter) {
                     case 'today':
-                        dateQuery.$gte = todayStartUTC;
-                        dateQuery.$lt = todayEndUTC;
-                        console.log(`📅 TODAY: ${todayStartUTC.toISOString()} to ${todayEndUTC.toISOString()}`);
+                        const todayStart = new Date(today);
+                        const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = todayStart;
+                        dateQuery.$lt = todayEnd;
                         break;
-                        
                     case 'yesterday':
-                        const yesterdayStartUTC = new Date(todayStartUTC.getTime() - (24 * 60 * 60 * 1000));
-                        dateQuery.$gte = yesterdayStartUTC;
-                        dateQuery.$lt = todayStartUTC;
-                        console.log(`📅 YESTERDAY: ${yesterdayStartUTC.toISOString()} to ${todayStartUTC.toISOString()}`);
+                        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = yesterdayStart;
+                        dateQuery.$lt = today;
                         break;
-                        
                     case 'thisWeek':
-                        const startOfWeekIST = new Date(todayIST);
-                        startOfWeekIST.setDate(todayIST.getDate() - todayIST.getDay());
-                        const startOfWeekUTC = new Date(startOfWeekIST.getTime() - (5.5 * 60 * 60 * 1000));
-                        dateQuery.$gte = startOfWeekUTC;
-                        console.log(`📅 THIS WEEK: From ${startOfWeekUTC.toISOString()}`);
+                        const startOfWeek = new Date(today);
+                        startOfWeek.setDate(today.getDate() - today.getDay());
+                        dateQuery.$gte = startOfWeek;
                         break;
-                        
                     case 'thisMonth':
-                        const startOfMonthIST = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
-                        const startOfMonthUTC = new Date(startOfMonthIST.getTime() - (5.5 * 60 * 60 * 1000));
-                        dateQuery.$gte = startOfMonthUTC;
-                        console.log(`📅 THIS MONTH: From ${startOfMonthUTC.toISOString()}`);
+                        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                        dateQuery.$gte = startOfMonth;
                         break;
-                        
                     case 'last24h':
-                        const last24hUTC = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-                        dateQuery.$gte = last24hUTC;
-                        console.log(`📅 LAST 24H: From ${last24hUTC.toISOString()}`);
+                        dateQuery.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
                         break;
                 }
                 
                 if (Object.keys(dateQuery).length > 0) {
                     matchConditions[dateField] = dateQuery;
-                    console.log(`📅 APPLIED: Date filter for ${activeDateFilter}:`, dateQuery);
                 }
             }
         }
 
         console.log('🔍 BACKEND SEARCH: Applied match conditions:', JSON.stringify(matchConditions, null, 2));
 
-        // ✅ Rest of the function remains the same (execution logic)
+        // Execute query
         const pipeline = [];
         
         if (Object.keys(matchConditions).length > 0) {
             pipeline.push({ $match: matchConditions });
         }
 
+        // Add lookups
         pipeline.push(
             {
                 $lookup: {
@@ -276,6 +256,7 @@ export const searchStudies = async (req, res) => {
             }
         );
 
+        // Sort and paginate
         pipeline.push(
             { $sort: { createdAt: -1 } },
             { $skip: skip },
@@ -297,7 +278,7 @@ export const searchStudies = async (req, res) => {
         console.log(`⚡ BACKEND SEARCH: Query executed in ${queryTime}ms`);
         console.log(`✅ BACKEND SEARCH: Found ${totalRecords} studies (returning ${studies.length})`);
 
-        // ✅ Rest of formatting logic remains the same...
+        // Format studies (keep your existing formatting logic)
         const formattedStudies = studies.map(study => {
             const patient = study.patientDetails?.[0];
             const sourceLab = study.sourceLab?.[0];
@@ -414,7 +395,8 @@ export const searchStudies = async (req, res) => {
     }
 };
 
-// ✅ APPLY THE SAME FIX to getSearchValues function
+// ✅ SIMPLE: Apply same doctor filter to getSearchValues
+// ✅ FIXED: Apply same doctor filter AND all other filters to getSearchValues
 export const getSearchValues = async (req, res) => {
     try {
         const startTime = Date.now();
@@ -434,7 +416,7 @@ export const getSearchValues = async (req, res) => {
 
         const matchConditions = {};
 
-        // Doctor filter logic (unchanged)
+        // ✅ CRITICAL: Same doctor filter as searchStudies
         if (req.user.role === 'doctor_account') {
             const doctorProfile = await Doctor.findOne({ userAccount: req.user._id })
                 .select('_id userAccount')
@@ -449,7 +431,7 @@ export const getSearchValues = async (req, res) => {
             }
         }
 
-        // Search logic (unchanged)
+        // ✅ CRITICAL: Apply EXACT same search logic as searchStudies
         if (searchTerm && searchTerm.trim()) {
             const trimmedSearchTerm = searchTerm.trim();
             console.log(`🔍 SEARCH VALUES: Quick search "${trimmedSearchTerm}" (type: ${searchType})`);
@@ -483,20 +465,23 @@ export const getSearchValues = async (req, res) => {
                     );
             }
             
+            // ✅ CRITICAL: Same combining logic as searchStudies
             if (searchConditions.length > 0) {
                 if (matchConditions.$or) {
+                    // If doctor restriction exists, combine with AND
                     matchConditions.$and = [
-                        { $or: matchConditions.$or },
-                        { $or: searchConditions }
+                        { $or: matchConditions.$or },  // Doctor restriction
+                        { $or: searchConditions }      // Search conditions
                     ];
                     delete matchConditions.$or;
                 } else {
+                    // No doctor restriction, just search
                     matchConditions.$or = searchConditions;
                 }
             }
         }
 
-        // Lab filter logic (unchanged)
+        // ✅ CRITICAL: Apply EXACT same lab filter as searchStudies
         const locationFilter = selectedLocation !== 'ALL' ? selectedLocation : location;
         if (locationFilter && locationFilter !== 'ALL') {
             console.log(`📍 SEARCH VALUES: Lab filter: ${locationFilter}`);
@@ -514,6 +499,7 @@ export const getSearchValues = async (req, res) => {
                 if (lab) {
                     matchConditions.sourceLab = lab._id;
                 } else {
+                    // Fallback - combine with existing $or if it exists
                     if (matchConditions.$or && !matchConditions.$and) {
                         matchConditions.$or.push(
                             { location: { $regex: locationFilter, $options: 'i' } },
@@ -535,12 +521,15 @@ export const getSearchValues = async (req, res) => {
             }
         }
 
-        // ✅ CRITICAL FIX: Apply same corrected date filtering
+        // ✅ CRITICAL: Apply EXACT same date filtering as searchStudies
         const dateField = dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
         const activeDateFilter = quickDatePreset !== 'all' ? quickDatePreset : dateFilter;
         
         if (activeDateFilter && activeDateFilter !== 'all') {
-            console.log(`📅 SEARCH VALUES: Applying ${activeDateFilter} filter to ${dateField}`);
+            const IST_OFFSET = 5.5 * 60 * 60 * 1000;
+            const now = new Date();
+            const today = new Date(now.getTime() + IST_OFFSET);
+            today.setUTCHours(18, 30, 0, 0);
             
             if (activeDateFilter === 'custom' && (customDateFrom || customDateTo)) {
                 const dateQuery = {};
@@ -553,70 +542,44 @@ export const getSearchValues = async (req, res) => {
                 if (Object.keys(dateQuery).length > 0) {
                     matchConditions[dateField] = dateQuery;
                 }
-                console.log(`📅 CUSTOM VALUES: Applied custom date filter:`, dateQuery);
             } else {
-                // ✅ CRITICAL FIX: Use same corrected IST logic as searchStudies
-                const now = new Date();
-                console.log(`📅 DEBUG VALUES: Current server time: ${now.toISOString()}`);
-                
-                const istNow = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
-                console.log(`📅 DEBUG VALUES: IST time: ${istNow.toISOString()}`);
-                
-                const todayIST = new Date(istNow.getFullYear(), istNow.getMonth(), istNow.getDate());
-                const todayStartUTC = new Date(todayIST.getTime() - (5.5 * 60 * 60 * 1000));
-                const todayEndUTC = new Date(todayStartUTC.getTime() + (24 * 60 * 60 * 1000));
-                
-                console.log(`📅 DEBUG VALUES: Today start UTC: ${todayStartUTC.toISOString()}`);
-                console.log(`📅 DEBUG VALUES: Today end UTC: ${todayEndUTC.toISOString()}`);
-                
                 const dateQuery = {};
                 
                 switch (activeDateFilter) {
                     case 'today':
-                        dateQuery.$gte = todayStartUTC;
-                        dateQuery.$lt = todayEndUTC;
-                        console.log(`📅 TODAY VALUES: ${todayStartUTC.toISOString()} to ${todayEndUTC.toISOString()}`);
+                        const todayStart = new Date(today);
+                        const todayEnd = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = todayStart;
+                        dateQuery.$lt = todayEnd;
                         break;
-                        
                     case 'yesterday':
-                        const yesterdayStartUTC = new Date(todayStartUTC.getTime() - (24 * 60 * 60 * 1000));
-                        dateQuery.$gte = yesterdayStartUTC;
-                        dateQuery.$lt = todayStartUTC;
-                        console.log(`📅 YESTERDAY VALUES: ${yesterdayStartUTC.toISOString()} to ${todayStartUTC.toISOString()}`);
+                        const yesterdayStart = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+                        dateQuery.$gte = yesterdayStart;
+                        dateQuery.$lt = today;
                         break;
-                        
                     case 'thisWeek':
-                        const startOfWeekIST = new Date(todayIST);
-                        startOfWeekIST.setDate(todayIST.getDate() - todayIST.getDay());
-                        const startOfWeekUTC = new Date(startOfWeekIST.getTime() - (5.5 * 60 * 60 * 1000));
-                        dateQuery.$gte = startOfWeekUTC;
-                        console.log(`📅 THIS WEEK VALUES: From ${startOfWeekUTC.toISOString()}`);
+                        const startOfWeek = new Date(today);
+                        startOfWeek.setDate(today.getDate() - today.getDay());
+                        dateQuery.$gte = startOfWeek;
                         break;
-                        
                     case 'thisMonth':
-                        const startOfMonthIST = new Date(todayIST.getFullYear(), todayIST.getMonth(), 1);
-                        const startOfMonthUTC = new Date(startOfMonthIST.getTime() - (5.5 * 60 * 60 * 1000));
-                        dateQuery.$gte = startOfMonthUTC;
-                        console.log(`📅 THIS MONTH VALUES: From ${startOfMonthUTC.toISOString()}`);
+                        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+                        dateQuery.$gte = startOfMonth;
                         break;
-                        
                     case 'last24h':
-                        const last24hUTC = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-                        dateQuery.$gte = last24hUTC;
-                        console.log(`📅 LAST 24H VALUES: From ${last24hUTC.toISOString()}`);
+                        dateQuery.$gte = new Date(now.getTime() - 24 * 60 * 60 * 1000);
                         break;
                 }
                 
                 if (Object.keys(dateQuery).length > 0) {
                     matchConditions[dateField] = dateQuery;
-                    console.log(`📅 APPLIED VALUES: Date filter for ${activeDateFilter}:`, dateQuery);
                 }
             }
         }
 
         console.log(`🔍 SEARCH VALUES: Applied EXACT match conditions:`, JSON.stringify(matchConditions, null, 2));
 
-        // ✅ Rest of the function remains the same...
+        // Execute and return counts with SAME filters
         const [statusCountsResult, totalFilteredResult] = await Promise.all([
             DicomStudy.aggregate([
                 ...(Object.keys(matchConditions).length > 0 ? [{ $match: matchConditions }] : []),
@@ -625,6 +588,7 @@ export const getSearchValues = async (req, res) => {
             DicomStudy.countDocuments(matchConditions)
         ]);
 
+        // Calculate status totals
         const statusCategories = {
             pending: ['new_study_received', 'pending_assignment', 'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 'report_downloaded_radiologist', 'report_downloaded'],
             inprogress: ['report_finalized', 'report_drafted', 'report_uploaded'],
