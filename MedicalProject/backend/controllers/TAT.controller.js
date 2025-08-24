@@ -8,13 +8,62 @@ import { calculateStudyTAT } from '../utils/TATutility.js';
 import patient from '../models/patientModel.js';
 import Document from '../models/documentModal.js';
 
-
 // 🔧 PERFORMANCE: Advanced caching for TAT reports
 const cache = new NodeCache({
     stdTTL: 600, // 10 minutes for reports
     checkperiod: 120,
     useClones: false
 });
+
+// ✅ FIX: Add timezone utility functions at the top of the file
+const getISTDate = (date = new Date()) => {
+    // Convert any date to IST (UTC+5:30)
+    const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000);
+    const istTime = new Date(utcTime + (5.5 * 60 * 60 * 1000));
+    return istTime;
+};
+
+const getISTStartOfDay = (date) => {
+    const istDate = getISTDate(date);
+    const startOfDay = new Date(istDate.getFullYear(), istDate.getMonth(), istDate.getDate());
+    // Convert back to UTC for database query
+    return new Date(startOfDay.getTime() - (5.5 * 60 * 60 * 1000));
+};
+
+const getISTEndOfDay = (date) => {
+    const istDate = getISTDate(date);
+    const endOfDay = new Date(istDate.getFullYear(), istDate.getMonth(), istDate.getDate(), 23, 59, 59, 999);
+    // Convert back to UTC for database query
+    return new Date(endOfDay.getTime() - (5.5 * 60 * 60 * 1000));
+};
+
+const formatDateIST = (date, includeTime = true) => {
+    if (!date) return '-';
+    try {
+        const istDate = getISTDate(new Date(date));
+        if (includeTime) {
+            return istDate.toLocaleString('en-GB', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+        } else {
+            return istDate.toLocaleDateString('en-GB', {
+                timeZone: 'Asia/Kolkata',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            });
+        }
+    } catch (error) {
+        console.warn('Invalid date format:', date);
+        return date?.toString() || '-';
+    }
+};
 
 /**
  * 🔧 OPTIMIZED: Get all available locations (enhanced performance)
@@ -145,7 +194,7 @@ export const getTATReport = async (req, res) => {
 
         console.log(`🔍 Generating TAT report - Location: ${location || 'ALL'}, DateType: ${dateType}, From: ${fromDate}, To: ${toDate}`);
 
-        // 🔧 ADD: Helper functions at the top of the function
+        // ✅ FIX: Updated helper functions with IST support
         const formatStudyDate = (studyDate) => {
             if (!studyDate) return '-';
             
@@ -157,13 +206,13 @@ export const getTATReport = async (req, res) => {
             }
             
             if (studyDate instanceof Date) {
-                return studyDate.toLocaleDateString('en-GB');
+                return formatDateIST(studyDate, false);
             }
             
             try {
                 const date = new Date(studyDate);
                 if (!isNaN(date.getTime())) {
-                    return date.toLocaleDateString('en-GB');
+                    return formatDateIST(date, false);
                 }
             } catch (error) {
                 console.warn('Invalid study date format:', studyDate);
@@ -174,23 +223,9 @@ export const getTATReport = async (req, res) => {
 
         const formatDate = (date) => {
             if (!date) return '-';
-            try {
-                return new Date(date).toLocaleString('en-GB');
-            } catch (error) {
-                console.warn('Invalid date format:', date);
-                return date?.toString() || '-';
-            }
+            return formatDateIST(date, true);
         };
 
-        // 🔧 MODIFIED: Location is no longer required - allow fetching from all locations
-        // if (!location) {
-        //     return res.status(400).json({
-        //         success: false,
-        //         message: 'Location is required'
-        //     });
-        // }
-
-        // 🔧 MODIFIED: Cache key includes 'all' when no location specified
         const locationKey = location || 'all';
         const cacheKey = `tat_report_${locationKey}_${dateType}_${fromDate}_${toDate}_${status}`;
         let cachedReport = cache.get(cacheKey);
@@ -218,13 +253,19 @@ export const getTATReport = async (req, res) => {
             });
         }
 
-        // 🔧 PERFORMANCE: Add date filtering based on type
+        // ✅ CRITICAL FIX: IST timezone support for date filtering
         if (fromDate && toDate) {
-            const startDate = new Date(fromDate);
-            startDate.setHours(0, 0, 0, 0);
+            console.log(`📅 Original dates - From: ${fromDate}, To: ${toDate}`);
+            
+            // ✅ FIX: Parse dates and convert to IST-aware UTC ranges
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            
+            const startDate = getISTStartOfDay(fromDateObj);
+            const endDate = getISTEndOfDay(toDateObj);
 
-            const endDate = new Date(toDate);
-            endDate.setHours(23, 59, 59, 999);
+            console.log(`📅 IST converted dates - Start UTC: ${startDate.toISOString()}, End UTC: ${endDate.toISOString()}`);
+            console.log(`📅 IST display - Start: ${formatDateIST(startDate)}, End: ${formatDateIST(endDate)}`);
 
             let dateFilter = {};
 
@@ -272,6 +313,7 @@ export const getTATReport = async (req, res) => {
             }
 
             pipeline.push({ $match: dateFilter });
+            console.log(`📅 Applied date filter for ${dateType}:`, JSON.stringify(dateFilter, null, 2));
         }
 
         // 🔧 PERFORMANCE: Add status filter
@@ -365,7 +407,7 @@ export const getTATReport = async (req, res) => {
         
         console.log(`✅ Retrieved ALL ${studies.length} studies for the timeframe from ${location ? 'selected location' : 'ALL locations'}`);
 
-        // 🔧 OPTIMIZED: Process studies efficiently, using the fetched calculatedTAT
+        // ✅ FIX: Process studies with IST timezone formatting
         const processedStudies = studies.map(study => {
             const tat = study.calculatedTAT || calculateStudyTAT(study);
             const patient = study.patient || {};
@@ -397,16 +439,13 @@ export const getTATReport = async (req, res) => {
                 series_Images: `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 institutionName: study.lab?.name || '-',
                 billedOnStudyDate: formatStudyDate(study.studyDate),
+                // ✅ FIX: Use IST formatting for all dates
                 uploadDate: formatDate(study.createdAt),
                 assignedDate: formatDate(study.assignment?.[0]?.assignedAt || study.assignment?.assignedAt),
                 reportDate: formatDate(study.reportInfo?.finalizedAt),
                 reportedBy,
-                
-                // 🆕 FIXED: Add doctor IDs for filtering
                 assignedDoctorId: assignedDoctorId ? assignedDoctorId.toString() : null,
                 uploadedById: uploadedById ? uploadedById.toString() : null,
-                
-                // TAT fields
                 diffStudyAndReportTAT: tat.studyToReportTATFormatted || '-',
                 diffUploadAndReportTAT: tat.uploadToReportTATFormatted || '-',
                 diffAssignAndReportTAT: tat.assignmentToReportTATFormatted || '-',
@@ -476,12 +515,18 @@ export const exportTATReport = async (req, res) => {
             pipeline.push({ $match: { sourceLab: new mongoose.Types.ObjectId(location) } });
         }
 
-        // Add date filtering
+        // ✅ FIX: IST timezone support for export date filtering
         if (fromDate && toDate) {
-            const startDate = new Date(fromDate);
-            startDate.setHours(0, 0, 0, 0);
-            const endDate = new Date(toDate);
-            endDate.setHours(23, 59, 59, 999);
+            console.log(`📅 Export - Original dates - From: ${fromDate}, To: ${toDate}`);
+            
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            
+            const startDate = getISTStartOfDay(fromDateObj);
+            const endDate = getISTEndOfDay(toDateObj);
+
+            console.log(`📅 Export - IST converted dates - Start UTC: ${startDate.toISOString()}, End UTC: ${endDate.toISOString()}`);
+
             let dateFilter = {};
             switch(dateType) {
                 case 'studyDate': 
@@ -508,7 +553,7 @@ export const exportTATReport = async (req, res) => {
             pipeline.push({ $match: { workflowStatus: status } });
         }
 
-        // Add lookups FIRST (we need document data to filter properly)
+        // Add lookups (unchanged)
         pipeline.push(
             {
                 $lookup: {
@@ -540,7 +585,6 @@ export const exportTATReport = async (req, res) => {
                     ]
                 }
             },
-            // ✅ CRITICAL: Lookup documents to get uploadedBy info
             {
                 $lookup: {
                     from: 'documents',
@@ -549,7 +593,7 @@ export const exportTATReport = async (req, res) => {
                     as: 'documentData',
                     pipeline: [
                         { $match: { documentType: 'clinical' } },
-                        { $sort: { uploadedAt: -1 } }, // Get latest document
+                        { $sort: { uploadedAt: -1 } },
                         { $limit: 1 },
                         { 
                             $lookup: {
@@ -577,7 +621,7 @@ export const exportTATReport = async (req, res) => {
                 doctorData: { $arrayElemAt: ['$doctorData', 0] },
                 documentData: { $arrayElemAt: ['$documentData', 0] }
             }
-        });
+    });
 
         // ✅ CRITICAL FIX: Apply doctor filtering AFTER lookups, matching frontend logic exactly
         if (selectedDoctor) {
@@ -626,7 +670,7 @@ export const exportTATReport = async (req, res) => {
             }
         }
         
-        fileName += `_${new Date().toISOString().split('T')[0]}.xlsx`;
+        fileName += `_${formatDateIST(new Date(), false).replace(/\//g, '-')}.xlsx`;
 
         // Set headers and start streaming
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -675,6 +719,7 @@ export const exportTATReport = async (req, res) => {
         
         let processedCount = 0;
 
+        // ✅ FIX: Updated formatStudyDate with IST support
         const formatStudyDate = (studyDate) => {
             if (!studyDate) return '-';
             
@@ -686,19 +731,19 @@ export const exportTATReport = async (req, res) => {
             }
             
             if (studyDate instanceof Date) {
-                return studyDate.toLocaleDateString('en-GB');
+                return formatDateIST(studyDate, false);
             }
             
             try {
                 const date = new Date(studyDate);
                 if (!isNaN(date.getTime())) {
-                    return date.toLocaleDateString('en-GB');
+                    return formatDateIST(date, false);
                 }
             } catch (error) {
                 console.warn('Invalid study date format:', studyDate);
             }
             
-            return studyDate.toString();
+            return studyDate?.toString() || '-';
         };
 
         // ✅ Process cursor - now only studies with uploaded documents will be processed
@@ -709,7 +754,8 @@ export const exportTATReport = async (req, res) => {
             const lab = study.labData || {};
             const doctor = study.doctorData || {};
             
-            const formatDate = (date) => date ? new Date(date).toLocaleString('en-GB') : '-';
+            // ✅ FIX: Use IST formatting for all dates in export
+            const formatDate = (date) => date ? formatDateIST(date, true) : '-';
             const patientName = patient.computed?.fullName ||
                 (patient.firstName && patient.lastName ? `${patient.lastName}, ${patient.firstName}` : patient.patientNameRaw) || '-';
 
@@ -804,10 +850,13 @@ export const getTATAnalytics = async (req, res) => {
             return res.status(200).json({ success: true, data: cachedAnalytics, performance: { queryTime: Date.now() - startTime, fromCache: true } });
         }
 
-        const endDate = new Date();
-        const startDate = new Date();
+        // ✅ FIX: Use IST-aware date calculation
+        const endDate = getISTEndOfDay(new Date());
+        const startDate = getISTStartOfDay(new Date());
         const days = period === '7d' ? 7 : (period === '90d' ? 90 : 30);
         startDate.setDate(startDate.getDate() - days);
+
+        console.log(`📅 Analytics - IST Date Range: ${formatDateIST(startDate)} to ${formatDateIST(endDate)}`);
 
         // 🔧 CONSISTENCY: Analytics now based on the accurate `calculatedTAT` object
         const analyticsData = await DicomStudy.aggregate([
