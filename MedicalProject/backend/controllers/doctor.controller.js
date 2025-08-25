@@ -671,9 +671,9 @@ export const getValues = async (req, res) => {
         // 🔧 STEP 3: Combine the base query with all other query parameters.
         let queryFilters = { ...baseQuery };
 
-        if (category && category !== 'all') {
-            queryFilters.workflowStatus = { $in: getAllStatusesForCategory(category) };
-        }
+        // if (category && category !== 'all') {
+        //     queryFilters.workflowStatus = { $in: getAllStatusesForCategory(category) };
+        // }
         if (search) {
             queryFilters.$text = { $search: search };
         }
