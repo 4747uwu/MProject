@@ -3,6 +3,8 @@ import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
 import websocketService from '../config/webSocket.js';
+// 🔧 FIXED: Import the correct service name
+import CloudflareR2ZipService from '../services/cloudflare.r2.zip.service.js';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -33,7 +35,7 @@ class StableStudyQueue {
     this.processing = new Set();
     this.nextJobId = 1;
     this.isProcessing = false;
-    this.concurrency = 10; // Process max 2 stable studies simultaneously
+    this.concurrency = 10; // Process max 10 stable studies simultaneously
   }
 
   async add(jobData) {
@@ -231,7 +233,7 @@ async function findOrCreatePatientFromTags(tags) {
     if (!unknownPatient) {
       unknownPatient = await Patient.create({
         mrn: 'UNKNOWN_STABLE_STUDY',
-        patientID: new mongoose.Types.ObjectId().toString().slice(0,8).toUpperCase(),
+        patientID: 'UNKNOWN_PATIENT',
         patientNameRaw: 'Unknown Patient (Stable Study)',
         firstName: '',
         lastName: '',
@@ -246,11 +248,9 @@ async function findOrCreatePatientFromTags(tags) {
   let patient = await Patient.findOne({ mrn: patientIdDicom });
 
   if (!patient) {
-    const generatedPatientID = new mongoose.Types.ObjectId().toString().slice(0,8).toUpperCase();
-    
     patient = new Patient({
       mrn: patientIdDicom || `ANON_${Date.now()}`,
-      patientID: generatedPatientID,
+      patientID: patientIdDicom || `ANON_${Date.now()}`,
       patientNameRaw: nameInfo.formattedForDisplay,
       firstName: nameInfo.firstName,
       lastName: nameInfo.lastName,
@@ -288,136 +288,94 @@ async function findOrCreatePatientFromTags(tags) {
 
 async function findOrCreateSourceLab(tags) {
   const DEFAULT_LAB = {
-    name: 'Primary Orthanc Instance (Stable Study)',
-    identifier: 'ORTHANC_STABLE_SOURCE',
+    name: 'Unknown Lab (No Identifier Found)',
+    identifier: 'UNKNOWN_LAB',
     isActive: true,
   };
 
   try {
-    // 🆕 PRIORITY 1: Check for custom Lab ID in DICOM tag [0011,1010]
-    const customLabId = tags["0011,1010"];
+    // 🎯 ONLY CHECK THESE SPECIFIC PRIVATE TAGS - NO FALLBACKS
+    const privateTags = ["0013,0010", "0015,0010", "0021,0010", "0043,0010"];
     
-    if (customLabId && customLabId.trim() !== '' && customLabId !== 'UNKNOWN_LAB') {
-      console.log(`[StableStudy] 🔍 Found custom Lab ID in DICOM tag [0011,1010]: ${customLabId}`);
+    console.log(`[StableStudy] 🔍 Checking private tags for lab identifier...`);
+    console.log(`[StableStudy] 📋 Available tags:`, {
+      "0013,0010": tags["0013,0010"] || 'NOT_FOUND',
+      "0015,0010": tags["0015,0010"] || 'NOT_FOUND', 
+      "0021,0010": tags["0021,0010"] || 'NOT_FOUND',
+      "0043,0010": tags["0043,0010"] || 'NOT_FOUND'
+    });
+    
+    for (const tag of privateTags) {
+      const tagValue = tags[tag];
       
-      try {
-        // Validate if it's a valid MongoDB ObjectId format
-        if (mongoose.Types.ObjectId.isValid(customLabId)) {
-          console.log(`[StableStudy] ✅ Lab ID is valid MongoDB ObjectId: ${customLabId}`);
-          
-          // Find lab by MongoDB ObjectId
-          const labFromCustomId = await Lab.findById(customLabId);
-          
-          if (labFromCustomId && labFromCustomId.isActive) {
-            console.log(`[StableStudy] ✅ Found lab by custom ID: ${labFromCustomId.name} (${labFromCustomId.identifier})`);
-            return labFromCustomId;
-          } else if (labFromCustomId && !labFromCustomId.isActive) {
-            console.warn(`[StableStudy] ⚠️ Lab found but inactive: ${labFromCustomId.name} (${labFromCustomId.identifier})`);
-            // Continue to fallback methods for inactive labs
-          } else {
-            console.warn(`[StableStudy] ⚠️ Lab not found with custom ID: ${customLabId}`);
-            // Continue to fallback methods
-          }
-        } else {
-          console.warn(`[StableStudy] ⚠️ Custom Lab ID is not a valid MongoDB ObjectId: ${customLabId}`);
-          
-          // Try to find by identifier if not a valid ObjectId
+      // 🔧 FIX: Check for "SRJ" or any valid lab identifier (not default values)
+      if (tagValue && tagValue.trim() !== '' && tagValue !== 'xcenticlab') {
+        const labIdentifier = tagValue.trim();
+        console.log(`[StableStudy] ✅ Found lab identifier in tag [${tag}]: ${labIdentifier}`);
+        
+        try {
+          // Direct lookup by identifier field (case insensitive)
           const labByIdentifier = await Lab.findOne({ 
-            identifier: customLabId.toUpperCase(),
+            identifier: { $regex: new RegExp(`^${escapeRegex(labIdentifier)}$`, 'i') },
             isActive: true 
           });
           
           if (labByIdentifier) {
-            console.log(`[StableStudy] ✅ Found lab by identifier: ${labByIdentifier.name} (${labByIdentifier.identifier})`);
+            console.log(`[StableStudy] ✅ Found lab: ${labByIdentifier.name} (${labByIdentifier.identifier})`);
             return labByIdentifier;
+          } else {
+            console.warn(`[StableStudy] ⚠️ No lab found with identifier: ${labIdentifier}`);
+            
+            // 🔧 CREATE LAB: Auto-create lab if identifier is found but lab doesn't exist
+            console.log(`[StableStudy] 🆕 Creating new lab with identifier: ${labIdentifier}`);
+            const newLab = new Lab({
+              name: `${labIdentifier} Laboratory`,
+              identifier: labIdentifier.toUpperCase(),
+              isActive: true,
+              notes: `Auto-created from private DICOM tag [${tag}] with value "${labIdentifier}" on ${new Date().toISOString()}`
+            });
+            await newLab.save();
+            console.log(`[StableStudy] ✅ Created new lab: ${newLab.name} (${newLab.identifier})`);
+            return newLab;
           }
+          
+        } catch (labLookupError) {
+          console.error(`[StableStudy] ❌ Error looking up lab with identifier ${labIdentifier}:`, labLookupError.message);
         }
-      } catch (labLookupError) {
-        console.error(`[StableStudy] ❌ Error looking up lab with custom ID ${customLabId}:`, labLookupError.message);
-        // Continue to fallback methods
-      }
-    } else {
-      console.log(`[StableStudy] 📋 No custom Lab ID found in DICOM tag [0011,1010] or value is UNKNOWN_LAB`);
-    }
-
-    // 🔄 FALLBACK: Original logic for finding labs from DICOM tags
-    console.log(`[StableStudy] 🔄 Using fallback lab detection methods`);
-    
-    const possibleLabSources = [
-      tags.InstitutionName,
-      tags.StationName,
-      tags.Manufacturer,
-      tags.ManufacturerModelName,
-      tags.PerformingPhysicianName,
-      tags.ReferringPhysicianName
-    ];
-
-    for (const source of possibleLabSources) {
-      if (source && typeof source === 'string' && source.trim().length >= 3) {
-        const labName = source.trim().replace(/_/g, ' ').replace(/\s+/g, ' ');
-        const identifier = labName.toUpperCase().replace(/\s+/g, '_');
-        
-        let lab = await Lab.findOne({ 
-          $or: [
-            { name: { $regex: new RegExp(`^${escapeRegex(labName)}$`, 'i') } },
-            { identifier: identifier }
-          ],
-          isActive: true
-        });
-
-        if (lab) {
-          console.log(`[StableStudy] ✅ Found existing lab via fallback: ${lab.name}`);
-          return lab;
-        }
-
-        // Create new lab if none found
-        console.log(`[StableStudy] 🆕 Creating new lab via fallback: ${labName}`);
-        lab = new Lab({
-          name: labName,
-          identifier: identifier,
-          isActive: true,
-          notes: `Auto-created from stable study DICOM tags on ${new Date().toISOString()}. Original custom Lab ID: ${customLabId || 'Not provided'}`,
-          contactPerson: tags.PerformingPhysicianName || tags.ReferringPhysicianName || '',
-          metadata: {
-            sourceField: 'InstitutionName',
-            originalDicomValue: source,
-            createdFromStableStudy: true,
-            originalCustomLabId: customLabId || null
-          }
-        });
-
-        await lab.save();
-        console.log(`[StableStudy] ✅ Created new lab via fallback: ${lab.name} (ID: ${lab._id})`);
-        return lab;
+      } else {
+        console.log(`[StableStudy] 📋 Tag [${tag}] is empty or contains default value: ${tagValue || 'EMPTY'}`);
       }
     }
-
-    // Final fallback to default lab
-    let defaultLab = await Lab.findOne({ identifier: DEFAULT_LAB.identifier });
     
-    if (!defaultLab) {
-      console.log(`[StableStudy] 🆕 Creating default lab: ${DEFAULT_LAB.name}`);
-      defaultLab = new Lab({
+    // 🚫 NO FALLBACKS - If no private tag found, use unknown lab
+    console.warn(`[StableStudy] ⚠️ No valid lab identifier found in any private tags`);
+    
+    // Find or create the unknown lab
+    let unknownLab = await Lab.findOne({ identifier: DEFAULT_LAB.identifier });
+    
+    if (!unknownLab) {
+      console.log(`[StableStudy] 🆕 Creating unknown lab: ${DEFAULT_LAB.name}`);
+      unknownLab = new Lab({
         ...DEFAULT_LAB,
-        notes: `Default lab created. Original custom Lab ID: ${customLabId || 'Not provided'}`
+        notes: `Unknown lab created because no valid lab identifier was found in private tags [0013,0010], [0015,0010], [0021,0010], [0043,0010]. Created on ${new Date().toISOString()}`
       });
-      await defaultLab.save();
+      await unknownLab.save();
     }
 
-    console.log(`[StableStudy] 🔄 Using default lab: ${defaultLab.name}`);
-    return defaultLab;
+    console.log(`[StableStudy] 🔄 Using unknown lab: ${unknownLab.name}`);
+    return unknownLab;
 
   } catch (error) {
     console.error('❌ Error in findOrCreateSourceLab:', error);
     
-    // Emergency fallback
+    // Emergency fallback - find any active lab
     let emergencyLab = await Lab.findOne({ isActive: true });
     if (!emergencyLab) {
       emergencyLab = new Lab({
         name: 'Emergency Default Lab',
         identifier: 'EMERGENCY_DEFAULT',
         isActive: true,
-        notes: `Emergency lab created due to error. Original custom Lab ID: ${tags["0011,1010"] || 'Not provided'}`
+        notes: `Emergency lab created due to system error. Created on ${new Date().toISOString()}`
       });
       await emergencyLab.save();
     }
@@ -440,239 +398,143 @@ async function processStableStudy(job) {
     console.log(`[StableStudy] 🚀 Processing stable study: ${orthancStudyId}`);
     job.progress = 10;
     
-    // Get study information from Orthanc
-    const studyInfoUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}`;
-    console.log(`[StableStudy] 🌐 Fetching from: ${studyInfoUrl}`);
+    // 🔧 OPTIMIZED: Single API call to get all series info (EXACTLY AS YOUR CODE)
+    const seriesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/series`;
+    console.log(`[StableStudy] 🌐 Fetching series from: ${seriesUrl}`);
     
-    const studyResponse = await axios.get(studyInfoUrl, {
+    const seriesResponse = await axios.get(seriesUrl, {
       headers: { 'Authorization': orthancAuth },
       timeout: 10000
     });
     
-    const studyInfo = studyResponse.data;
-    console.log(`[StableStudy] 📋 Raw study info:`, {
-      ID: studyInfo.ID,
-      MainDicomTags: studyInfo.MainDicomTags,
-      SeriesLength: studyInfo.Series?.length,
-      InstancesLength: studyInfo.Instances?.length,
-      ParentPatient: studyInfo.ParentPatient
-    });
-    
-    const studyInstanceUID = studyInfo.MainDicomTags?.StudyInstanceUID;
-    
-    if (!studyInstanceUID) {
-      throw new Error('StudyInstanceUID not found in stable study');
-    }
-    
-    console.log(`[StableStudy] 📋 Study: ${studyInstanceUID}`);
-    console.log(`[StableStudy] 📊 Direct counts - Series: ${studyInfo.Series?.length || 0}, Instances: ${studyInfo.Instances?.length || 0}`);
+    const allSeries = seriesResponse.data;
+    console.log(`[StableStudy] 📊 Found ${allSeries.length} series`);
     
     job.progress = 30;
     
-    // 🔧 ENHANCED: Multiple methods to get instances
-    let instancesArray = [];
+    // 🔧 OPTIMIZED: Extract modalities and counts from series data (EXACTLY AS YOUR CODE)
+    const modalitiesSet = new Set();
+    let totalInstances = 0;
     let firstInstanceId = null;
-    let tags = {};
     
-    // Method 1: Try /studies/{id}/instances endpoint
-    console.log(`[StableStudy] 📁 Method 1: Direct instances API`);
-    try {
-      const instancesUrl = `${ORTHANC_BASE_URL}/studies/${orthancStudyId}/instances`;
-      const instancesResponse = await axios.get(instancesUrl, {
-        headers: { 'Authorization': orthancAuth },
-        timeout: 15000
-      });
-      
-      instancesArray = instancesResponse.data || [];
-      console.log(`[StableStudy] 📁 Method 1 result: ${instancesArray.length} instances`);
-      
-      if (instancesArray.length > 0) {
-        firstInstanceId = typeof instancesArray[0] === 'string' 
-          ? instancesArray[0] 
-          : instancesArray[0].ID || instancesArray[0];
-        console.log(`[StableStudy] 📁 Method 1 first instance: ${firstInstanceId}`);
-      }
-    } catch (instancesError) {
-      console.warn(`[StableStudy] ⚠️ Method 1 failed:`, instancesError.message);
-    }
-    
-    // Method 2: Get instances from each series individually
-    if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
-      console.log(`[StableStudy] 📁 Method 2: Series-by-series lookup`);
-      
-      for (const seriesId of studyInfo.Series) {
-        try {
-          console.log(`[StableStudy] 🔍 Checking series: ${seriesId}`);
-          
-          // Get series info
-          const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-          const seriesResponse = await axios.get(seriesUrl, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 5000
-          });
-          
-          const seriesData = seriesResponse.data;
-          console.log(`[StableStudy] 📋 Series ${seriesId}:`, {
-            MainDicomTags: seriesData.MainDicomTags,
-            InstancesLength: seriesData.Instances?.length,
-            FirstInstance: seriesData.Instances?.[0]
-          });
-          
-          const seriesInstances = seriesData.Instances || [];
-          instancesArray.push(...seriesInstances);
-          
-          if (!firstInstanceId && seriesInstances.length > 0) {
-            firstInstanceId = typeof seriesInstances[0] === 'string' 
-              ? seriesInstances[0] 
-              : seriesInstances[0].ID || seriesInstances[0];
-            console.log(`[StableStudy] 📁 Method 2 first instance: ${firstInstanceId}`);
-          }
-          
-          // Try to get series-level tags if available
-          if (seriesData.MainDicomTags && Object.keys(tags).length === 0) {
-            tags = { ...tags, ...seriesData.MainDicomTags };
-          }
-          
-        } catch (seriesError) {
-          console.warn(`[StableStudy] ⚠️ Could not get series ${seriesId}:`, seriesError.message);
-        }
+    // Process all series to get modalities and instance counts
+    for (const series of allSeries) {
+      const modality = series.MainDicomTags?.Modality;
+      if (modality) {
+        modalitiesSet.add(modality);
       }
       
-      console.log(`[StableStudy] 📁 Method 2 result: ${instancesArray.length} instances total`);
+      const instanceCount = series.Instances?.length || 0;
+      totalInstances += instanceCount;
+      
+      // Get first instance ID for tag extraction (only if we don't have one yet)
+      if (!firstInstanceId && series.Instances && series.Instances.length > 0) {
+        firstInstanceId = series.Instances[0];
+      }
     }
     
-    // Method 3: If still no instances, try using series IDs as instance IDs (sometimes they're the same)
-    if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
-      console.log(`[StableStudy] 📁 Method 3: Trying series IDs as instance IDs`);
-      
-      for (const seriesId of studyInfo.Series) {
-        try {
-          // Sometimes in single-instance series, the series ID can be used to get instance info
-          const instanceTestUrl = `${ORTHANC_BASE_URL}/instances/${seriesId}`;
-          const instanceTestResponse = await axios.get(instanceTestUrl, {
-            headers: { 'Authorization': orthancAuth },
-            timeout: 3000
-          });
-          
-          console.log(`[StableStudy] 📁 Method 3: Series ID ${seriesId} is also an instance!`);
-          instancesArray.push(seriesId);
-          
-          if (!firstInstanceId) {
-            firstInstanceId = seriesId;
-          }
-          
-        } catch (instanceTestError) {
-          // This is expected to fail most of the time
-          console.log(`[StableStudy] 📁 Method 3: Series ID ${seriesId} is not an instance`);
-        }
-      }
-      
-      console.log(`[StableStudy] 📁 Method 3 result: ${instancesArray.length} instances`);
-    }
+    console.log(`[StableStudy] 📊 Optimized counts - Series: ${allSeries.length}, Total Instances: ${totalInstances}`);
+    console.log(`[StableStudy] 📊 Modalities found: ${Array.from(modalitiesSet).join(', ')}`);
     
     job.progress = 50;
     
-    // 🔧 Get metadata - try multiple approaches
+    // 🔧 OPTIMIZED: Single API call to get tags from first instance only (EXACTLY AS YOUR CODE)
+    let tags = {};
+    
     if (firstInstanceId) {
-      console.log(`[StableStudy] 🔍 Getting metadata from instance: ${firstInstanceId}`);
+      console.log(`[StableStudy] 🔍 Getting tags from single instance: ${firstInstanceId}`);
       
       try {
-        const metadataUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
+        const metadataUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/tags`;
         const metadataResponse = await axios.get(metadataUrl, {
           headers: { 'Authorization': orthancAuth },
           timeout: 8000
         });
         
-        tags = { ...tags, ...metadataResponse.data };
-        console.log(`[StableStudy] ✅ Got instance metadata:`, {
+        const rawTags = metadataResponse.data;
+        
+        // 🔧 OPTIMIZED: Extract all necessary tags in one pass (EXACTLY AS YOUR CODE)
+        tags = {};
+        for (const [tagKey, tagData] of Object.entries(rawTags)) {
+          if (tagData && typeof tagData === 'object' && tagData.Value !== undefined) {
+            tags[tagKey] = tagData.Value;
+          } else if (typeof tagData === 'string') {
+            tags[tagKey] = tagData;
+          }
+        }
+        
+        // Map common DICOM fields (EXACTLY AS YOUR CODE)
+        tags.PatientName = rawTags["0010,0010"]?.Value || tags.PatientName;
+        tags.PatientID = rawTags["0010,0020"]?.Value || tags.PatientID;
+        tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex;
+        tags.PatientBirthDate = rawTags["0010,0030"]?.Value || tags.PatientBirthDate;
+        tags.StudyDescription = rawTags["0008,1030"]?.Value || tags.StudyDescription;
+        tags.StudyDate = rawTags["0008,0020"]?.Value || tags.StudyDate;
+        tags.StudyTime = rawTags["0008,0030"]?.Value || tags.StudyTime;
+        tags.AccessionNumber = rawTags["0008,0050"]?.Value || tags.AccessionNumber;
+        tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
+        tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
+        
+        // 🔧 CRITICAL: Extract private tags for lab identification (EXACTLY AS YOUR CODE)
+        tags["0013,0010"] = rawTags["0013,0010"]?.Value || null;
+        tags["0015,0010"] = rawTags["0015,0010"]?.Value || null;
+        tags["0021,0010"] = rawTags["0021,0010"]?.Value || null;
+        tags["0043,0010"] = rawTags["0043,0010"]?.Value || null;
+        
+        console.log(`[StableStudy] ✅ Got tags from single instance:`, {
           PatientName: tags.PatientName,
           PatientID: tags.PatientID,
           StudyDescription: tags.StudyDescription,
-          Modality: tags.Modality
+          PrivateTags: {
+            "0013,0010": tags["0013,0010"],
+            "0015,0010": tags["0015,0010"], 
+            "0021,0010": tags["0021,0010"],
+            "0043,0010": tags["0043,0010"]
+          }
         });
         
       } catch (metadataError) {
         console.warn(`[StableStudy] ⚠️ Could not get instance metadata:`, metadataError.message);
+        
+        // 🔧 FALLBACK: Try simplified-tags if /tags fails (EXACTLY AS YOUR CODE)
+        try {
+          const simplifiedUrl = `${ORTHANC_BASE_URL}/instances/${firstInstanceId}/simplified-tags`;
+          const simplifiedResponse = await axios.get(simplifiedUrl, {
+            headers: { 'Authorization': orthancAuth },
+            timeout: 8000
+          });
+          
+          tags = { ...simplifiedResponse.data };
+          console.log(`[StableStudy] ✅ Got simplified metadata as fallback`);
+        } catch (simplifiedError) {
+          console.warn(`[StableStudy] ⚠️ Simplified tags also failed:`, simplifiedError.message);
+        }
       }
     }
     
-    // Fallback: use study-level tags if no instance metadata
-    if (Object.keys(tags).length === 0 || !tags.PatientName) {
-      console.log(`[StableStudy] 📋 Using study-level metadata as fallback`);
-      tags = { ...studyInfo.MainDicomTags, ...tags };
+    // Fallback for empty modalities (EXACTLY AS YOUR CODE)
+    if (modalitiesSet.size === 0) {
+      modalitiesSet.add('UNKNOWN');
     }
     
-    // Final fallback: create minimal tags if still nothing
-    if (!tags.PatientName && !tags.PatientID) {
-      console.log(`[StableStudy] ⚠️ Creating minimal fallback metadata`);
-      tags = {
-        PatientName: 'Unknown Patient',
-        PatientID: `UNKNOWN_${Date.now()}`,
-        StudyDescription: 'Unknown Study',
-        StudyInstanceUID: studyInstanceUID,
-        StudyDate: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-        Modality: 'UNKNOWN',
-        ...tags
-      };
-    }
+    job.progress = 70;
     
-    console.log(`[StableStudy] 📋 Final metadata for processing:`, {
-      PatientName: tags.PatientName,
-      PatientID: tags.PatientID,
-      StudyDescription: tags.StudyDescription,
-      Modality: tags.Modality,
-      InstancesFound: instancesArray.length
-    });
-    
-    job.progress = 60;
-    
-    // Continue with patient and lab creation
+    // Continue with patient and lab creation (EXACTLY AS YOUR CODE)
     const patientRecord = await findOrCreatePatientFromTags(tags);
     const labRecord = await findOrCreateSourceLab(tags);
     
     console.log(`[StableStudy] 👤 Patient: ${patientRecord.patientNameRaw}`);
     console.log(`[StableStudy] 🏥 Lab: ${labRecord.name}`);
     
-    job.progress = 70;
-    
-    // Get modalities
-    const modalitiesSet = new Set();
-    if (tags.Modality) {
-      modalitiesSet.add(tags.Modality);
-    }
-    
-    // Check series for additional modalities
-    for (const seriesId of studyInfo.Series || []) {
-      try {
-        const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-        const seriesResponse = await axios.get(seriesUrl, {
-          headers: { 'Authorization': orthancAuth },
-          timeout: 3000
-        });
-        const modality = seriesResponse.data.MainDicomTags?.Modality;
-        if (modality) modalitiesSet.add(modality);
-      } catch (seriesError) {
-        // Don't fail on this
-      }
-    }
-    
-    if (modalitiesSet.size === 0) {
-      modalitiesSet.add('UNKNOWN');
-    }
-    
     job.progress = 80;
     
-    // Create study record
-    let dicomStudyDoc = await DicomStudy.findOne({ studyInstanceUID });
+    // 🔧 UPDATED: Find existing study by orthancStudyID (EXACTLY AS YOUR CODE)
+    let dicomStudyDoc = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
     
-    const actualInstanceCount = instancesArray.length;
-    const actualSeriesCount = studyInfo.Series?.length || 0;
-    
-    console.log(`[StableStudy] 📊 Final counts - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
+    console.log(`[StableStudy] 📊 Final optimized counts - Series: ${allSeries.length}, Instances: ${totalInstances}`);
     
     const studyData = {
       orthancStudyID: orthancStudyId,
-      studyInstanceUID: studyInstanceUID,
       accessionNumber: tags.AccessionNumber || '',
       patient: patientRecord._id,
       patientId: patientRecord.patientID,
@@ -682,11 +544,12 @@ async function processStableStudy(job) {
       modalitiesInStudy: Array.from(modalitiesSet),
       examDescription: tags.StudyDescription || 'Unknown Study',
       institutionName: tags.InstitutionName || '',
-      workflowStatus: actualInstanceCount > 0 ? 'new_study_received' : 'new_metadata_only',
+      workflowStatus: totalInstances > 0 ? 'new_study_received' : 'new_metadata_only',
       
-      seriesCount: actualSeriesCount,
-      instanceCount: actualInstanceCount,
-      seriesImages: `${actualSeriesCount}/${actualInstanceCount}`,
+      // 🔧 OPTIMIZED: Use calculated counts (EXACTLY AS YOUR CODE)
+      seriesCount: allSeries.length,
+      instanceCount: totalInstances,
+      seriesImages: `${allSeries.length}/${totalInstances}`,
       
       patientInfo: {
         patientID: patientRecord.patientID,
@@ -737,15 +600,11 @@ async function processStableStudy(job) {
       studyComments: tags.StudyComments || '',
       additionalPatientHistory: tags.AdditionalPatientHistory || '',
       
-      // 🆕 ADD: Store custom Lab ID information
+      // Store lab identification info (EXACTLY AS YOUR CODE)
       customLabInfo: {
         dicomLabId: tags["0011,1010"] || null,
-        labIdSource: tags["0011,1010"] ? 'dicom_custom_tag' : 'fallback_detection',
-        labDetectionMethod: tags["0011,1010"] && mongoose.Types.ObjectId.isValid(tags["0011,1010"]) 
-          ? 'mongodb_objectid' 
-          : tags["0011,1010"] 
-            ? 'identifier_lookup' 
-            : 'dicom_tags_fallback'
+        labIdSource: tags["0011,1010"] ? 'dicom_custom_tag' : 'private_tags_detection',
+        labDetectionMethod: 'private_tags_lookup'
       },
       
       storageInfo: {
@@ -753,25 +612,31 @@ async function processStableStudy(job) {
         orthancStudyId: orthancStudyId,
         receivedAt: new Date(),
         isStableStudy: true,
-        instancesFound: actualInstanceCount,
-        processingMethod: actualInstanceCount > 0 ? 'with_instances' : 'metadata_only',
+        instancesFound: totalInstances,
+        processingMethod: totalInstances > 0 ? 'optimized_with_instances' : 'metadata_only',
         debugInfo: {
-          apiInstancesFound: actualInstanceCount,
-          webUIShowsInstances: true,
-          apiMethodUsed: actualInstanceCount > 0 ? 'series_lookup' : 'study_metadata_only',
-          customLabIdProvided: !!tags["0011,1010"], // 🆕 ADD: Track if custom Lab ID was provided
-          customLabIdValue: tags["0011,1010"] || null
+          apiCallsUsed: 2, // Only /series and /tags calls
+          seriesApiUsed: true,
+          singleInstanceTagsUsed: true,
+          modalitiesExtracted: Array.from(modalitiesSet),
+          customLabIdProvided: !!(tags["0013,0010"] || tags["0015,0010"] || tags["0021,0010"] || tags["0043,0010"]),
+          privateTagsFound: {
+            "0013,0010": tags["0013,0010"] || null,
+            "0015,0010": tags["0015,0010"] || null,
+            "0021,0010": tags["0021,0010"] || null,
+            "0043,0010": tags["0043,0010"] || null
+          }
         }
       }
     };
     
-   if (dicomStudyDoc) {
+    if (dicomStudyDoc) {
       console.log(`[StableStudy] 📝 Updating existing study`);
       Object.assign(dicomStudyDoc, studyData);
       dicomStudyDoc.statusHistory.push({
         status: studyData.workflowStatus,
         changedAt: new Date(),
-        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+        note: `Optimized stable study updated: ${allSeries.length} series, ${totalInstances} instances. Lab: ${labRecord.name}`
       });
     } else {
       console.log(`[StableStudy] 🆕 Creating new study`);
@@ -780,7 +645,7 @@ async function processStableStudy(job) {
         statusHistory: [{
           status: studyData.workflowStatus,
           changedAt: new Date(),
-          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+          note: `Optimized stable study created: ${allSeries.length} series, ${totalInstances} instances. Lab: ${labRecord.name}`
         }]
       });
     }
@@ -788,31 +653,34 @@ async function processStableStudy(job) {
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
     
+    // 🆕 ADDITION: Queue ZIP creation job if study has instances
+    if (totalInstances > 0) {
+        console.log(`[StableStudy] 📦 Queuing ZIP creation for study: ${orthancStudyId}`);
+        
+        try {
+            const zipJob = await CloudflareR2ZipService.addZipJob({
+                orthancStudyId: orthancStudyId,
+                studyDatabaseId: dicomStudyDoc._id,
+                studyInstanceUID: dicomStudyDoc.studyInstanceUID || orthancStudyId, // Use orthancStudyId as fallback
+                instanceCount: totalInstances,
+                seriesCount: allSeries.length
+            });
+            
+            console.log(`[StableStudy] 📦 ZIP Job ${zipJob.id} queued for study: ${orthancStudyId}`);
+        } catch (zipError) {
+            console.error(`[StableStudy] ❌ Failed to queue ZIP job:`, zipError.message);
+            // Don't fail the study processing if ZIP queueing fails
+        }
+    } else {
+        console.log(`[StableStudy] ⚠️ Skipping ZIP creation - no instances found`);
+    }
+    
     job.progress = 90;
     
-    // Send notification
-    const studyNotificationData = {
-      _id: dicomStudyDoc._id,
-      patientName: patientRecord.patientNameRaw,
-      patientId: patientRecord.patientID,
-      modality: Array.from(modalitiesSet).join(', '),
-      location: labRecord.name,
-      labId: labRecord._id,
-      institutionName: tags.InstitutionName || '',
-      studyDate: tags.StudyDate,
-      workflowStatus: dicomStudyDoc.workflowStatus,
-      priority: dicomStudyDoc.caseType || 'routine',
-      accessionNumber: dicomStudyDoc.accessionNumber,
-      seriesImages: `${actualSeriesCount}/${actualInstanceCount}`,
-      isNewLab: labRecord.createdAt > new Date(Date.now() - 5000),
-      storageType: 'orthanc',
-      notificationReason: 'Stable study processed',
-      isCompleteStudy: actualInstanceCount > 0
-    };
-    
+    // Send notification (EXACTLY AS YOUR CODE)
     try {
       await websocketService.notifySimpleNewStudy();
-      console.log(`[StableStudy] ✅ Simple notification sent`);
+      console.log(`[StableStudy] ✅ Notification sent`);
     } catch (wsError) {
       console.warn(`[StableStudy] ⚠️ Notification failed:`, wsError.message);
     }
@@ -823,12 +691,12 @@ async function processStableStudy(job) {
       success: true,
       orthancStudyId: orthancStudyId,
       studyDatabaseId: dicomStudyDoc._id,
-      studyInstanceUID: studyInstanceUID,
-      seriesCount: actualSeriesCount,
-      instanceCount: actualInstanceCount,
+      seriesCount: allSeries.length,
+      instanceCount: totalInstances,
       processedAt: new Date(),
       elapsedTime: Date.now() - startTime,
-      processingMethod: actualInstanceCount > 0 ? 'with_instances' : 'metadata_only',
+      processingMethod: 'optimized_api_calls',
+      apiCallsUsed: 2, // Only /series and /tags calls
       metadataSummary: {
         patientName: patientRecord.patientNameRaw,
         patientId: patientRecord.patientID,
@@ -841,13 +709,12 @@ async function processStableStudy(job) {
     
     await redis.setex(`job:result:${requestId}`, 3600, JSON.stringify(result));
     
-    console.log(`[StableStudy] ✅ Completed in ${Date.now() - startTime}ms - Series: ${actualSeriesCount}, Instances: ${actualInstanceCount}`);
+    console.log(`[StableStudy] ✅ Optimized processing completed in ${Date.now() - startTime}ms - Series: ${allSeries.length}, Instances: ${totalInstances}`);
     return result;
     
   } catch (error) {
     const elapsedTime = Date.now() - startTime;
     console.error(`[StableStudy] ❌ Failed after ${elapsedTime}ms:`, error.message);
-    console.error(`[StableStudy] ❌ Stack:`, error.stack);
     
     const errorResult = {
       success: false,
@@ -1052,6 +919,122 @@ router.get('/job-status/:requestId', async (req, res) => {
       error: error.message
     });
   }
+});
+
+// 🆕 NEW: Manual ZIP creation endpoint
+router.post('/create-zip/:orthancStudyId', async (req, res) => {
+    try {
+        const { orthancStudyId } = req.params;
+        
+        console.log(`[Manual ZIP] 📦 Manual ZIP creation requested for: ${orthancStudyId}`);
+        
+        // Find study in database
+        const study = await DicomStudy.findOne({ orthancStudyID: orthancStudyId });
+        
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found in database'
+            });
+        }
+        
+        // Check if ZIP is already being processed or completed
+        if (study.preProcessedDownload?.zipStatus === 'processing') {
+            return res.json({
+                success: false,
+                message: 'ZIP creation already in progress',
+                status: 'processing',
+                jobId: study.preProcessedDownload.zipJobId
+            });
+        }
+        
+        if (study.preProcessedDownload?.zipStatus === 'completed' && study.preProcessedDownload?.zipUrl) {
+            return res.json({
+                success: true,
+                message: 'ZIP already exists',
+                status: 'completed',
+                zipUrl: study.preProcessedDownload.zipUrl,
+                zipSizeMB: study.preProcessedDownload.zipSizeMB,
+                createdAt: study.preProcessedDownload.zipCreatedAt
+            });
+        }
+        
+        // Queue new ZIP creation job
+        const zipJob = await CloudflareR2ZipService.addZipJob({
+            orthancStudyId: orthancStudyId,
+            studyDatabaseId: study._id,
+            studyInstanceUID: study.studyInstanceUID || orthancStudyId,
+            instanceCount: study.instanceCount || 0,
+            seriesCount: study.seriesCount || 0
+        });
+        
+        res.json({
+            success: true,
+            message: 'ZIP creation queued',
+            jobId: zipJob.id,
+            status: 'queued',
+            checkStatusUrl: `/orthanc/zip-status/${zipJob.id}`
+        });
+        
+    } catch (error) {
+        console.error('[Manual ZIP] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to queue ZIP creation',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: ZIP job status endpoint
+router.get('/zip-status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const job = CloudflareR2ZipService.getJob(parseInt(jobId));
+        
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: 'ZIP job not found'
+            });
+        }
+        
+        res.json({
+            success: true,
+            jobId: job.id,
+            status: job.status,
+            progress: job.progress,
+            createdAt: job.createdAt,
+            result: job.result,
+            error: job.error
+        });
+        
+    } catch (error) {
+        console.error('[ZIP Status] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get ZIP status',
+            error: error.message
+        });
+    }
+});
+
+// 🆕 NEW: Initialize R2 bucket on startup
+router.get('/init-r2', async (req, res) => {
+    try {
+        await CloudflareR2ZipService.ensureR2Bucket();
+        res.json({
+            success: true,
+            message: 'R2 bucket initialized successfully'
+        });
+    } catch (error) {
+        console.error('[R2 Init] ❌ Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to initialize R2 bucket',
+            error: error.message
+        });
+    }
 });
 
 export default router;

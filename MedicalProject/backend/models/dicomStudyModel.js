@@ -4,7 +4,7 @@ import mongoose from 'mongoose';
 const DicomStudySchema = new mongoose.Schema({
     studyInstanceUID: {
         type: String,
-        required: true,
+        // required: true,
         unique: true,
         index: { unique: true, background: true } // 🔥 Background index creation
     },

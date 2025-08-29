@@ -34,7 +34,7 @@ class StableStudyQueue {
     this.processing = new Set();
     this.nextJobId = 1;
     this.isProcessing = false;
-    this.concurrency = 10; // Process max 2 stable studies simultaneously
+    this.concurrency = 8; // Process max 8 stable studies simultaneously
   }
 
   async add(jobData) {
@@ -492,6 +492,8 @@ async function processStableStudy(job) {
     }
     
     // Method 3: If still no instances, try using series IDs as instance IDs (sometimes they're the same)
+    // ❌ REMOVE THIS ENTIRE SECTION - IT'S CAUSING THE FLOOD
+    /*
     if (instancesArray.length === 0 && studyInfo.Series && studyInfo.Series.length > 0) {
       console.log(`[StableStudy] 📁 Method 3: Trying series IDs as instance IDs`);
       
@@ -518,6 +520,12 @@ async function processStableStudy(job) {
       }
       
       console.log(`[StableStudy] 📁 Method 3 result: ${instancesArray.length} instances`);
+    }
+    */
+    
+    // ✅ REPLACE WITH: Simple fallback without API calls
+    if (instancesArray.length === 0) {
+      console.log(`[StableStudy] 📁 No instances found via API methods, using study-level data only`);
     }
     
     job.progress = 50;
@@ -557,6 +565,7 @@ async function processStableStudy(job) {
         tags.InstitutionName = rawTags["0008,0080"]?.Value || tags.InstitutionName;
         tags.PatientSex = rawTags["0010,0040"]?.Value || tags.PatientSex; // ✅ ADD: Patient Sex/Gender
 tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Patient Age
+tags.ReferringPhysicianName = rawTags["0008,0090"]?.Value || tags.ReferringPhysicianName;
         
         console.log(`[StableStudy] ✅ Got instance metadata:`, {
           PatientName: tags.PatientName,
@@ -632,30 +641,69 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     
     job.progress = 70;
     
-    // Get modalities
+    // ✅ FLOOD-PROOF MODALITY DETECTION
     const modalitiesSet = new Set();
-    if (tags.Modality) {
+
+    // ✅ STEP 1: Use the modality we already successfully extracted (PRIMARY)
+    if (tags.Modality && tags.Modality !== 'n/a' && tags.Modality !== 'UNKNOWN') {
       modalitiesSet.add(tags.Modality);
+      console.log(`[StableStudy] ✅ Primary modality from instance tags: ${tags.Modality}`);
     }
-    
-    // Check series for additional modalities
-    for (const seriesId of studyInfo.Series || []) {
-      try {
-        const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
-        const seriesResponse = await axios.get(seriesUrl, {
-          headers: { 'Authorization': orthancAuth },
-          timeout: 3000
-        });
-        const modality = seriesResponse.data.MainDicomTags?.Modality;
-        if (modality) modalitiesSet.add(modality);
-      } catch (seriesError) {
-        // Don't fail on this
+
+    // ✅ STEP 2: Only check series if we have a reasonable number (prevent flood)
+    const maxSeriesToCheck = 10; // Limit to prevent API flood
+    const seriesToCheck = (studyInfo.Series || []).slice(0, maxSeriesToCheck);
+
+    if (seriesToCheck.length > 0 && seriesToCheck.length <= maxSeriesToCheck) {
+      console.log(`[StableStudy] 🔍 Checking ${seriesToCheck.length} series for additional modalities (flood-protected)...`);
+      
+      // Check series in batches to prevent overwhelming Orthanc
+      for (let i = 0; i < seriesToCheck.length; i++) {
+        const seriesId = seriesToCheck[i];
+        
+        try {
+          const seriesUrl = `${ORTHANC_BASE_URL}/series/${seriesId}`;
+          const seriesResponse = await axios.get(seriesUrl, {
+            headers: { 'Authorization': orthancAuth },
+            timeout: 2000  // ✅ Shorter timeout to fail fast
+          });
+          
+          const seriesModality = seriesResponse.data.MainDicomTags?.Modality;
+          if (seriesModality && !modalitiesSet.has(seriesModality)) {
+            modalitiesSet.add(seriesModality);
+            console.log(`[StableStudy] 🆕 Additional modality found: ${seriesModality}`);
+          }
+          
+          // ✅ Small delay to prevent overwhelming Orthanc
+          if (i < seriesToCheck.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          
+        } catch (seriesError) {
+          // ✅ SILENT FAIL - don't log every failure to reduce noise
+          if (seriesError.response?.status !== 404) {
+            console.warn(`[StableStudy] ⚠️ Series ${seriesId}: ${seriesError.message}`);
+          }
+        }
       }
+    } else if (seriesToCheck.length > maxSeriesToCheck) {
+      console.log(`[StableStudy] ⚠️ Too many series (${seriesToCheck.length}), skipping series-level modality check to prevent API flood`);
+    } else {
+      console.log(`[StableStudy] 📋 No series to check for additional modalities`);
     }
-    
+
+    // ✅ STEP 3: Final fallback only if absolutely no modality found
     if (modalitiesSet.size === 0) {
+      console.warn(`[StableStudy] ⚠️ No modalities detected anywhere, using UNKNOWN`);
       modalitiesSet.add('UNKNOWN');
+    } else {
+      console.log(`[StableStudy] ✅ Final modalities: ${Array.from(modalitiesSet).join(', ')}`);
+      console.log(`[StableStudy] 📊 Total modalities detected: ${modalitiesSet.size}`);
     }
+
+    // ✅ STEP 4: Create modality summary
+    const modalityList = Array.from(modalitiesSet);
+    console.log(`[StableStudy] 📋 Modality summary: ${modalityList.join(', ')} (${modalityList.length} total)`);
     
     job.progress = 80;
     
@@ -726,6 +774,15 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
         stationName: tags.StationName || '',
         softwareVersion: tags.SoftwareVersions || ''
       },
+      clinicalHistory: dicomStudyDoc?.clinicalHistory || {
+        clinicalHistory: '',
+        previousInjury: '',
+        previousSurgery: '',
+        lastModifiedBy: null,
+        lastModifiedAt: null,
+        lastModifiedFrom: 'system',
+        dataSource: 'dicom_study_primary'
+    },
       
       protocolName: tags.ProtocolName || '',
       bodyPartExamined: tags.BodyPartExamined || '',
@@ -765,24 +822,46 @@ tags.PatientAge = rawTags["0010,1010"]?.Value || tags.PatientAge; // ✅ ADD: Pa
     };
     
    if (dicomStudyDoc) {
-      console.log(`[StableStudy] 📝 Updating existing study`);
-      Object.assign(dicomStudyDoc, studyData);
-      dicomStudyDoc.statusHistory.push({
-        status: studyData.workflowStatus,
+    console.log(`[StableStudy] 📝 Updating existing study - preserving clinical history`);
+    
+    // 🔧 PRESERVE CRITICAL USER DATA
+    const preservedFields = {
+        // 🆕 NEW: Preserve clinical history (primary goal)
+        clinicalHistory: dicomStudyDoc.clinicalHistory,
+        legacyClinicalHistoryRef: dicomStudyDoc.legacyClinicalHistoryRef,
+        
+        // 🔧 PRESERVE OTHER USER DATA
+        assignment: dicomStudyDoc.assignment,
+        reportInfo: dicomStudyDoc.reportInfo,
+        uploadedReports: dicomStudyDoc.uploadedReports,
+        doctorReports: dicomStudyDoc.doctorReports,
+        discussions: dicomStudyDoc.discussions,
+        calculatedTAT: dicomStudyDoc.calculatedTAT,
+        timingInfo: dicomStudyDoc.timingInfo,
+        workflowStatus: dicomStudyDoc.workflowStatus // Preserve workflow status too
+    };
+    
+    // Update with new DICOM data but preserve critical fields
+    Object.assign(dicomStudyDoc, studyData, preservedFields);
+    
+    dicomStudyDoc.statusHistory.push({
+        status: preservedFields.workflowStatus || studyData.workflowStatus,
         changedAt: new Date(),
-        note: `Stable study updated: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
-      });
-    } else {
-      console.log(`[StableStudy] 🆕 Creating new study`);
-      dicomStudyDoc = new DicomStudy({
+        note: `OPTIMIZED stable study updated (preserved clinical history): ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
+    });
+    
+    console.log(`[StableStudy] ✅ Preserved clinical history: ${dicomStudyDoc.clinicalHistory?.clinicalHistory ? 'HAS_DATA' : 'EMPTY'}`);
+} else {
+    console.log(`[StableStudy] 🆕 Creating new study with empty clinical history`);
+    dicomStudyDoc = new DicomStudy({
         ...studyData,
         statusHistory: [{
-          status: studyData.workflowStatus,
-          changedAt: new Date(),
-          note: `Stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name} (Custom Lab ID: ${tags["0011,1010"] || 'Not provided'})`
+            status: studyData.workflowStatus,
+            changedAt: new Date(),
+            note: `OPTIMIZED stable study created: ${actualSeriesCount} series, ${actualInstanceCount} instances. Lab: ${labRecord.name}. API calls: ${studyData.storageInfo.debugInfo.apiCallsUsed}`
         }]
-      });
-    }
+    });
+}
     
     await dicomStudyDoc.save();
     console.log(`[StableStudy] ✅ Study saved with ID: ${dicomStudyDoc._id}`);
