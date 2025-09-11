@@ -218,6 +218,11 @@ export const exportWorklist = async (req, res) => {
       studyIds
     } = req.query;
     
+    console.log('📊 Export request received:', {
+      search, startDate, endDate, modality, location, status, doctor, studyIds,
+      queryString: req.url
+    });
+    
     // Build filter query
     let filter = {};
     
@@ -225,6 +230,13 @@ export const exportWorklist = async (req, res) => {
     if (studyIds) {
       const ids = studyIds.split(',').map(id => id.trim());
       filter._id = { $in: ids };
+      console.log('🎯 Filtering by specific study IDs:', ids.length);
+    }
+    
+    // Handle status filter
+    if (status) {
+      filter.workflowStatus = status;
+      console.log('📝 Filtering by status:', status);
     }
     
     // Handle date range
@@ -250,10 +262,6 @@ export const exportWorklist = async (req, res) => {
       filter['sourceLab.name'] = { $regex: location, $options: 'i' };
     }
     
-    if (status) {
-      filter.workflowStatus = status;
-    }
-    
     if (doctor) {
       filter.lastAssignedDoctor = doctor;
     }
@@ -269,6 +277,8 @@ export const exportWorklist = async (req, res) => {
       ];
     }
     
+    console.log('🔍 Final MongoDB filter:', JSON.stringify(filter, null, 2));
+    
     // Fetch studies with populated references
     const studies = await DicomStudy.find(filter)
       .populate('patient', 'firstName lastName patientID age gender dateOfBirth')
@@ -282,6 +292,17 @@ export const exportWorklist = async (req, res) => {
       .populate('sourceLab', 'name')
       .sort({ createdAt: -1 })
       .lean();
+    
+    console.log('📊 Found studies for export:', studies.length);
+    
+    if (studies.length === 0) {
+      console.warn('⚠️ No studies found matching filter criteria');
+      return res.status(404).json({
+        success: false,
+        message: 'No studies found matching the filter criteria',
+        filter: filter
+      });
+    }
     
     // Create a new Excel workbook
     const workbook = new ExcelJS.Workbook();
@@ -327,12 +348,33 @@ export const exportWorklist = async (req, res) => {
         ageGender,
         description: study.examDescription || study.studyDescription || 'N/A',
         modality: study.modalitiesInStudy ? study.modalitiesInStudy.join(', ') : 'N/A',
-        seriesImages: study.numberOfSeries ? `${study.numberOfSeries}/${study.numberOfImages || 'N/A'}` : 'N/A',
+seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
         location: study.sourceLab?.name || 'N/A',
         studyDate: study.studyDate ? new Date(study.studyDate).toLocaleDateString() : 'N/A',
         uploadDate: study.createdAt ? new Date(study.createdAt).toLocaleDateString() : 'N/A',
-        reportDate: study.reportFinalizedAt ? new Date(study.reportFinalizedAt).toLocaleDateString() : 'N/A',
-        reportedBy: study.lastAssignedDoctor?.userAccount?.fullName || 'N/A',
+        reportedBy: study.reportInfo?.reporterName 
+                
+                || 'N/A',
+                reportedDate: Array.isArray(study.doctorReports) && study.doctorReports.length > 0
+                ? (() => {
+                    // Use the latest uploadedAt if multiple reports
+                    const latestReport = study.doctorReports.reduce((latest, curr) =>
+                        new Date(curr.uploadedAt) > new Date(latest.uploadedAt) ? curr : latest,
+                        study.doctorReports[0]
+                    );
+                    const dt = new Date(latestReport.uploadedAt);
+                    // Format: 15 Jun 2025 03:30
+                    return dt.toLocaleString('en-in', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false,
+                        timeZone: 'Asia/Kolkata'
+                    }).replace(',', '');
+                })()
+                : null,
         accession: study.accessionNumber || 'N/A',
         status: study.workflowStatus || 'N/A'
       });
@@ -367,8 +409,10 @@ export const exportWorklist = async (req, res) => {
     // Send the Excel file
     res.send(buffer);
     
+    console.log('✅ Export completed successfully:', studies.length, 'studies');
+    
   } catch (error) {
-    console.error('Error exporting worklist:', error);
+    console.error('❌ Error exporting worklist:', error);
     res.status(500).json({
       success: false,
       message: 'Error exporting worklist',
@@ -376,6 +420,7 @@ export const exportWorklist = async (req, res) => {
     });
   }
 };
+
 
 /**
  * Dispatch reports to referring physicians
