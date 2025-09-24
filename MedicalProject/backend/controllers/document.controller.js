@@ -21,6 +21,7 @@ import { calculateStudyTAT, getLegacyTATFields, updateStudyTAT } from '../utils/
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DOCX_SERVICE_URL = 'http://64.227.187.164:8777/api/document/generate';
 
 // 🔧 FIX: Define TEMPLATES_DIR constant
 const TEMPLATES_DIR = path.join(__dirname, '../templates');
@@ -1672,6 +1673,1081 @@ static async generateDocumentWithSignature(templateName, templateData, signature
           return false;
       }
   }
+
+  // Add this new method to DocumentController class
+static async convertAndUploadReport(req, res) {
+  console.log('🔄 Converting HTML report and uploading...');
+  console.log('Request body:', req.body); // Debug: Log the entire request body
+  
+  try {
+    const { studyId } = req.params;
+    const { 
+      htmlContent, 
+      format, 
+      reportData, 
+      templateInfo, 
+      reportStatus = 'finalized',
+      reportType = 'final-medical-report' 
+    } = req.body;
+
+    // Validate inputs
+    if (!htmlContent || !htmlContent.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'HTML content is required'
+      });
+    }
+
+    if (!format || !['pdf', 'docx'].includes(format.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Format must be either "pdf" or "docx"'
+      });
+    }
+
+    // Get study data
+    const study = await DicomStudy.findById(studyId)
+      .populate('patient', 'patientID firstName lastName')
+      .populate('assignment.assignedTo');
+
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // Get doctor info
+    let doctor = null;
+    let effectiveDoctorId = null;
+    
+    if (study.assignment?.assignedTo) {
+      effectiveDoctorId = study.assignment.assignedTo;
+      doctor = await Doctor.findById(effectiveDoctorId).populate('userAccount', 'fullName');
+    }
+
+    const uploaderName = doctor?.userAccount?.fullName || req.user?.fullName || 'Online System';
+
+    // Prepare enhanced HTML with proper styling
+    const styledHtml = DocumentController.prepareStyledHTML(htmlContent, reportData);
+    
+    let convertedBuffer;
+    let fileName;
+    let contentType;
+
+    if (format.toLowerCase() === 'pdf') {
+      // Convert to PDF
+      const pdfResult = await DocumentController.convertHTMLToPDF(styledHtml, reportData);
+      convertedBuffer = pdfResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.pdf`;
+      contentType = 'application/pdf';
+      
+    } else if (format.toLowerCase() === 'docx') {
+      // For DOCX: Use the NEW method to inject inline styles into the raw HTML.
+      console.log('Preparing HTML for DOCX conversion...');
+      const styledHtmlForDocx = DocumentController.prepareDocxCompatibleHTML(htmlContent);
+      const docxResult = await DocumentController.convertHTMLToDOCX(styledHtmlForDocx, reportData);
+      
+      convertedBuffer = docxResult.buffer;
+      fileName = `final_report_${reportData?.patientName?.replace(/[^a-zA-Z0-9]/g, '_') || 'patient'}_${new Date().toISOString().split('T')[0]}.docx`;
+      contentType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
+
+    console.log(`✅ Report converted to ${format.toUpperCase()}, size: ${convertedBuffer.length} bytes`);
+
+    // Upload to Wasabi
+    const wasabiResult = await WasabiService.uploadDocument(
+      convertedBuffer,
+      fileName,
+      'clinical',
+      {
+        patientId: study.patientId,
+        studyId: study.studyInstanceUID,
+        uploadedBy: uploaderName,
+        doctorId: effectiveDoctorId,
+        reportStatus: reportStatus,
+        format: format.toUpperCase(),
+        convertedFromHTML: true
+      }
+    );
+
+    if (!wasabiResult.success) {
+      console.error('❌ Wasabi upload failed:', wasabiResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to upload converted report to storage',
+        error: wasabiResult.error
+      });
+    }
+
+    console.log('✅ Converted report uploaded to Wasabi:', wasabiResult.key);
+
+    // Create Document record
+    const documentRecord = new Document({
+      fileName: fileName,
+      fileSize: convertedBuffer.length,
+      contentType: contentType,
+      documentType: 'clinical',
+      wasabiKey: wasabiResult.key,
+      wasabiBucket: wasabiResult.bucket,
+      patientId: study.patientId,
+      studyId: study._id,
+      uploadedBy: req.user.id
+    });
+
+    await documentRecord.save();
+
+    // Add to study's doctorReports
+    const doctorReportDocument = {
+      _id: documentRecord._id,
+      filename: fileName,
+      contentType: contentType,
+      size: convertedBuffer.length,
+      reportType: doctor ? 'doctor-report' : 'radiologist-report',
+      uploadedAt: new Date(),
+      uploadedBy: uploaderName,
+      reportStatus: reportStatus,
+      doctorId: effectiveDoctorId,
+      // Add conversion metadata
+      convertedFromHTML: true,
+      originalFormat: 'html',
+      convertedFormat: format.toUpperCase(),
+      templateUsed: templateInfo?.templateName || 'Online Editor'
+    };
+
+    if (!study.doctorReports) {
+      study.doctorReports = [];
+    }
+
+    study.doctorReports.push(doctorReportDocument);
+    study.ReportAvailable = true;
+
+    // Update report info
+    study.reportInfo = study.reportInfo || {};
+    study.reportInfo.finalizedAt = new Date();
+    study.reportInfo.reporterName = uploaderName;
+
+    // Update workflow status
+    try {
+      await updateWorkflowStatus({
+        studyId: studyId,
+        status: 'report_finalized',
+        doctorId: effectiveDoctorId,
+        note: `HTML report converted to ${format.toUpperCase()} and uploaded by ${uploaderName}`,
+        user: req.user
+      });
+    } catch (workflowError) {
+      console.warn('Workflow status update failed:', workflowError.message);
+    }
+
+    await study.save();
+
+    // Generate download URL (optional)
+    const downloadUrl = `/api/documents/study/${studyId}/reports/${study.doctorReports.length - 1}/download`;
+
+    res.json({
+      success: true,
+      message: `Report successfully converted to ${format.toUpperCase()} and uploaded`,
+      report: {
+        _id: documentRecord._id,
+        filename: fileName,
+        size: convertedBuffer.length,
+        format: format.toUpperCase(),
+        reportType: doctorReportDocument.reportType,
+        reportStatus: reportStatus,
+        uploadedBy: uploaderName,
+        uploadedAt: doctorReportDocument.uploadedAt,
+        wasabiKey: wasabiResult.key,
+        storageType: 'wasabi',
+        convertedFromHTML: true
+      },
+      downloadUrl: downloadUrl,
+      workflowStatus: 'report_finalized',
+      study: {
+        _id: study._id,
+        patientName: reportData?.patientName || 'Unknown Patient'
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error converting and uploading report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error converting and uploading report',
+      error: error.message
+    });
+  }
+}
+
+static prepareStyledHTML(htmlContent, reportData) {
+  const styledHtml = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            @page {
+                size: A4;
+                margin: 1cm;
+            }
+            
+            body {
+                font-family: Arial, sans-serif;
+                line-height: 1.4;
+                margin: 0;
+                color: #000;
+                font-size: 11pt;
+            }
+            
+            .multi-page-report {
+                max-width: 100%;
+                margin: 0;
+                counter-reset: page;
+            }
+            
+            .report-page {
+                page-break-after: always;
+                counter-increment: page;
+                min-height: calc(100vh - 2cm);
+                position: relative;
+            }
+            
+            .report-page:last-child {
+                page-break-after: auto;
+            }
+            
+            .page-header-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+                font-size: 10pt;
+            }
+            
+            .page-header-table td {
+                padding: 6px 8px;
+                border: 1px solid #000;
+                vertical-align: top;
+            }
+            
+            .page-header-table td:first-child, 
+            .page-header-table td:nth-child(3) {
+                background-color: #b2dfdb;
+                font-weight: bold;
+                width: 20%;
+            }
+            
+            .page-header-table td:nth-child(2),
+            .page-header-table td:nth-child(4) {
+                background-color: #ffffff;
+                width: 30%;
+            }
+            
+            .content-flow-area {
+                margin-bottom: 40px;
+            }
+            
+            .floating-signature {
+                margin-top: 40px;
+                text-align: left;
+                font-size: 10pt;
+                line-height: 1.1;
+                page-break-inside: avoid;
+            }
+            
+            .doctor-name {
+                font-weight: bold;
+                margin-bottom: 1px;
+                font-size: 11pt;
+            }
+            
+            .doctor-specialization, .doctor-license {
+                margin: 1px 0;
+                font-size: 11pt;
+            }
+            
+            .signature-image {
+                width: 80px;
+                height: 40px;
+                margin: 5px 0;
+            }
+            
+            .disclaimer {
+                font-style: italic;
+                color: #666;
+                font-size: 8pt;
+                margin-top: 10px;
+                line-height: 1.0;
+            }
+            
+            /* Section styling */
+            .report-title, h1, h2, h3, .section-heading {
+                font-weight: bold;
+                text-decoration: underline;
+                page-break-after: avoid;
+            }
+            
+            .report-title, h1 {
+                font-size: 14pt;
+                text-align: center;
+                margin: 20px 0 15px 0;
+            }
+            
+            h2 {
+                font-size: 12pt;
+                text-align: center;
+                margin: 15px 0 10px 0;
+            }
+            
+            h3, .section-heading {
+                font-size: 11pt;
+                margin: 15px 0 8px 0;
+            }
+            
+            p {
+                margin: 4px 0;
+                font-size: 11pt;
+                line-height: 1.4;
+                orphans: 2;
+                widows: 2;
+            }
+            
+            ul, ol {
+                margin: 8px 0;
+                padding-left: 25px;
+            }
+            
+            li {
+                margin: 3px 0;
+                font-size: 11pt;
+            }
+            
+            strong { font-weight: bold; }
+            u { text-decoration: underline; }
+        </style>
+    </head>
+    <body>
+        ${htmlContent}
+    </body>
+    </html>
+  `;
+  
+  return styledHtml;
+}
+
+// Helper method to convert HTML to PDF using Puppeteer
+static async convertHTMLToPDF(htmlContent, reportData) {
+  let browser = null;
+  
+  try {
+    console.log('🔄 Launching Puppeteer for PDF conversion...');
+    
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+
+    const page = await browser.newPage();
+    
+    // Set content
+    await page.setContent(htmlContent, {
+      waitUntil: 'networkidle0'
+    });
+
+    // Generate PDF
+    const pdfBuffer = await page.pdf({
+      format: 'A4',
+      margin: {
+        top: '1cm',
+        right: '1cm',
+        bottom: '1cm',
+        left: '1cm'
+      },
+      printBackground: true
+    });
+
+    console.log('✅ PDF generated successfully, size:', pdfBuffer.length, 'bytes');
+    
+    return {
+      buffer: pdfBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ PDF conversion error:', error);
+    throw new Error(`PDF conversion failed: ${error.message}`);
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+}
+
+
+static prepareDocxCompatibleHTML(htmlContent) {
+    console.log('✨ Applying final styles and layout container for DOCX...');
+    
+   
+    
+    const $ = cheerio.load(htmlContent);
+
+    // --- Apply all the specific styles from before ---
+    
+    // Style the Patient Info Table
+    const patientTable = $('table').first();
+    patientTable.css({
+        'width': '100%', // The table should be 100% of its NEW container
+        'border-collapse': 'collapse',
+        'font-family': 'Arial, sans-serif',
+        'font-size': '10pt'
+    });
+    patientTable.find('td').css({
+        'border': '0.5pt solid #a0a0a0',
+        'padding': '4px 8px',
+        'vertical-align': 'top'
+    });
+    patientTable.find('tr').each((i, row) => {
+        $(row).find('td:nth-child(1), td:nth-child(3)').css({
+            'background-color': '#e7f5fe', 
+            'font-weight': 'bold',
+        });
+    });
+
+    // Style Headings
+    $('h2').css({ 'text-align': 'center', 'font-size': '14pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
+    $('p:has(strong):has(u)').css({ 'font-size': '11pt', 'font-weight': 'bold', 'text-decoration': 'underline' });
+
+    // Style Paragraphs and Lists
+    $('p, li').css({ 'font-family': 'Arial, sans-serif', 'font-size': '11pt', 'margin': '5px 0' });
+
+    // Style Signature Block
+    const signatureBlock = $('p:contains("Dr.")').nextAll().addBack();
+    signatureBlock.each((i, el) => {
+        const element = $(el);
+        if (element.is('p')) {
+            element.css({ 'margin': '1px 0', 'line-height': '1.1', 'font-size': '10pt' });
+        }
+        if (element.is('img')) {
+            element.css({ 'width': '80px', 'height': 'auto', 'margin': '5px 0' });
+        }
+    });
+
+    // --- FIX: Wrap ALL content in a master container div to control width ---
+    // This is the most important change to fix the layout.
+    const originalBodyContent = $('body').html();
+    $('body').html(
+        `<div style="max-width: 680px; margin: 0 auto;">${originalBodyContent}</div>`
+    );
+
+    return $.html();
+}
+
+
+static async convertHTMLToDOCX(htmlContent, reportData) {
+  console
+  try {
+    console.log('🔄 Converting HTML to DOCX...');
+    
+    // For DOCX conversion, you'll need a library like 'html-docx-js' or 'html-to-docx'
+    // Install: npm install html-to-docx
+    
+    const HTMLtoDOCX = await import('html-to-docx');
+    
+    const docxBuffer = await HTMLtoDOCX.default(htmlContent, null, {
+      table: { row: { cantSplit: true } },
+      footer: true,
+      pageNumber: true,
+      font: 'Arial'
+    });
+
+    console.log('✅ DOCX generated successfully, size:', docxBuffer.length, 'bytes');
+    
+    return {
+      buffer: docxBuffer,
+      success: true
+    };
+
+  } catch (error) {
+    console.error('❌ DOCX conversion error:', error);
+    throw new Error(`DOCX conversion failed: ${error.message}`);
+  }
+}
+
+static async generateReportWithDocxService(req, res) {
+    console.log('🔄 Received request to generate report via C# DOCX Service...');
+    console.log('Request body:', req.body); // Debug: Log the entire request body
+
+    try {
+        const { studyId } = req.params;
+        const { templateName, placeholders } = req.body;
+
+        if (!templateName || !placeholders) {
+            return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
+        }
+        
+        const study = await DicomStudy.findById(studyId).populate('patient').populate('assignment.assignedTo');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- Step 1: Call the C# DOCX Generation Service ---
+        console.log(`📞 Calling C# service with template: ${templateName}`);
+        
+        const docxResponse = await axios.post(DOCX_SERVICE_URL, {
+            templateName: templateName,
+            placeholders: placeholders
+        }, {
+            responseType: 'arraybuffer' 
+        });
+
+        const docxBuffer = Buffer.from(docxResponse.data);
+        console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
+
+        // --- Step 2: Upload the generated DOCX to Wasabi ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        console.log('✅ Report uploaded to Wasabi successfully.');
+
+        // --- MERGED LOGIC: Get Doctor Info and Uploader Name ---
+        let doctor = study.assignment?.assignedTo;
+        const uploaderName = doctor?.fullName || req.user?.fullName || 'Online System';
+
+        // --- MERGED LOGIC: Create the main Document record ---
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical', // Matching your old 'clinical' type
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+
+        // --- MERGED LOGIC: Create the detailed doctorReports sub-document ---
+        const doctorReportDocument = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            size: docxBuffer.length,
+            reportType: doctor ? 'doctor-report' : 'radiologist-report',
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            reportStatus: 'finalized',
+            doctorId: doctor?._id,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            storageType: 'wasabi',
+            templateUsed: templateName // Use the templateName from the request
+        };
+
+        // --- MERGED LOGIC: Update the Study with the new report ---
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportDocument);
+        study.ReportAvailable = true;
+
+        // Update other study fields as per your old logic
+        study.reportInfo = study.reportInfo || {};
+        study.reportInfo.finalizedAt = new Date();
+        study.reportInfo.reporterName = uploaderName;
+        study.workflowStatus = 'report_finalized'; // Or call your updateWorkflowStatus function
+        
+        await study.save();
+        console.log('✅ Database updated successfully with detailed report info.');
+        
+        const downloadUrl = wasabiResult.url; // Assuming wasabi service returns the final URL
+
+        res.status(201).json({
+            success: true,
+            message: 'Report generated and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                downloadUrl: downloadUrl
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in new DOCX service workflow:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate report',
+            error: error.message
+        });
+    }
+}
+
+static async generateReportWithDocxServiceDraft(req, res) {
+    console.log('🔄 Received request to generate report via C# DOCX Service...');
+        console.log('Request body:', req.body); // Debug: Log the entire request body
+
+
+    try {
+        const { studyId } = req.params;
+        const { templateName, placeholders } = req.body;
+
+        if (!templateName || !placeholders) {
+            return res.status(400).json({ success: false, message: 'templateName and placeholders are required.' });
+        }
+        
+        const study = await DicomStudy.findById(studyId).populate('patient').populate('assignment.assignedTo');
+        if (!study) {
+            return res.status(404).json({ success: false, message: 'Study not found' });
+        }
+
+        // --- Step 1: Call the C# DOCX Generation Service ---
+        console.log(`📞 Calling C# service with template: ${templateName}`);
+        
+        const docxResponse = await axios.post(DOCX_SERVICE_URL, {
+            templateName: templateName,
+            placeholders: placeholders
+        }, {
+            responseType: 'arraybuffer' 
+        });
+
+        const docxBuffer = Buffer.from(docxResponse.data);
+        console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
+
+        // --- Step 2: Upload the generated DOCX to Wasabi ---
+        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
+        
+        if (!wasabiResult.success) {
+            throw new Error(`Wasabi upload failed: ${wasabiResult.error}`);
+        }
+        console.log('✅ Report uploaded to Wasabi successfully.');
+
+        // --- MERGED LOGIC: Get Doctor Info and Uploader Name ---
+        let doctor = study.assignment?.assignedTo;
+        const uploaderName = doctor?.fullName || req.user?.fullName || 'Online System';
+
+        // --- MERGED LOGIC: Create the main Document record ---
+        const documentRecord = new Document({
+            studyId: study._id,
+            patientId: study.patient?._id,
+            fileName: fileName,
+            fileSize: docxBuffer.length,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            documentType: 'clinical', // Matching your old 'clinical' type
+            uploadedBy: req.user._id
+        });
+        await documentRecord.save();
+
+        // --- MERGED LOGIC: Create the detailed doctorReports sub-document ---
+        const doctorReportDocument = {
+            _id: documentRecord._id,
+            filename: fileName,
+            contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            size: docxBuffer.length,
+            reportType: doctor ? 'doctor-report' : 'radiologist-report',
+            uploadedAt: new Date(),
+            uploadedBy: uploaderName,
+            reportStatus: 'draft',
+            doctorId: doctor?._id,
+            wasabiKey: wasabiResult.key,
+            wasabiBucket: wasabiResult.bucket,
+            storageType: 'wasabi',
+            templateUsed: templateName // Use the templateName from the request
+        };
+
+        // --- MERGED LOGIC: Update the Study with the new report ---
+        if (!study.doctorReports) {
+            study.doctorReports = [];
+        }
+        study.doctorReports.push(doctorReportDocument);
+        study.ReportAvailable = true;
+
+        // Update other study fields as per your old logic
+        study.reportInfo = study.reportInfo || {};
+        study.reportInfo.finalizedAt = new Date();
+        study.reportInfo.reporterName = uploaderName;
+        study.workflowStatus = 'report_drafted'; // Or call your updateWorkflowStatus function
+        
+        await study.save();
+        console.log('✅ Database updated successfully with detailed report info.');
+        
+        const downloadUrl = wasabiResult.url; // Assuming wasabi service returns the final URL
+
+        res.status(201).json({
+            success: true,
+            message: 'Report generated and uploaded successfully',
+            data: {
+                documentId: documentRecord._id,
+                filename: fileName,
+                downloadUrl: downloadUrl
+            }
+        });
+
+    } catch (error) {
+        console.error('❌ Error in new DOCX service workflow:', error.message);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to generate report',
+            error: error.message
+        });
+    }
+}
+
+static async getStudyDownloadInfo (req, res)  {
+    try {
+        const { studyId } = req.params;
+        
+        console.log('🔍 Getting download info for study:', studyId);
+        
+        // Find study with download information
+        const study = await DicomStudy.findById(studyId)
+            .populate('patient', 'patientID patientNameRaw firstName lastName clinicalHistory')
+            .select('orthancStudyID studyInstanceUID preProcessedDownload seriesCount instanceCount patientId patient')
+            .lean();
+        
+        if (!study) {
+            console.log('❌ Study not found:', studyId);
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+        
+        console.log('📊 Found study with patient ObjectId:', study.patient?._id, '(patientId:', study.patientId + ')');
+        
+        // Extract study identifiers
+        const orthancStudyID = study.orthancStudyID;
+        const studyInstanceUID = study.studyInstanceUID;
+        
+        console.log('🔍 Extracted study identifiers:', {
+            orthancStudyID,
+            studyInstanceUID,
+            originalStudyId: study._id
+        });
+        
+        // Check R2 CDN availability
+        const preProcessedDownload = study.preProcessedDownload || {};
+        const hasR2CDN = preProcessedDownload.zipStatus === 'completed' && !!preProcessedDownload.zipUrl;
+        const r2SizeMB = preProcessedDownload.zipSizeMB || 0;
+        
+        console.log('🌐 R2 CDN availability:', {
+            hasR2Zip: hasR2CDN,
+            zipStatus: preProcessedDownload.zipStatus || 'pending',
+            downloadOptions: preProcessedDownload
+        });
+        
+        // Prepare download endpoints
+        const downloadEndpoints = {
+            r2CDN: `/api/download/study/${orthancStudyID}/r2-direct`,
+            orthancDirect: `/api/orthanc-download/study/${orthancStudyID}/download`,
+            preProcessed: `/api/download/study/${orthancStudyID}/pre-processed`,
+            createZip: `/api/download/study/${orthancStudyID}/create`
+        };
+        
+        // 🔧 FIX: Safely access patient data with fallbacks
+        const patientData = study.patient || {};
+        const clinicalHistory = patientData.clinicalHistory || 
+                              patientData.medicalHistory?.clinicalHistory || 
+                              'No clinical history available';
+        
+        const response = {
+            success: true,
+            orthancStudyID: orthancStudyID,
+            studyInstanceUID: studyInstanceUID,
+            downloadOptions: {
+                hasR2CDN: hasR2CDN,
+                hasWasabiZip: hasR2CDN, // Legacy compatibility
+                hasR2Zip: hasR2CDN,
+                r2SizeMB: r2SizeMB,
+                wasabiSizeMB: r2SizeMB, // Legacy compatibility
+                zipStatus: preProcessedDownload.zipStatus || 'not_started',
+                zipCreatedAt: preProcessedDownload.zipCreatedAt,
+                zipExpiresAt: preProcessedDownload.zipExpiresAt,
+                downloadCount: preProcessedDownload.downloadCount || 0,
+                lastDownloaded: preProcessedDownload.lastDownloaded,
+                endpoints: downloadEndpoints
+            },
+            studyInfo: {
+                seriesCount: study.seriesCount || 0,
+                instanceCount: study.instanceCount || 0,
+                patientId: study.patientId || patientData.patientID,
+                patientName: patientData.patientNameRaw || 
+                           `${patientData.firstName || ''} ${patientData.lastName || ''}`.trim() ||
+                           'Unknown Patient',
+                clinicalHistory: clinicalHistory
+            }
+        };
+        
+        console.log('✅ Sending download info response:', {
+            hasR2CDN: response.downloadOptions.hasR2CDN,
+            zipStatus: response.downloadOptions.zipStatus,
+            endpoints: Object.keys(response.downloadOptions.endpoints)
+        });
+        
+        res.json(response);
+        
+    } catch (error) {
+        console.error('❌ Error getting study download info:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get study download information',
+            error: error.message
+        });
+    }
+};
+
+static async downloadStudyFromR2CDN(req, res) {
+    try {
+        const { studyId } = req.params;
+        
+        // Get study to extract orthancStudyID
+        const study = await DicomStudy.findOne({
+            $or: [
+                { _id: studyId },
+                { orthancStudyID: studyId },
+                { studyInstanceUID: studyId }
+            ]
+        }).select('orthancStudyID');
+
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+
+        // Redirect to the existing R2 download endpoint
+        const orthancStudyId = study.orthancStudyID || studyId;
+        return res.redirect(`/api/download/study/${orthancStudyId}/r2-direct`);
+
+    } catch (error) {
+        console.error('❌ Error redirecting to R2 CDN download:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to redirect to R2 CDN download',
+            error: error.message
+        });
+    }
+}
+
+static async downloadStudyFromOrthanc(req, res) {
+    try {
+        const { studyId } = req.params;
+        
+        console.log(`📥 Direct Orthanc download for study: ${studyId}`);
+
+        // Get study to extract proper Orthanc ID
+        const study = await DicomStudy.findOne({
+            $or: [
+                { _id: studyId },
+                { orthancStudyID: studyId },
+                { studyInstanceUID: studyId }
+            ]
+        }).select('orthancStudyID studyInstanceUID');
+
+        if (!study) {
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+
+        const orthancStudyId = study.orthancStudyID || study.studyInstanceUID || studyId;
+        
+        // Forward to Orthanc download endpoint
+        const response = await api.get(`/orthanc-download/study/${orthancStudyId}/download`, {
+            responseType: 'stream'
+        });
+
+        // Set headers for download
+        res.setHeader('Content-Disposition', `attachment; filename="study_${orthancStudyId}.zip"`);
+        res.setHeader('Content-Type', 'application/zip');
+        
+        // Pipe the stream
+        response.data.pipe(res);
+        
+        console.log(`✅ Orthanc download stream started for: ${orthancStudyId}`);
+
+    } catch (error) {
+        console.error('❌ Error with direct Orthanc download:', error);
+        
+        if (error.response?.status === 404) {
+            res.status(404).json({
+                success: false,
+                message: 'Study not found on Orthanc server'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to download from Orthanc',
+                error: error.message
+            });
+        }
+    }
+}
+
+
+static async getStudyInfoForReporting  (req, res) {
+    try {
+        const { studyId } = req.params;
+        
+        console.log('🔍 Getting comprehensive study info for reporting:', studyId);
+        
+        // Find study with all necessary populated data
+        const study = await DicomStudy.findById(studyId)
+            .populate('patient', 'patientID patientNameRaw firstName lastName age gender dateOfBirth clinicalInfo medicalHistory')
+            .populate('sourceLab', 'name identifier')
+            .populate({
+                path: 'lastAssignedDoctor',
+                populate: {
+                    path: 'userAccount',
+                    select: 'fullName email'
+                }
+            })
+            .select(`
+                _id orthancStudyID studyInstanceUID accessionNumber workflowStatus 
+                modality modalitiesInStudy studyDescription examDescription 
+                seriesCount instanceCount studyDate studyTime createdAt 
+                patientId preProcessedDownload clinicalHistory referringPhysician 
+                referringPhysicianName caseType assignment priority
+            `)
+            .lean();
+        
+        if (!study) {
+            console.log('❌ Study not found:', studyId);
+            return res.status(404).json({
+                success: false,
+                message: 'Study not found'
+            });
+        }
+        
+        console.log('📊 Found study with patient ObjectId:', study.patient?._id, '(patientId:', study.patientId + ')');
+        
+        // Extract patient information with multiple fallbacks
+        const patient = study.patient || {};
+        const patientName = patient.patientNameRaw || 
+                           `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 
+                           'Unknown Patient';
+        
+        // Extract clinical history from multiple possible locations
+        const clinicalHistory = study.clinicalHistory || 
+                              patient.clinicalInfo?.clinicalHistory || 
+                              patient.medicalHistory?.clinicalHistory || 
+                              'No clinical history available';
+        
+        // Extract study identifiers
+        const orthancStudyID = study.orthancStudyID;
+        const studyInstanceUID = study.studyInstanceUID;
+        
+        console.log('🔍 Extracted study identifiers:', {
+            orthancStudyID,
+            studyInstanceUID,
+            originalStudyId: study._id
+        });
+        
+        // Check R2 download availability
+        const preProcessedDownload = study.preProcessedDownload || {};
+        const hasR2CDN = preProcessedDownload.zipStatus === 'completed' && !!preProcessedDownload.zipUrl;
+        const r2SizeMB = preProcessedDownload.zipSizeMB || 0;
+        
+        console.log('🌐 R2 CDN availability:', {
+            hasR2Zip: hasR2CDN,
+            zipStatus: preProcessedDownload.zipStatus || 'pending',
+            downloadOptions: preProcessedDownload
+        });
+        
+        // Prepare download options
+        const downloadOptions = {
+            hasR2CDN: hasR2CDN,
+            hasWasabiZip: hasR2CDN, // Legacy compatibility
+            hasR2Zip: hasR2CDN,
+            r2SizeMB: r2SizeMB,
+            wasabiSizeMB: r2SizeMB, // Legacy compatibility
+            zipStatus: preProcessedDownload.zipStatus || 'not_started',
+            zipCreatedAt: preProcessedDownload.zipCreatedAt,
+            zipExpiresAt: preProcessedDownload.zipExpiresAt,
+            downloadCount: preProcessedDownload.downloadCount || 0,
+            lastDownloaded: preProcessedDownload.lastDownloaded,
+            endpoints: {
+                r2CDN: `/api/download/study/${orthancStudyID}/r2-direct`,
+                preProcessed: `/api/download/study/${orthancStudyID}/pre-processed`,
+                orthancDirect: `/api/orthanc-download/study/${orthancStudyID}/download`,
+                createZip: `/api/download/study/${orthancStudyID}/create`
+            }
+        };
+        
+        // Format study information
+        const studyInfo = {
+            _id: study._id,
+            orthancStudyID: orthancStudyID,
+            studyInstanceUID: studyInstanceUID,
+            accessionNumber: study.accessionNumber || 'N/A',
+            workflowStatus: study.workflowStatus || 'pending_assignment',
+            modality: study.modalitiesInStudy?.length > 0 ? 
+                     study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
+            description: study.studyDescription || study.examDescription || 'N/A',
+            studyDate: study.studyDate,
+            studyTime: study.studyTime,
+            createdAt: study.createdAt,
+            seriesCount: study.seriesCount || 0,
+            instanceCount: study.instanceCount || 0,
+            priority: study.assignment?.priority || study.priority || 'NORMAL',
+            caseType: study.caseType || 'routine',
+            sourceLab: study.sourceLab?.name || 'N/A',
+            assignedDoctor: study.lastAssignedDoctor?.userAccount?.fullName || 'Not Assigned',
+            referringPhysician: study.referringPhysician || study.referringPhysicianName || 'N/A'
+        };
+        
+        // Format patient information
+        const patientInfo = {
+            patientId: study.patientId || patient.patientID || 'N/A',
+            patientName: patientName,
+            fullName: patientName,
+            age: patient.age || 'N/A',
+            gender: patient.gender || 'N/A',
+            dateOfBirth: patient.dateOfBirth || 'N/A',
+            clinicalHistory: clinicalHistory
+        };
+        
+        const response = {
+            success: true,
+            data: {
+                studyInfo,
+                patientInfo,
+                downloadOptions,
+                clinicalHistory: clinicalHistory,
+                // Additional metadata for frontend
+                metadata: {
+                    hasR2Download: hasR2CDN,
+                    downloadReady: hasR2CDN,
+                    storageProvider: 'cloudflare-r2',
+                    lastUpdated: new Date()
+                }
+            }
+        };
+        
+        console.log('✅ Sending comprehensive study info response:', {
+            studyId: studyInfo._id,
+            patientName: patientInfo.patientName,
+            hasR2CDN: downloadOptions.hasR2CDN,
+            endpoints: Object.keys(downloadOptions.endpoints)
+        });
+        
+        res.json(response);
+        
+    } catch (error) {
+        console.error('❌ Error getting study info for reporting:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get study information for reporting',
+            error: error.message
+        });
+    }
+};
 }
 
 export default DocumentController;

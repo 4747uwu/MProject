@@ -27,6 +27,8 @@ import websocketService from './config/webSocket.js';
 import sharingRoutes from './routes/sharing.routes.js';
 import zipdownloadRoutes from './routes/zipdownload.route.js';
 import tatRoutes from './routes/TAT.routes.js';
+import htmlTemplateRoutes from './routes/htmlTemplate.routes.js';
+
 
 
 // import orthancProaxyRoutes from './routes/orthanc.proxy.routes.js'
@@ -209,6 +211,7 @@ app.use('/api/footer', footer);
 app.use('/api/sharing', sharingRoutes);
 app.use('/api/download', zipdownloadRoutes)
 app.use('/api/tat', tatRoutes)
+app.use('/api/html-templates', htmlTemplateRoutes);
 
 
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);

@@ -817,7 +817,7 @@ const cardGrid = useMemo(() => (
                             const isEmergency = study.caseType?.toLowerCase() === 'emergency' || study.priority === 'EMERGENCY';
                             
                             const getRowClasses = () => {
-                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150";
+                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150 hover:bg-gray-200";
                               if (isEmergency) return isSelected ? `${baseClasses} bg-red-200 hover:bg-red-300` : `${baseClasses} bg-red-100 hover:bg-red-200`;
                               if (isSelected) return `${baseClasses} bg-blue-50 hover:bg-blue-100`;
                               return `${baseClasses} ${index % 2 === 0 ? 'bg-white' : 'bg-gray-100'}`;

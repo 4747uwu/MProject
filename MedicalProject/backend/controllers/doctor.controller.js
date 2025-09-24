@@ -2222,6 +2222,60 @@ queryFilters = {
     }
 };
 
+export const getCurrentDoctorProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    console.log('🔍 Fetching doctor profile for user:', userId);
+    
+    const doctor = await Doctor.findOne({ userAccount: userId })
+      .populate('userAccount', 'fullName email username')
+      .lean();
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor profile not found'
+      });
+    }
+    
+    // Format response with signature
+    const doctorProfile = {
+      _id: doctor._id,
+      fullName: doctor.userAccount.fullName,
+      email: doctor.userAccount.email,
+      username: doctor.userAccount.username,
+      specialization: doctor.specialization,
+      licenseNumber: doctor.licenseNumber,
+      department: doctor.department,
+      qualifications: doctor.qualifications,
+      yearsOfExperience: doctor.yearsOfExperience,
+      contactPhoneOffice: doctor.contactPhoneOffice,
+      signature: doctor.signature, // Base64 signature
+      signatureMetadata: doctor.signatureMetadata,
+      isActive: doctor.isActiveProfile && doctor.userAccount.isActive
+    };
+    
+    console.log('✅ Doctor profile found:', {
+      name: doctorProfile.fullName,
+      specialization: doctorProfile.specialization,
+      hasSignature: !!doctorProfile.signature
+    });
+    
+    res.json({
+      success: true,
+      doctor: doctorProfile
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching doctor profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch doctor profile',
+      error: error.message
+    });
+  }
+}
+
 
 
 

@@ -21,6 +21,9 @@ import ShareStudy from './pages/ShareStudy';
 import LabsManagement from './pages/LabsManagement'; // 🆕 NEW
 import DoctorsManagement from './pages/DoctorsManagement'; // 🆕 NEW
 
+import TemplateManager from './components/layout/TemplateMangement';
+import OnlineReportingSystem from './components/layout/OnlineReportingSystem';
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
 
@@ -111,6 +114,15 @@ function App() {
               } 
             />
 
+             <Route 
+              path="/admin/templates" 
+              element={
+                <ProtectedRoute allowedRoles={['admin']}>
+                  <TemplateManager />
+                </ProtectedRoute>
+              } 
+            />
+
             {/* 🆕 NEW: Labs Management Route */}
             <Route 
               path="/admin/labs" 
@@ -167,6 +179,19 @@ function App() {
               } 
             />
             <Route path="/share/:token" element={<ShareStudy />} />
+
+            <Route 
+              path="/reporting/:studyId" 
+              element={
+                <ProtectedRoute allowedRoles={['admin', 'lab_staff', 'doctor_account']}>
+                  <OnlineReportingSystem />
+                </ProtectedRoute>
+              } 
+            />
+
+            
+            
+
             
             {/* Catch-all route */}
             <Route path="*" element={<Navigate to="/login" replace />} />

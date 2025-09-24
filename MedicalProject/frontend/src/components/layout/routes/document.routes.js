@@ -34,25 +34,15 @@ const upload = multer({
   }
 });
 
-
-
-
 // Apply protection to all routes
 router.use(protect);
-router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
 
-// router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
+// Get initial report data
+router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
 router.post('/study/:studyId/generate-report', DocumentController.generateReportWithDocxService);
 
 router.post('/study/:studyId/generate-draft-report', DocumentController.generateReportWithDocxServiceDraft);
 
-
-
-router.post('/study/:studyId/upload', 
-  // authorize('admin', 'lab_staff', 'doctor_account'),
-  upload.single('file'), // FIXED: Changed to match frontend
-  DocumentController.uploadStudyReport
-);
 
 // Generate patient report (NO STORAGE - direct download)
 router.get('/study/:studyId/generate-patient-report', 
@@ -60,10 +50,37 @@ router.get('/study/:studyId/generate-patient-report',
   DocumentController.generatePatientReport
 );
 
+// router.post('/study/:studyId/convert-and-upload-libreoffice', 
+   
+//   DocumentController.convertAndUploadReportViaPandocService
+// );
+
 // Get all reports for a study (metadata only)
 router.get('/study/:studyId/reports', 
   authorize('admin', 'lab_staff', 'doctor_account'),
   DocumentController.getStudyReports
+);
+
+// 🆕 NEW: Online Reporting System download and viewer endpoints
+router.get('/study/:studyId/download-info', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.getStudyDownloadInfo
+);
+
+router.get('/study/:studyId/download/r2-cdn', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.downloadStudyFromR2CDN
+);
+
+router.get('/study/:studyId/download/orthanc-direct', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.downloadStudyFromOrthanc
+);
+
+// 🔧 NEW: Convert HTML report and upload to Wasabi
+router.post('/study/:studyId/convert-and-upload', 
+  authorize('admin', 'lab_staff', 'doctor_account'),
+  DocumentController.convertAndUploadReport
 );
 
 // Upload report to study with Wasabi storage
@@ -85,8 +102,10 @@ router.delete('/study/:studyId/reports/:reportIndex',
   DocumentController.deleteStudyReport
 );
 
+// 🆕 ADD: Study info for reporting endpoint
 router.get('/study/:studyId/reporting-info', 
     DocumentController.getStudyInfoForReporting
 );
 
+// In your routes file (e.g., documents.js)
 export default router;

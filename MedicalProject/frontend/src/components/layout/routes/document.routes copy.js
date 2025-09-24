@@ -41,12 +41,6 @@ const upload = multer({
 router.use(protect);
 router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
 
-// router.get('/initial-data/:studyId', DocumentController.getInitialReportData);
-router.post('/study/:studyId/generate-report', DocumentController.generateReportWithDocxService);
-
-router.post('/study/:studyId/generate-draft-report', DocumentController.generateReportWithDocxServiceDraft);
-
-
 
 router.post('/study/:studyId/upload', 
   // authorize('admin', 'lab_staff', 'doctor_account'),
@@ -83,10 +77,6 @@ router.get('/study/:studyId/reports/:reportIndex/download',
 router.delete('/study/:studyId/reports/:reportIndex', 
   authorize('admin', 'lab_staff', 'doctor_account'),
   DocumentController.deleteStudyReport
-);
-
-router.get('/study/:studyId/reporting-info', 
-    DocumentController.getStudyInfoForReporting
 );
 
 export default router;
