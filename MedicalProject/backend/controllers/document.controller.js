@@ -2204,7 +2204,7 @@ static async generateReportWithDocxService(req, res) {
         console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
 
         // --- Step 2: Upload the generated DOCX to Wasabi ---
-        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const fileName = `${study.patientInfo?.patientName}.docx`;
         const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
         
         if (!wasabiResult.success) {
@@ -2317,7 +2317,7 @@ static async generateReportWithDocxServiceDraft(req, res) {
         console.log(`✅ Received generated DOCX from C# service, size: ${docxBuffer.length} bytes`);
 
         // --- Step 2: Upload the generated DOCX to Wasabi ---
-        const fileName = `Report_${study.patient?.patientID || studyId}_${Date.now()}.docx`;
+        const fileName = `${study.patientInfo?.patientName}.docx`;
         const wasabiResult = await WasabiService.uploadDocument(docxBuffer, fileName, 'final-reports', { studyId });
         
         if (!wasabiResult.success) {
