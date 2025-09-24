@@ -648,7 +648,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
 
       const placeholders = {
         '--name--': patientData?.fullName || '',
-        '--patientId--': patientData?.patientId || '',
+        '--patientid--': patientData?.patientId || '',
         '--accessionno--': studyData?.accessionNumber || '',
         '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
         '--referredby--': reportData?.referringPhysician.name || '',
@@ -767,7 +767,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
       console.log(templateName);
       const placeholders = {
         '--name--': patientData?.fullName || '',
-        '--patientId--': patientData?.patientId || '',
+        '--patientid--': patientData?.patientId || '',
         '--accessionno--': studyData?.accessionNumber || '',
         '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
         '--referredby--': reportData?.referringPhysician.name || '',
@@ -1159,7 +1159,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
                   {typeof patientData.clinicalHistory === 'string' 
                     ? patientData.clinicalHistory 
                     : patientData.clinicalHistory?.clinicalHistory || 
-                      JSON.stringify(patientData.clinicalHistory, null, 2)
+                      'N/A'
                   }
                 </div>
               </div>
