@@ -9,21 +9,21 @@ const cache = new NodeCache({ stdTTL: 300 });
 
 // 🔧 STANDARDIZED: Status categories used across ALL doctor functions
 const DOCTOR_STATUS_CATEGORIES = {
-    pending: ['assigned_to_doctor', 'new_study_received'],
-    inprogress: [
-        'doctor_opened_report', 
-        'report_in_progress', 
-        'report_uploaded', 
-        'report_downloaded_radiologist', 
-        'report_downloaded',
-        'report_finalized', 
-        'report_drafted'
-
+    pending: [
+        'new_study_received', 
+        'pending_assignment',
+        'assigned_to_doctor',           // ✅ SAME AS ADMIN
+        'doctor_opened_report',         // ✅ SAME AS ADMIN  
+        'report_in_progress',          // ✅ SAME AS ADMIN
+        'report_downloaded_radiologist', // ✅ SAME AS ADMIN
+        'report_downloaded'            // ✅ SAME AS ADMIN
     ],
-    completed: [
-        
-        'final_report_downloaded'
-    ]
+    inprogress: [
+        'report_finalized', 
+        'report_drafted', 
+        'report_uploaded'
+    ],
+    completed: ['final_report_downloaded']
 };
 const formatDicomDateTime = (studyDate, studyTime) => {
     if (!studyDate) return 'N/A';
@@ -77,7 +77,7 @@ const getCategoryForStatus = (status) => {
 export const getAssignedStudies = async (req, res) => {
     try {
         const startTime = Date.now();
-        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const limit = Math.min(parseInt(req.query.limit) || 20, 1000);
 
         // 🔥 STEP 1: Get doctor with lean query for better performance
         const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
@@ -221,6 +221,8 @@ export const getAssignedStudies = async (req, res) => {
                     _id: 1,
                     studyInstanceUID: 1,
                     orthancStudyID: 1,
+                                        modalitiesInStudy: 1,
+
                     accessionNumber: 1,
                     workflowStatus: 1,
                     currentCategory: 1,
@@ -240,9 +242,28 @@ export const getAssignedStudies = async (req, res) => {
                     assignment: 1,
                     lastAssignedDoctor: 1,
                     patient: 1,
-                    sourceLab: 1
+                    sourceLab: 1,
+                    age:1,
+                    gender:1,
+                    clinicalHistory: 1,
+                    preProcessedDownload: 1
                 }
             },
+
+                { 
+        $lookup: { 
+            from: 'labs', 
+            localField: 'sourceLab', 
+            foreignField: '_id', 
+            as: 'sourceLab',
+            pipeline: [{ 
+                $project: { 
+                    name: 1, 
+                    identifier: 1 
+                } 
+            }] 
+        } 
+    },
             
             // Lookup patient data with optimized projection
             { 
@@ -260,11 +281,17 @@ export const getAssignedStudies = async (req, res) => {
                             ageString: 1, 
                             gender: 1, 
                             'computed.fullName': 1, 
-                            'medicalHistory.clinicalHistory': 1 
+                            'clinicalInfo.clinicalHistory': 1 
                         } 
                     }] 
                 } 
             },
+
+             {
+        $addFields: {
+            sourceLab: { $arrayElemAt: ['$sourceLab', 0] }
+        }
+    },
             
             // Apply patientName filter after lookup if needed
             ...(patientName ? [{
@@ -315,6 +342,13 @@ export const getAssignedStudies = async (req, res) => {
         const formattedStudies = studies.map(study => {
             const patient = Array.isArray(study.patientData) && study.patientData.length > 0 ? 
                 study.patientData[0] : null;
+
+                const sourceLab = study.sourceLab;
+
+                const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Get the most recent assignment for display purposes - optimized
             let assignmentData = null;
@@ -327,19 +361,21 @@ export const getAssignedStudies = async (req, res) => {
             // Optimized patient display building
             let patientDisplay = 'N/A';
             let patientIdDisplay = 'N/A';
-            let ageGenderDisplay = 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
                 patientIdDisplay = patient.patientID || 'N/A';
                 
-                if (patient.ageString && patient.gender) {
-                    ageGenderDisplay = `${patient.ageString} / ${patient.gender}`;
-                } else if (patient.ageString) {
-                    ageGenderDisplay = patient.ageString;
-                } else if (patient.gender) {
-                    ageGenderDisplay = patient.gender;
-                }
+                // if (patient.ageString && patient.gender) {
+                //     ageGenderDisplay = `${patient.ageString} / ${patient.gender}`;
+                // } else if (patient.ageString) {
+                //     ageGenderDisplay = patient.ageString;
+                // } else if (patient.gender) {
+                //     ageGenderDisplay = patient.gender;
+                // }
             }
 
             const tat = study.calculatedTAT || calculateStudyTAT(study);
@@ -351,9 +387,10 @@ export const getAssignedStudies = async (req, res) => {
                 accessionNumber: study.accessionNumber,
                 patientId: patientIdDisplay,
                 patientName: patientDisplay,
-                ageGender: ageGenderDisplay,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
                 location: 'N/A', // Note: sourceLab lookup removed for performance - add back if needed
                 // studyDate: study.studyDate,
@@ -395,6 +432,17 @@ export const getAssignedStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
                 caseType: study.caseType || 'routine',
                 currentCategory: study.currentCategory,
@@ -405,7 +453,7 @@ export const getAssignedStudies = async (req, res) => {
                 priority: assignmentData?.priority || study.caseType?.toUpperCase() || 'NORMAL',
                 assignedDate: assignmentData?.assignedAt,
                 ReportAvailable: study.ReportAvailable || false,
-                clinicalHistory: study.clinicalHistory || patient?.medicalHistory?.clinicalHistory || ''
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
             };
         });
 
@@ -623,9 +671,9 @@ export const getValues = async (req, res) => {
         // 🔧 STEP 3: Combine the base query with all other query parameters.
         let queryFilters = { ...baseQuery };
 
-        if (category && category !== 'all') {
-            queryFilters.workflowStatus = { $in: getAllStatusesForCategory(category) };
-        }
+        // if (category && category !== 'all') {
+        //     queryFilters.workflowStatus = { $in: getAllStatusesForCategory(category) };
+        // }
         if (search) {
             queryFilters.$text = { $search: search };
         }
@@ -1025,6 +1073,8 @@ export const getPendingStudies = async (req, res) => {
                     studyInstanceUID: 1,
                     accessionNumber: 1,
                     workflowStatus: 1,
+                                        modalitiesInStudy: 1,
+
                     modality: 1,
                     examDescription: 1,
                     studyDescription: 1,
@@ -1040,7 +1090,11 @@ export const getPendingStudies = async (req, res) => {
                     lastAssignedDoctor: 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientInfo: 1 // Keep denormalized patient data
+                    patientInfo: 1, // Keep denormalized patient data
+                    age:1,
+                    gender:1,
+                    clinicalHistory: 1,
+                    preProcessedDownload: 1
                 }
             },
             
@@ -1122,7 +1176,7 @@ export const getPendingStudies = async (req, res) => {
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -1164,6 +1218,11 @@ export const getPendingStudies = async (req, res) => {
             // Get related data from maps (faster than repeated lookups)
             const patientData = lookupMaps.patients.get(study.patient?.toString());
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Use denormalized patient data first, fallback to lookup
             const patient = patientData || study.patientInfo;
@@ -1177,17 +1236,16 @@ export const getPendingStudies = async (req, res) => {
             // Optimized patient display building
             let patientName = 'N/A';
             let patientId = 'N/A';
-            let ageGender = 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientName = patient.computed?.fullName || patient.patientNameRaw || 'N/A';
                 patientId = patient.patientID || 'N/A';
                 
-                if (patient.ageString && patient.gender) {
-                    ageGender = `${patient.ageString} / ${patient.gender}`;
-                } else if (patient.ageString || patient.gender) {
-                    ageGender = patient.ageString || patient.gender;
-                }
+                
+            
             }
 
             // Optimized date formatting
@@ -1206,11 +1264,12 @@ export const getPendingStudies = async (req, res) => {
                 accessionNumber: study.accessionNumber,
                 patientId: patientId,
                 patientName: patientName,
-                ageGender: ageGender,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
                 : study.studyDate 
@@ -1249,7 +1308,19 @@ export const getPendingStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+
+                downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
@@ -1422,12 +1493,14 @@ export const getInProgressStudies = async (req, res) => {
             {
                 $project: {
                     _id: 1, orthancStudyID: 1, studyInstanceUID: 1, accessionNumber: 1,
-                    workflowStatus: 1, modality: 1, examDescription: 1, studyDescription: 1,
+                    workflowStatus: 1,modalitiesInStudy: 1, modality: 1, examDescription: 1, studyDescription: 1,
                     seriesCount: 1, instanceCount: 1, seriesImages: 1, studyDate: 1,
                     studyTime: 1, createdAt: 1, caseType: 1, 'assignment.priority': 1,
                     doctorReports: 1, ReportAvailable: 1, 
                     'assignment.assignedAt': 1, lastAssignedDoctor: 1, 'reportInfo.startedAt': 1,
-                    patient: 1, sourceLab: 1, patientInfo: 1 // Keep for fallback
+                    patient: 1, sourceLab: 1, patientInfo: 1,  age:1,
+                    gender:1, clinicalHistory: 1,
+                    preProcessedDownload: 1 // Keep for fallback
                 }
             },
             { $addFields: { currentCategory: 'inprogress' } }
@@ -1491,7 +1564,7 @@ export const getInProgressStudies = async (req, res) => {
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -1525,6 +1598,10 @@ export const getInProgressStudies = async (req, res) => {
         const formattedStudies = studies.map(study => {
             const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
 
             const assignmentData = (study.assignment?.length > 0)
                 ? study.assignment[study.assignment.length - 1]
@@ -1534,14 +1611,16 @@ export const getInProgressStudies = async (req, res) => {
 
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            let patientAgeGenderDisplay = "N/A";
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || patient.patientNameRaw || "N/A";
                 patientIdForDisplay = patient.patientID || "N/A";
-                const agePart = patient.ageString || "";
-                const genderPart = patient.gender || "";
-                patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : (agePart || genderPart || "N/A");
+                // const agePart = patient.ageString || "";
+                // const genderPart = patient.gender || "";
+                // patientAgeGenderDisplay = agePart && genderPart ? `${agePart} / ${genderPart}` : (agePart || genderPart || "N/A");
             }
             
             return {
@@ -1554,9 +1633,10 @@ export const getInProgressStudies = async (req, res) => {
                 patientName: patientDisplay,
                 ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime
                     ? formatDicomDateTime(study.studyDate, study.studyTime)
                     : study.studyDate
@@ -1593,7 +1673,19 @@ export const getInProgressStudies = async (req, res) => {
                     }).replace(',', '');
                 })()
                 : null,
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
+
                 currentCategory: study.currentCategory,
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
                 caseType: study.caseType || 'routine',
@@ -1690,51 +1782,79 @@ export const getCompletedStudies = async (req, res) => {
         let filterEndDate = null;
         const now = new Date();
 if (quickDatePreset) {
-switch (quickDatePreset) {
-case '24h':
-case 'last24h':
-// Rolling 24-hour window from the current moment.
-filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'today':
-case 'assignedToday':
-// Precisely the start and end of the current calendar day.
-const today = new Date();
-filterStartDate = new Date(today.setHours(0, 0, 0, 0));
-filterEndDate = new Date(today.setHours(23, 59, 59, 999));
-break;
-
-case 'yesterday':
-// Precisely the start and end of yesterday's calendar day.
-const yesterday = new Date();
-yesterday.setDate(yesterday.getDate() - 1); // Go back one day
-filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
-filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
-break;
-
-case 'week':
-case 'thisWeek':
-// Rolling 7-day window from the current moment.
-filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'month':
-case 'thisMonth':
-// Rolling 30-day window from the current moment.
-filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-filterEndDate = now;
-break;
-
-case 'custom':
-// Custom range, interpreted as UTC to avoid timezone issues.
-filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
-filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
-break;
+    switch (quickDatePreset) {
+        case '24h':
+        case 'last24h':
+            filterStartDate = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'today':
+        case 'assignedToday':
+            const today = new Date();
+            filterStartDate = new Date(today.setHours(0, 0, 0, 0));
+            filterEndDate = new Date(today.setHours(23, 59, 59, 999));
+            break;
+        case 'yesterday':
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            filterStartDate = new Date(yesterday.setHours(0, 0, 0, 0));
+            filterEndDate = new Date(yesterday.setHours(23, 59, 59, 999));
+            break;
+        case 'week':
+        case 'thisWeek':
+            filterStartDate = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'month':
+        case 'thisMonth':
+            filterStartDate = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+            filterEndDate = now;
+            break;
+        case 'custom':
+            filterStartDate = customDateFrom ? new Date(customDateFrom + 'T00:00:00Z') : null;
+            filterEndDate = customDateTo ? new Date(customDateTo + 'T23:59:59Z') : null;
+            break;
+    }
+} else {
+    // 🔧 FIX: Default to today when no date filter specified (SAME as admin)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    filterStartDate = todayStart;
+    filterEndDate = new Date(todayStart.getTime() + 86399999);
 }
+
+if (filterStartDate || filterEndDate) {
+    const dateField = req.query.dateType === 'StudyDate' ? 'studyDate' : 'createdAt';
+    queryFilters[dateField] = {};
+    if (filterStartDate) queryFilters[dateField].$gte = filterStartDate;
+    if (filterEndDate) queryFilters[dateField].$lte = filterEndDate;
 }
+
+// 🔧 FIX: Build the core query with date filtering (SAME as getValues)
+let baseQuery;
+if (filterStartDate && filterEndDate) {
+    console.log(`📅 DOCTOR COMPLETED: Applying ASSIGNMENT DATE filter from ${filterStartDate.toISOString()} to ${filterEndDate.toISOString()}`);
+    baseQuery = {
+        $or: [
+            { lastAssignedDoctor: { $elemMatch: { doctorId: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } },
+            { assignment: { $elemMatch: { assignedTo: doctor._id, assignedAt: { $gte: filterStartDate, $lte: filterEndDate } } } }
+        ]
+    };
+} else {
+    baseQuery = {
+        $or: [
+            { 'lastAssignedDoctor.doctorId': doctor._id },
+            { 'assignment.assignedTo': doctor._id }
+        ]
+    };
+}
+
+// 🔧 FIX: Combine base query with status filter
+queryFilters = { 
+    ...baseQuery,
+    workflowStatus: { $in: DOCTOR_STATUS_CATEGORIES.completed }
+};
+
 
 
         // 🔧 STEP 3: Optimized other filters with better type handling
@@ -1785,6 +1905,7 @@ break;
                     studyInstanceUID: 1,
                     accessionNumber: 1,
                     examDescription: 1,
+                    modalitiesInStudy: 1,
                     studyDescription: 1,
                     modality: 1,
                     seriesImages: 1,
@@ -1805,7 +1926,11 @@ break;
                     'reportInfo.reporterName': 1,
                     patient: 1,
                     sourceLab: 1,
-                    patientInfo: 1 // Keep for fallback
+                    patientInfo: 1, // Keep for fallback
+                    age: 1,
+                    gender: 1,
+                    clinicalHistory: 1,
+                    preProcessedDownload: 1
                 }
             },
             
@@ -1880,7 +2005,7 @@ break;
                 lookupPromises.push(
                     mongoose.model('Patient')
                         .find({ _id: { $in: uniqueIds.patients.map(id => new mongoose.Types.ObjectId(id)) } })
-                        .select('patientID patientNameRaw gender ageString computed.fullName')
+                        .select('patientID patientNameRaw gender ageString computed.fullName clinicalInfo.clinicalHistory')
                         .lean()
                         .then(results => ({ type: 'patients', data: results }))
                 );
@@ -1947,6 +2072,10 @@ break;
             // Get related data from maps (faster than repeated lookups)
             const patient = lookupMaps.patients.get(study.patient?.toString()) || study.patientInfo;
             const sourceLab = lookupMaps.labs.get(study.sourceLab?.toString());
+            const hasWasabiZip = study.preProcessedDownload?.zipStatus === 'completed' && 
+                        study.preProcessedDownload?.zipUrl &&
+                        (!study.preProcessedDownload?.zipExpiresAt || 
+                         study.preProcessedDownload.zipExpiresAt > new Date());
             
             // Handle assignment data efficiently
             const assignmentData = (study.assignment && study.assignment.length > 0) ? 
@@ -1957,8 +2086,9 @@ break;
             // Optimized patient display building
             const patientName = patient?.computed?.fullName || patient?.patientNameRaw || 'N/A';
             const patientId = patient?.patientID || 'N/A';
-            const ageGender = (patient?.ageString && patient?.gender) ? 
-                             `${patient.ageString} / ${patient.gender}` : 'N/A';
+            const patientAgeGenderDisplay = study.age && study.gender ? 
+                                `${study.age}/${study.gender}` : 
+                                study.age || study.gender || 'N/A';
 
             // Optimized date formatting
             const studyDateTime = study.studyDate && study.studyTime ? 
@@ -1973,11 +2103,12 @@ break;
                 accessionNumber: study.accessionNumber,
                 patientId: patientId,
                 patientName: patientName,
-                ageGender: ageGender,
+                ageGender: patientAgeGenderDisplay,
                 description: study.examDescription || study.studyDescription || 'N/A',
-                modality: study.modality || 'N/A',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 seriesImages: study.seriesImages || `${study.seriesCount || 0}/${study.instanceCount || 0}`,
-                location: sourceLab?.name || 'N/A',
+                location: 'N/A', 
                 studyDateTime: study.studyDate && study.studyTime 
                 ? formatDicomDateTime(study.studyDate, study.studyTime)
                 : study.studyDate 
@@ -2016,7 +2147,19 @@ break;
                     }).replace(',', '');
                 })()
                 : null,
+
+                 downloadOptions: {
+        hasWasabiZip: hasWasabiZip,
+        hasR2Zip: hasWasabiZip,
+        wasabiFileName: study.preProcessedDownload?.zipFileName || null,
+        wasabiSizeMB: study.preProcessedDownload?.zipSizeMB || 0,
+        wasabiDownloadCount: study.preProcessedDownload?.downloadCount || 0,
+        wasabiCreatedAt: study.preProcessedDownload?.zipCreatedAt || null,
+        wasabiExpiresAt: study.preProcessedDownload?.zipExpiresAt || null,
+        zipStatus: study.preProcessedDownload?.zipStatus || 'not_started'
+    },
                 workflowStatus: study.workflowStatus,
+                clinicalHistory: study?.clinicalHistory?.clinicalHistory || patient?.clinicalInfo?.clinicalHistory || '',
                 currentCategory: study.currentCategory,
                 createdAt: study.createdAt,
                 priority: assignmentData?.priority || 'NORMAL',
@@ -2078,6 +2221,60 @@ break;
         });
     }
 };
+
+export const getCurrentDoctorProfile = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    console.log('🔍 Fetching doctor profile for user:', userId);
+    
+    const doctor = await Doctor.findOne({ userAccount: userId })
+      .populate('userAccount', 'fullName email username')
+      .lean();
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Doctor profile not found'
+      });
+    }
+    
+    // Format response with signature
+    const doctorProfile = {
+      _id: doctor._id,
+      fullName: doctor.userAccount.fullName,
+      email: doctor.userAccount.email,
+      username: doctor.userAccount.username,
+      specialization: doctor.specialization,
+      licenseNumber: doctor.licenseNumber,
+      department: doctor.department,
+      qualifications: doctor.qualifications,
+      yearsOfExperience: doctor.yearsOfExperience,
+      contactPhoneOffice: doctor.contactPhoneOffice,
+      signature: doctor.signature, // Base64 signature
+      signatureMetadata: doctor.signatureMetadata,
+      isActive: doctor.isActiveProfile && doctor.userAccount.isActive
+    };
+    
+    console.log('✅ Doctor profile found:', {
+      name: doctorProfile.fullName,
+      specialization: doctorProfile.specialization,
+      hasSignature: !!doctorProfile.signature
+    });
+    
+    res.json({
+      success: true,
+      doctor: doctorProfile
+    });
+    
+  } catch (error) {
+    console.error('❌ Error fetching doctor profile:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch doctor profile',
+      error: error.message
+    });
+  }
+}
 
 
 
