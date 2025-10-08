@@ -389,7 +389,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
             { $sort: { createdAt: -1 } },
             
             // 🔥 CRITICAL: Limit early to reduce pipeline processing
-            { $limit: Math.min(limit, 1000) },
+            { $limit: Math.min(limit, 1500) },
             
             // 🔥 PERFORMANCE: Project only after limiting
             {
