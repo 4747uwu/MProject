@@ -7,7 +7,7 @@ const DropdownPagination = ({
   usePagination = true,
   loading = false 
 }) => {
-  const recordOptions = [10, 20, 50, 100, 500, 1000];
+  const recordOptions = [10, 20, 50, 100, 500, 1000, 1500];
 
   const handleRecordsChange = (newLimit) => {
     console.log(`📊 DROPDOWN: Changing records per page to ${newLimit}`);
