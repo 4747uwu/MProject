@@ -2801,7 +2801,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
 export const getCompletedStudies = async (req, res) => {
     try {
         const startTime = Date.now();
-        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const limit = Math.min(parseInt(req.query.limit) || 20, 1000);
 
         const doctor = await Doctor.findOne({ userAccount: req.user._id }).lean();
         if (!doctor) {
