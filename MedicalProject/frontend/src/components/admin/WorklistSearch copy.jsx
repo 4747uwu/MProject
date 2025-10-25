@@ -49,7 +49,7 @@ const WorklistSearch = React.memo(({
   // Basic filters for advanced search
   const [patientName, setPatientName] = useState('');
   const [patientId, setPatientId] = useState('');
-  const [accessionNumber, setPatientAccessionNumber] = useState('');
+  const [accessionNumber, setAccessionNumber] = useState(''); // Changed from setPatientAccessionNumber
   const [description, setDescription] = useState('');
   
   // Enhanced filters matching the UI design
@@ -325,21 +325,9 @@ const selectedLocationLabel = useMemo(() => {
     setPatientName('');
     setPatientId('');
     setRefName('');
-    setAccessionNumber('');
+    setAccessionNumber(''); // ✅ This is correct now
     setDescription('');
     setWorkflowStatus('all');
-    
-    // Clear date filters via props
-    if (onCustomDateChange) {
-      onCustomDateChange('', '');
-    }
-    if (onDateFilterChange) {
-      onDateFilterChange('today');
-    }
-    if (onDateTypeChange) {
-      onDateTypeChange('UploadDate');
-    }
-    
     setEmergencyCase(false);
     setMlcCase(false);
     setStudyType('all');
@@ -351,10 +339,22 @@ const selectedLocationLabel = useMemo(() => {
       PR: false,
       'CT\\SR': false
     });
-    
-    // Trigger normal admin data fetch (no search)
-    console.log('🧹 CLEAR: Triggering normal admin data fetch');
-    onSearchWithBackend(null);
+
+    // Clear date filters via props
+    if (onCustomDateChange) {
+      onCustomDateChange('', '');
+    }
+    if (onDateFilterChange) {
+      onDateFilterChange('today');
+    }
+    if (onDateTypeChange) {
+      onDateTypeChange('UploadDate');
+    }
+
+    // Reset to default admin view
+    if (onSearchWithBackend) {
+      onSearchWithBackend(null);
+    }
   }, [onCustomDateChange, onDateFilterChange, onDateTypeChange, onSearchWithBackend]);
 
   const toggleExpanded = useCallback(() => {
@@ -926,7 +926,7 @@ const selectedLocationLabel = useMemo(() => {
                     <input
                       type="text"
                       value={accessionNumber}
-                      onChange={(e) => setPatientAccessionNumber(e.target.value)}
+                      onChange={(e) => setAccessionNumber(e.target.value)} // ✅ FIXED: Now matches the state setter
                       className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter accession number..."
                     />

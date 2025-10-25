@@ -144,6 +144,24 @@ const selectedLocationLabel = useMemo(() => {
     
     let filtered = [...allStudies];
 
+    // 🆕 ADD: Category filtering when lab is selected (hybrid mode)
+    if (selectedLocation !== 'ALL' && activeCategory !== 'all') {
+        console.log(`🔧 FRONTEND FILTERING: Applying category filter for ${activeCategory}`);
+        
+        const categoryStatusMap = {
+            pending: ['new_study_received', 'pending_assignment', 'assigned_to_doctor', 'doctor_opened_report', 'report_in_progress', 'report_downloaded_radiologist', 'report_downloaded'],
+            inprogress: ['report_finalized', 'report_drafted', 'report_uploaded'],
+            completed: ['final_report_downloaded']
+        };
+        
+        if (categoryStatusMap[activeCategory]) {
+            filtered = filtered.filter(study => 
+                categoryStatusMap[activeCategory].includes(study.workflowStatus)
+            );
+            console.log(`🔧 FRONTEND FILTERING: Applied ${activeCategory} category filter, ${filtered.length} remaining`);
+        }
+    }
+
     // ✅ FRONTEND ONLY: Advanced search filters (NOT quick search or lab)
     
     // Advanced patient search (separate from quick search)
@@ -251,7 +269,8 @@ const selectedLocationLabel = useMemo(() => {
     return filtered;
   }, [
     allStudies, 
-    // ❌ NOT INCLUDED: quickSearchTerm, searchType, selectedLocation (these are backend now)
+    selectedLocation, // 🆕 ADD: Include selectedLocation
+    activeCategory,   // 🆕 ADD: Include activeCategory
     patientName, patientId, refName, accessionNumber, description,
     workflowStatus, modalities, emergencyCase, mlcCase, studyType
   ]);
