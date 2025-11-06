@@ -98,6 +98,55 @@ class CloudflareR2ZipService {
         }
     }
 
+      // 🔧 FIXED: Add this method to your CloudflareR2ZipService class
+    async uploadZipBuffer({ buffer, fileName, studyDatabaseId, studyInstanceUID, instanceCount, seriesCount }) {
+        try {
+            const year = new Date().getFullYear();
+            const key = `studies/${year}/${fileName}`;
+            
+            console.log(`[R2] 📤 Uploading ZIP buffer to bucket: ${this.zipBucket}, key: ${key}`);
+            console.log(`[R2] 📊 Buffer size: ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+            
+            // Upload buffer to R2
+            const uploadResult = await this.r2.send(new PutObjectCommand({
+                Bucket: this.zipBucket, // Use this.zipBucket instead of this.bucketName
+                Key: key,
+                Body: buffer,
+                ContentType: 'application/zip',
+                ContentDisposition: `attachment; filename="${fileName}"`,
+                CacheControl: 'public, max-age=86400',
+                Metadata: {
+                    studyDatabaseId: studyDatabaseId.toString(),
+                    studyInstanceUID: studyInstanceUID,
+                    instanceCount: instanceCount.toString(),
+                    seriesCount: seriesCount.toString(),
+                    uploadMethod: 'direct_image_upload',
+                    createdAt: new Date().toISOString(),
+                    serviceVersion: 'cloudflare-r2-v1'
+                }
+            }));
+            
+            // Generate public URL using the config
+            const zipUrl = `${r2Config.publicUrlPattern}/${key}`;
+            
+            console.log(`[R2] ✅ ZIP buffer uploaded successfully`);
+            console.log(`[R2] 🌐 ZIP URL: ${zipUrl}`);
+            
+            return {
+                success: true,
+                zipUrl: zipUrl,
+                zipKey: key,
+                fileName: fileName,
+                sizeMB: (buffer.length / 1024 / 1024)
+            };
+            
+        } catch (error) {
+            console.error('❌ Error uploading ZIP buffer to R2:', error);
+            throw error;
+        }
+    }
+
+
     // Create and upload study ZIP to Cloudflare R2
     async createAndUploadStudyZipToR2(job) {
         const { orthancStudyId, studyDatabaseId, studyInstanceUID } = job.data;

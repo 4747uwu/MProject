@@ -47,12 +47,11 @@ const UniversalNavbar = () => {
           activeColor: 'text-blue-600 bg-blue-50',
           links: [
             { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
-            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' }, // 🆕 NEW
-                    { to: '/admin/labs', label: 'Labs', icon: 'labs' }, // 🆕 NEW
-            // { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
+            { to: '/admin/dicom-uploader', label: 'Upload Images', icon: 'upload', exact: false }, // 🆕 NEW: DICOM uploader link
+            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
+            { to: '/admin/labs', label: 'Labs', icon: 'labs' },
             { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
-                        { to: '/admin/templates', label: 'Templates', icon: 'templates', exact: false }, // ✅ ADDED
-
+            { to: '/admin/templates', label: 'Templates', icon: 'templates', exact: false },
           ]
         };
       case 'doctor_account':
@@ -77,6 +76,7 @@ const UniversalNavbar = () => {
           activeColor: 'text-orange-600 bg-orange-50',
           links: [
             { to: '/lab', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/admin/dicom-uploader', label: 'Upload Images', icon: 'upload', exact: false }, // 🆕 NEW: Lab staff can also upload
           ]
         };
       default:
@@ -550,10 +550,10 @@ const UniversalNavbar = () => {
                                 <path d="M14.04 21h19.92a11.475 11.475 0 0 1-2.89 6.78 10.944 10.944 0 0 1-1.16 1.1 9.3 9.3 0 0 1-11.82 0 11.241 11.241 0 0 1-3.93-6.9c-.05-.32-.09-.65-.12-.98zM32 13H11c0-7.18 5.82-12 13-12a13.658 13.658 0 0 1 9.19 3.31A11.416 11.416 0 0 1 37 13h-5z" style={{fill: "#64e1dc"}} />
                                 <path d="m23.76 39.83 7.13-4.75a2 2 0 0 0 .65.28l4.02.95L23 45v2h-4v-4z" style={{fill: "#00a0aa"}} />
                                 <path d="m32.986 35.7-1.446-.34a2 2 0 0 1-.65-.28l-7.13 4.75L19 43v4h2v-3z" style={{fill: "#1cadb5"}} />
-                                <path d="M47 43.75V47H23v-2l12.56-8.69 6.81 1.6A6.009 6.009 0 0 1 47 43.75zM23.76 39.83 19 43v4H1v-3.25a6.009 6.009 0 0 1 4.63-5.84l10.83-2.55a2 2 0 0 0 .65-.28z" style={{fill: "#64e1dc"}} />
+                                <path d="M47 43.75V47H23v-2l12.56-8.69 6.81 1.6A6.009 6.009 0 0 1 47 43.75zM23.76 39.83 19 43v4H1v-3.25a6.009 6.009 0 0 1  4.63-5.84l10.83-2.55a2 2 0 0 0 .65-.28z" style={{fill: "#64e1dc"}} />
                                 <path d="M17.11 35.08a2 2 0 0 1-.65.28l-1.473.347 5.773 4.123L17 42v5h2v-4l4.76-3.17zM30.391 38l1.749.677 3.42-2.367-2.574-.608-2.999 2.076.404.222z" style={{fill: "#00c8c8"}} />
                                 <path d="m32.986 35.7-1.446-.34a2 2 0 0 1-.65-.28l-2.631 1.753 1.728.945z" style={{fill: "#64e1dc"}} />
-                                <path d="M47 43.75a6.009 6.009 0 0 0-4.63-5.84l-6.81-1.6-3.42 2.367.065.025 2.35.608 6.218 1.6A5.923 5.923 0  a 0 1 45 46.75V47h2zM7.227 40.91 17.609 38l.333-.183-2.955-2.11 1.473-.347-10.83 2.55A6.009 6.009 0 0 0 1 43.75V47h2v-.25a5.923 5.923 0 0 1 4.227-5.84z" style={{fill: "#96ebe6"}} />
+                                <path d="M47 43.75a6.009 6.009 0 0 0-4.63-5.84l-6.81-1.6-3.42 2.367.065.025 2.35.608 6.218 1.6A5.923 5.923 0 0 1 45 46.75V47h2zM7.227 40.91 17.609 38l.333-.183-2.955-2.11 1.473-.347-10.83 2.55A6.009 6.009 0 0 0 1 43.75V47h2v-.25a5.923 5.923 0 0 1 4.227-5.84z" style={{fill: "#96ebe6"}} />
                                 <path d="m17.942 37.817 1.7-.93-2.532-1.807a2 2 0 0 1-.65.28l-1.473.347z" style={{fill: "#64e1dc"}} />
                                 <path style={{fill: "#1cadb5"}} d="M19 10h2v3h-2zM23 10h2v3h-2zM27 10h2v3h-2zM31 10h2v3h-2zM15 10h2v3h-2z" />
                                 <path d="M18 15h16v-2H14v7c0 .34.01.67.04 1h2c-.03-.33-.04-.66-.04-1v-3a2 2 0 0 1 2-2z" style={{fill: "#ffbeaa"}} />

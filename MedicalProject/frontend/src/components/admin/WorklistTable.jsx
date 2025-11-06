@@ -33,6 +33,8 @@ import {
 import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
+// ✅ ADD: Wasabi download function inside your WorklistTable component
+// ✅ UPDATED: R2 CDN download function
 const handleWasabiDownload = async (study) => {
     try {
         const loadingToast = toast.loading('Getting R2 CDN download URL...');
@@ -253,10 +255,10 @@ const DownloadDropdown = ({ study }) => {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
               d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
       </svg>
-      🌐 Download ZIP (Fast!)
-      {/* <span className="ml-auto text-xs text-gray-500">
+      🌐 Download from R2 CDN
+      <span className="ml-auto text-xs text-gray-500">
         {study.downloadOptions?.wasabiSizeMB || 0}MB
-      </span> */}
+      </span>
     </button>
 )}
               
@@ -268,7 +270,7 @@ const DownloadDropdown = ({ study }) => {
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                Download ZIP
+                Download ZIP (Direct from Orthanc)
               </button>
               
               {/* ✅ SHOW STATUS: If no Wasabi ZIP available */}
@@ -511,63 +513,56 @@ const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 
 };
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
+
+
 const handleExportWorklist = useCallback(async () => {
   try {
-    // Show loading toast
     const loadingToastId = toast.loading('Preparing Excel export...', { duration: 10000 });
     
-    // Prepare query parameters for filtering
     const queryParams = new URLSearchParams();
     
-    // 🔧 FIX: Map frontend tab names to actual database status values
+    // 🔧 FIXED: Use multiple status values based on your STATUS_CONFIG
     const statusMapping = {
-      'all': null, // Don't add status filter for 'all'
-      'pending': 'pending_assignment', // Map to actual DB value
-      'inprogress': 'assigned_to_doctor', // Map to actual DB value  
-      'completed': 'report_finalized' // Map to actual DB value
+      'all': null,
+      
+      // 🔴 PENDING: All statuses with category 'pending'
+      'pending': ['new_study_received', 'new', 'pending_assignment'],
+      
+      // 🟡 IN PROGRESS: All statuses with category 'inprogress' 
+      'inprogress': ['assigned_to_doctor', 'doctor_opened_report', 'report_in_progress'],
+      
+      // 🔵 COMPLETED: All statuses with category 'completed'
+      'completed': ['report_drafted', 'report_finalized', 'report_uploaded', 'report_downloaded_radiologist', 'report_downloaded'],
+      
+      // 🟢 FINAL/ARCHIVED: All statuses with category 'final'
+      'final': ['final_report_downloaded', 'archived']
     };
     
-    // Add current filter parameters if available
+    console.log('🔍 Current activeTab:', activeTab);
+    
     if (activeTab && activeTab !== 'all') {
-      const dbStatus = statusMapping[activeTab];
-      if (dbStatus) {
-        queryParams.append('status', dbStatus);
+      const dbStatuses = statusMapping[activeTab];
+      console.log('🔍 Mapped statuses:', { activeTab, dbStatuses });
+      
+      if (dbStatuses && Array.isArray(dbStatuses)) {
+        // Send comma-separated status values for backend to handle
+        queryParams.append('statuses', dbStatuses.join(','));
+        console.log('📝 Final status filter:', dbStatuses.join(','));
+      } else {
+        console.warn('⚠️ No mapping found for tab:', activeTab);
       }
-      console.log('🔍 Mapped tab to status:', { activeTab, dbStatus });
     }
     
-    // If you have selected studies, export only those
     if (selectedStudies.length > 0) {
       queryParams.append('studyIds', selectedStudies.join(','));
       console.log('🔍 Selected studies for export:', selectedStudies.length);
     }
     
-    // 🆕 ADD: Add additional common filters if they exist in your component
-    // You can uncomment and modify these based on your actual filter state
-    /*
-    if (searchTerm) {
-      queryParams.append('search', searchTerm);
-    }
-    if (selectedModality) {
-      queryParams.append('modality', selectedModality);
-    }
-    if (selectedLocation) {
-      queryParams.append('location', selectedLocation);
-    }
-    if (dateRange?.start) {
-      queryParams.append('startDate', dateRange.start);
-    }
-    if (dateRange?.end) {
-      queryParams.append('endDate', dateRange.end);
-    }
-    */
-    
     console.log('🔍 Final export parameters:', queryParams.toString());
     
-    // Call the backend endpoint
     const response = await api.get(`/footer/export?${queryParams.toString()}`, {
-      responseType: 'blob', // Important for file downloads
-      timeout: 120000 // 2 minute timeout for large exports
+      responseType: 'blob',
+      timeout: 120000
     });
     
     console.log('📊 Export response headers:', {
@@ -576,17 +571,14 @@ const handleExportWorklist = useCallback(async () => {
       contentDisposition: response.headers['content-disposition']
     });
     
-    // Dismiss loading toast
     toast.dismiss(loadingToastId);
     
-    // Check if we actually got data
     if (response.data.size === 0) {
       console.warn('⚠️ Export returned empty file');
       toast.error('Export returned empty file. No matching studies found.');
       return;
     }
     
-    // Create blob URL and trigger download
     const blob = new Blob([response.data], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     });
@@ -595,21 +587,16 @@ const handleExportWorklist = useCallback(async () => {
     const link = document.createElement('a');
     link.href = downloadUrl;
     
-    // Generate filename with current date
     const today = new Date().toISOString().slice(0, 10);
     const exportType = selectedStudies.length > 0 ? 'Selected' : 'All';
     const tabFilter = activeTab !== 'all' ? `_${activeTab}` : '';
     link.download = `Worklist_${exportType}${tabFilter}_${today}.xlsx`;
     
-    // Trigger download
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
-    // Clean up blob URL
     window.URL.revokeObjectURL(downloadUrl);
     
-    // Show success message
     const exportedCount = selectedStudies.length > 0 ? selectedStudies.length : filteredStudies.length;
     toast.success(`✅ Exported ${exportedCount} studies to Excel`, {
       duration: 4000,
@@ -619,9 +606,7 @@ const handleExportWorklist = useCallback(async () => {
     console.log('✅ Export completed successfully');
     
   } catch (error) {
-    // Dismiss any loading toasts
     toast.dismiss();
-    
     console.error('❌ Export error:', error);
     console.error('❌ Error details:', {
       status: error.response?.status,
@@ -629,7 +614,6 @@ const handleExportWorklist = useCallback(async () => {
       data: error.response?.data
     });
     
-    // Handle specific error cases
     if (error.response?.status === 404) {
       toast.error('Export endpoint not found. Please contact support.');
     } else if (error.response?.status === 401) {
@@ -644,7 +628,9 @@ const handleExportWorklist = useCallback(async () => {
       toast.error(`Export failed: ${error.message || 'Unknown error'}`);
     }
   }
-}, [filteredStudies, selectedStudies, activeTab]);  const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
+}, [filteredStudies, selectedStudies, activeTab]);
+
+  const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
   const handleBulkZipDownload = useCallback(async () => toast.success(`Initiated download for ${selectedStudies.length} studies`), [selectedStudies]);
 
   const listRef = useRef(null);
@@ -720,7 +706,7 @@ const cardGrid = useMemo(() => (
   
   return (
     <>
-      <div className="bg-white w-full h-full rounded-xl shadow-xl border border-gray-200 flex flex-col">
+      <div className="bg-white w-full h-full rounded-xl shadow-xl border border-gray-200 flex flex-col worklist-container">
         
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-gray-200 rounded-lg flex-shrink-0">
           <div className="bg-gray-400 text-white p-1 rounded-t-lg">
@@ -765,11 +751,17 @@ const cardGrid = useMemo(() => (
         
         <div className="flex-1 min-h-0 relative">
           {loading ? (
-            <div className="flex justify-center items-center h-full bg-gray-50"><div className="text-center"><div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div><p className="text-gray-600 font-medium">Loading studies...</p></div></div>
+            <div className="flex justify-center items-center h-full bg-gray-50">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent mx-auto mb-4"></div>
+              <p className="text-gray-600 font-medium">Loading studies...</p>
+            </div>
+          </div>
           ) : (
             <>
               {cardGrid}
               <div className="hidden lg:flex flex-col w-full h-full">
+                {/* Header row */}
                 <div className="flex items-center bg-gradient-to-r from-gray-100 to-gray-200 border-b-2 border-gray-300 w-full text-xs font-bold text-gray-700 uppercase tracking-wider sticky top-0 z-10 flex-shrink-0">
                   {visibleColumns.checkbox && <div className="flex-shrink-0 w-8 px-2 py-2 text-center border-r border-gray-300"><input type="checkbox" className="rounded border-gray-300 w-4 h-4" checked={selectedStudies.length === filteredStudies.length && filteredStudies.length > 0} onChange={(e) => handleSelectAll(e.target.checked)}/></div>}
                   {visibleColumns.status && <div className="flex-shrink-0 w-16 px-2 py-2 text-center border-r border-gray-300">Status</div>}
@@ -778,12 +770,12 @@ const cardGrid = useMemo(() => (
                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">🔗</div>}
                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">💬</div>}
                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 py-2 border-r border-gray-300">Patient ID</div>}
-                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[150px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
+                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Age/Sex</div>}
-                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Description</div>}
+                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Description</div>}
                   {visibleColumns.series && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Series</div>}
                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 py-2 text-center border-r border-gray-300">Modality</div>}
-                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 py-2 border-r border-gray-300">Location</div>}
+                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 py-2 border-r border-gray-300">Location</div>}
                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Study Date</div>}
                   {visibleColumns.uploadDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300 hidden xl:block">Upload Date</div>}
                   {visibleColumns.reportedDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Reported Date</div>}
@@ -792,7 +784,7 @@ const cardGrid = useMemo(() => (
                   {visibleColumns.seenBy && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300 hidden xl:block">Seen By</div>}
                   {visibleColumns.actions && <div className="flex-1 min-w-[80px] px-2 py-2 text-center border-r border-gray-300">Actions</div>}
                   {visibleColumns.report && <div className="flex-1 max-w-[40px] px-2 py-2 text-center border-r border-gray-300"><span title="Report"><svg xmlns="http://www.w3.org/2000/svg" className="inline h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2a2 2 0 012-2h2a2 2 0 012 2v2m-6 4h6a2 2 0 002-2V7a2 2 0 00-2-2h-2.586a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 009.586 2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg></span></div>}
-                  {visibleColumns.assignDoctor && canAssignDoctors && <div className="flex-shrink-0 w-24 px-2 py-2 text-center">Assign Doctor</div>}
+                  {visibleColumns.assignDoctor && canAssignDoctors && <div className="flex-1 min-w-[80px] px-2 py-2 text-center border-r border-gray-300">Assign Doctor</div>}
                 </div>
                 
                 <div className="w-full flex-1 relative">
@@ -809,6 +801,12 @@ const cardGrid = useMemo(() => (
                           itemSize={ROW_HEIGHT} 
                           itemData={virtualListData} 
                           overscanCount={5}
+                          className="worklist-scrollable worklist-list" // 🔧 ADDED: Both classes
+                          style={{
+                            // 🔧 FORCE scrollbars to show
+                            scrollbarWidth: 'auto',
+                            scrollbarColor: '#cbd5e1 #f8fafc'
+                          }}
                         >
                           {({ index, style, data }) => {
                             const { studies, visibleColumns, selectedStudies, callbacks } = data;
@@ -833,12 +831,12 @@ const cardGrid = useMemo(() => (
                                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><ShareButton study={study} /></div>}
                                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><DiscussionButton study={study} /></div>}
                                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 flex items-center border-r border-gray-300 h-full"><button onClick={() => callbacks.onPatienIdClick(study.patientId, study)} className={`hover:underline text-sm font-medium truncate block w-full text-left ${isEmergency ? 'text-red-700 hover:text-red-900' : 'text-blue-600 hover:text-blue-800'}`}>{study.patientId}{isEmergency && (<span className="ml-1 inline-flex items-center px-1 py-0.5 rounded text-xs font-bold bg-red-600 text-white">EMERGENCY</span>)}</button></div>}
-                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
+                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
                                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.ageGender || study.patientAge || 'N/A'}</div></div>}
-                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
+                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
                                   {visibleColumns.series && (<div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.seriesImages || study.numberOfSeries || 'N/A'}</div></div>)}
                                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 flex items-center justify-center border-r border-gray-300 h-full"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${isEmergency ? 'bg-red-600 text-white' : 'text-black'}`}>{study.modality || 'N/A'}</span></div>}
-                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
+                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
                                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDateTime
                             }</div>
                             

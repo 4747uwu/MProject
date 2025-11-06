@@ -1,6 +1,8 @@
 
 
 import express from 'express';
+import multer from 'multer';
+
 import {
     registerLabAndStaff,
     registerDoctor,
@@ -42,6 +44,9 @@ import {
     getSearchSuggestions, 
     getSearchValues // ✅ NEW: Search-based values
 } from '../controllers/search.controller.js';
+
+import { uploadImages, getAvailableLabs, getUploadStatus } from '../controllers/dicomUploader.controller.js';
+
 
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
@@ -111,11 +116,34 @@ router.post('/doctors/:doctorId/send-email', sendDoctorEmail);
 router.get('/doctors/:doctorId/stats', getDoctorStats);
 router.post('/doctors/:doctorId/reset-password', resetDoctorPassword)
 
-/ router.post('/doctors/register-with-signature', 
+ router.post('/doctors/register-with-signature', 
         protect, 
         authorize('admin'), 
         uploadDoctorSignature,
         registerDoctor
     );
+
+
+// ===============================
+// 📂 DICOM UPLOADER ROUTES
+// ===============================
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 50 * 1024 * 1024, // 50MB per file
+        files: 50 // Max 50 files
+    },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed'), false);
+        }
+    }
+});
+
+router.post('/dicom-uploader/upload', protect, upload.array('images'), uploadImages);
+router.get('/dicom-uploader/labs', protect, getAvailableLabs);
+router.get('/dicom-uploader/status', protect, getUploadStatus);
 
 export default router;

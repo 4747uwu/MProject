@@ -33,9 +33,102 @@ import {
 import api from '../../services/api'
 import sessionManager from '../../services/sessionManager';
 
+const handleWasabiDownload = async (study) => {
+    try {
+        const loadingToast = toast.loading('Getting R2 CDN download URL...');
+        
+        // ✅ CHANGED: Use R2 endpoint instead of Wasabi
+        const response = await api.get(`/download/study/${study.orthancStudyID}/r2-direct`);
+        
+        toast.dismiss(loadingToast);
+        
+        if (response.data.success) {
+            const { downloadUrl, fileName, fileSizeMB, expectedSpeed, storageProvider } = response.data.data;
+            
+            console.log('✅ R2 CDN download URL received:', fileName);
+            
+            // Large file handling with R2 info
+            if (fileSizeMB > 100) {
+                const downloadChoice = confirm(
+                    `Large file detected: ${fileName} (${fileSizeMB}MB)\n\n` +
+                    `🚀 Storage: ${storageProvider} with CDN\n` +
+                    `⚡ Expected speed: ${expectedSpeed}\n` +
+                    `🌐 Global CDN: Enabled\n\n` +
+                    `Click OK for direct download, or Cancel to copy URL.`
+                );
+                
+                if (!downloadChoice) {
+                    try {
+                        await navigator.clipboard.writeText(downloadUrl);
+                        toast.success(
+                            `📋 R2 CDN URL copied!\n\n` +
+                            `🚀 Cloudflare R2 with global CDN\n` +
+                            `⚡ ${expectedSpeed}\n` +
+                            `🔗 Permanent URL (no expiry)`,
+                            { duration: 8000, icon: '🌐' }
+                        );
+                        return;
+                    } catch (clipboardError) {
+                        prompt('Copy this R2 CDN URL:', downloadUrl);
+                        return;
+                    }
+                }
+            }
+            
+            // Direct browser download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = fileName;
+            link.target = '_blank';
+            link.style.display = 'none';
+            
+            // R2 + CDN attributes
+            link.setAttribute('data-storage-provider', 'cloudflare-r2');
+            link.setAttribute('data-cdn-enabled', 'true');
+            link.setAttribute('crossorigin', 'anonymous');
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Enhanced success message
+            toast.success(
+                `🚀 R2 CDN Download started: ${fileName}\n` +
+                `📁 Size: ${fileSizeMB}MB\n` +
+                `⚡ ${expectedSpeed}\n` +
+                `🌐 Cloudflare Global CDN`,
+                { duration: 6000, icon: '🌐' }
+            );
+            
+        } else {
+            console.error('R2 CDN download failed:', response.data.message);
+            toast.error(response.data.message || 'R2 download failed');
+        }
+    } catch (error) {
+        toast.dismiss();
+        console.error('R2 CDN download error:', error);
+        
+        if (error.response?.status === 404) {
+            toast.error('ZIP file not found in R2. Creating new one...');
+        } else if (error.response?.status === 410) {
+            toast.error('ZIP file has expired. Creating a new one...');
+        } else {
+            toast.error('Failed to get R2 CDN download URL');
+        }
+    }
+};
+
+// ✅ UPDATED: Button text for R2
+
+
 const DownloadDropdown = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+ const hasR2Zip = study.downloadOptions?.hasWasabiZip || 
+                   study.downloadOptions?.hasR2Zip || 
+                   study.preProcessedDownload?.zipStatus === 'completed';  
+  console.log('🌊 Wasabi ZIP available:', hasR2Zip, 'for study:', study.orthancStudyID);
+  console.log('🌐 R2 ZIP available:', hasR2Zip, 'for study:', study.orthancStudyID);
 
   const handleLaunchRadiantViewer = useCallback(async () => {
     try {
@@ -120,7 +213,7 @@ const DownloadDropdown = ({ study }) => {
     }
   };
   
-  return (
+   return (
     <div className="relative">
       <button 
         onClick={() => setIsOpen(!isOpen)}
@@ -138,20 +231,58 @@ const DownloadDropdown = ({ study }) => {
           <div className="absolute right-0 mt-1 w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-20">
             <div className="py-1">
               
-            <button
-              onClick={handleLaunchRadiantViewer}
-              className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors rounded"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553 2.276A2 2 0 0121 14.09V17a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.91a2 2 0 01.447-1.814L8 10m7-6v6m0 0l-3-3m3 3l3-3" />
-              </svg>
-              Radiant Viewer
-            </button>
+              {/* ✅ EXISTING: Radiant Viewer */}
+              <button
+                onClick={handleLaunchRadiantViewer}
+                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553 2.276A2 2 0 0121 14.09V17a2 2 0 01-2 2H5a2 2 0 01-2-2v-2.91a2 2 0 01.447-1.814L8 10m7-6v6m0 0l-3-3m3 3l3-3" />
+                </svg>
+                Radiant Viewer
+              </button>
               
-              <button onClick={handleDownloadStudy} className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              {/* ✅ NEW: Wasabi download button - ONLY show if hasWasabiZip is true */}
+ {hasR2Zip && (
+    <button
+      onClick={() => handleWasabiDownload(study)}
+      className="flex items-center w-full px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 transition-colors"
+      title="Download pre-processed ZIP from Cloudflare R2 with global CDN"
+    >
+      <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+      </svg>
+      🌐 Download ZIP (Fast!)
+      {/* <span className="ml-auto text-xs text-gray-500">
+        {study.downloadOptions?.wasabiSizeMB || 0}MB
+      </span> */}
+    </button>
+)}
+              
+              {/* ✅ EXISTING: Direct download */}
+              <button 
+                onClick={handleDownloadStudy} 
+                className="flex items-center w-full px-3 py-2 text-sm text-gray-700 hover:bg-green-50 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
                 Download ZIP
               </button>
+              
+              {/* ✅ SHOW STATUS: If no Wasabi ZIP available */}
+              {!hasR2Zip && (
+    <div className="px-3 py-2 text-xs text-gray-500 italic border-t">
+      {study.downloadOptions?.zipStatus === 'processing' ? (
+        '⏳ ZIP being prepared...'
+      ) : study.downloadOptions?.zipStatus === 'failed' ? (
+        '❌ ZIP creation failed'
+      ) : (
+        '📦 No pre-processed ZIP available'
+      )}
+    </div>
+)}
             </div>
           </div>
         </>
@@ -323,17 +454,23 @@ const WorklistTable = React.memo(({
     }
   }, [selectedStudies, studies]);
 
-  const handleAssignmentSuccess = useCallback((studyId, assignedDoctors) => {
+  // ✅ FIXED: Add action parameter to function signature
+const handleAssignmentSuccess = useCallback((studyId, assignedDoctors, action = 'assign') => {
     setImmediateUpdates(prev => ({
-      ...prev,
-      [studyId]: {
-        workflowStatus: 'assigned_to_doctor',
-        assignedDoctors: assignedDoctors,
-        timestamp: Date.now()
-      }
+        ...prev,
+        [studyId]: {
+            workflowStatus: action === 'unassign_selected' ? 'pending_assignment' : 'assigned_to_doctor',
+            assignedDoctors: action === 'unassign_selected' ? [] : assignedDoctors,
+            timestamp: Date.now()
+        }
     }));
-    toast.success(`✅ Study assigned to ${assignedDoctors.map(d => `Dr. ${d.name}`).join(', ')}!`);
-  }, []);
+
+    // ✅ KEY FIX: Only show assignment toast for actual assignments
+    if (action !== 'unassign_selected') {
+        toast.success(`✅ Study Operation Successful`);
+    }
+    // ✅ For unassignments, don't show any toast (modal already shows success message)
+}, []);
 
   const enhancedStudies = useMemo(() => {
     return filteredStudies.map(study => {
@@ -353,14 +490,161 @@ const WorklistTable = React.memo(({
   const handleAssignmentModalComplete = (result) => {
     setAssignmentModalOpen(false);
     if (result?.success) {
-      // onAssignmentComplete?.();
-      handleAssignmentSuccess(result.studyId, result.assignedDoctors);
+        if (result.action === 'unassign_selected') {
+            // ✅ FOR UNASSIGNMENTS: Only update state, NO function call, NO toast
+            setImmediateUpdates(prev => ({
+                ...prev,
+                [result.studyId]: {
+                    workflowStatus: 'pending_assignment',
+                    assignedDoctors: [],
+                    timestamp: Date.now()
+                }
+            }));
+        } else {
+            // ✅ FOR ASSIGNMENTS: Call success handler which will show toast
+            handleAssignmentSuccess(result.studyId, result.assignedDoctors, result.action);
+        }
+        
+        // ✅ Call parent callback if needed
+        // onAssignmentComplete?.();
     }
-  };
+};
 
   const handleUnauthorized = useCallback(() => toast.info(`Marking ${selectedStudies.length} studies as unauthorized`), [selectedStudies]);
-  const handleExportWorklist = useCallback(() => toast.success(`Exported ${filteredStudies.length} studies to CSV`), [filteredStudies]);
-  const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
+const handleExportWorklist = useCallback(async () => {
+  try {
+    // Show loading toast
+    const loadingToastId = toast.loading('Preparing Excel export...', { duration: 10000 });
+    
+    // Prepare query parameters for filtering
+    const queryParams = new URLSearchParams();
+    
+    // 🔧 FIX: Map frontend tab names to actual database status values
+    const statusMapping = {
+      'all': null, // Don't add status filter for 'all'
+      'pending': 'pending_assignment', // Map to actual DB value
+      'inprogress': 'assigned_to_doctor', // Map to actual DB value  
+      'completed': 'report_finalized' // Map to actual DB value
+    };
+    
+    // Add current filter parameters if available
+    if (activeTab && activeTab !== 'all') {
+      const dbStatus = statusMapping[activeTab];
+      if (dbStatus) {
+        queryParams.append('status', dbStatus);
+      }
+      console.log('🔍 Mapped tab to status:', { activeTab, dbStatus });
+    }
+    
+    // If you have selected studies, export only those
+    if (selectedStudies.length > 0) {
+      queryParams.append('studyIds', selectedStudies.join(','));
+      console.log('🔍 Selected studies for export:', selectedStudies.length);
+    }
+    
+    // 🆕 ADD: Add additional common filters if they exist in your component
+    // You can uncomment and modify these based on your actual filter state
+    /*
+    if (searchTerm) {
+      queryParams.append('search', searchTerm);
+    }
+    if (selectedModality) {
+      queryParams.append('modality', selectedModality);
+    }
+    if (selectedLocation) {
+      queryParams.append('location', selectedLocation);
+    }
+    if (dateRange?.start) {
+      queryParams.append('startDate', dateRange.start);
+    }
+    if (dateRange?.end) {
+      queryParams.append('endDate', dateRange.end);
+    }
+    */
+    
+    console.log('🔍 Final export parameters:', queryParams.toString());
+    
+    // Call the backend endpoint
+    const response = await api.get(`/footer/export?${queryParams.toString()}`, {
+      responseType: 'blob', // Important for file downloads
+      timeout: 120000 // 2 minute timeout for large exports
+    });
+    
+    console.log('📊 Export response headers:', {
+      contentType: response.headers['content-type'],
+      contentLength: response.headers['content-length'],
+      contentDisposition: response.headers['content-disposition']
+    });
+    
+    // Dismiss loading toast
+    toast.dismiss(loadingToastId);
+    
+    // Check if we actually got data
+    if (response.data.size === 0) {
+      console.warn('⚠️ Export returned empty file');
+      toast.error('Export returned empty file. No matching studies found.');
+      return;
+    }
+    
+    // Create blob URL and trigger download
+    const blob = new Blob([response.data], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    
+    // Generate filename with current date
+    const today = new Date().toISOString().slice(0, 10);
+    const exportType = selectedStudies.length > 0 ? 'Selected' : 'All';
+    const tabFilter = activeTab !== 'all' ? `_${activeTab}` : '';
+    link.download = `Worklist_${exportType}${tabFilter}_${today}.xlsx`;
+    
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    // Clean up blob URL
+    window.URL.revokeObjectURL(downloadUrl);
+    
+    // Show success message
+    const exportedCount = selectedStudies.length > 0 ? selectedStudies.length : filteredStudies.length;
+    toast.success(`✅ Exported ${exportedCount} studies to Excel`, {
+      duration: 4000,
+      icon: '📊'
+    });
+    
+    console.log('✅ Export completed successfully');
+    
+  } catch (error) {
+    // Dismiss any loading toasts
+    toast.dismiss();
+    
+    console.error('❌ Export error:', error);
+    console.error('❌ Error details:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data
+    });
+    
+    // Handle specific error cases
+    if (error.response?.status === 404) {
+      toast.error('Export endpoint not found. Please contact support.');
+    } else if (error.response?.status === 401) {
+      toast.error('Authentication expired. Please log in again.');
+    } else if (error.response?.status === 403) {
+      toast.error('You do not have permission to export data.');
+    } else if (error.code === 'ECONNABORTED') {
+      toast.error('Export timeout. The file might be too large. Try filtering the data first.');
+    } else if (error.response?.status === 500) {
+      toast.error('Server error during export. Please try again.');
+    } else {
+      toast.error(`Export failed: ${error.message || 'Unknown error'}`);
+    }
+  }
+}, [filteredStudies, selectedStudies, activeTab]);  const handleDispatchReport = useCallback(() => toast.info(`Dispatching reports for ${selectedStudies.length} studies`), [selectedStudies]);
   const handleBulkZipDownload = useCallback(async () => toast.success(`Initiated download for ${selectedStudies.length} studies`), [selectedStudies]);
 
   const listRef = useRef(null);
@@ -494,12 +778,12 @@ const cardGrid = useMemo(() => (
                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">🔗</div>}
                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 py-2 text-center border-r border-gray-300">💬</div>}
                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 py-2 border-r border-gray-300">Patient ID</div>}
-                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
+                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[150px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Patient Name</div>}
                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Age/Sex</div>}
-                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 py-2 border-r border-gray-300">Description</div>}
+                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 py-2 border-r border-gray-300">Description</div>}
                   {visibleColumns.series && <div className="flex-shrink-0 w-16 px-1 py-2 text-center border-r border-gray-300">Series</div>}
                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 py-2 text-center border-r border-gray-300">Modality</div>}
-                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 py-2 border-r border-gray-300">Location</div>}
+                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 py-2 border-r border-gray-300">Location</div>}
                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Study Date</div>}
                   {visibleColumns.uploadDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300 hidden xl:block">Upload Date</div>}
                   {visibleColumns.reportedDate && <div className="flex-1 min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Reported Date</div>}
@@ -533,7 +817,7 @@ const cardGrid = useMemo(() => (
                             const isEmergency = study.caseType?.toLowerCase() === 'emergency' || study.priority === 'EMERGENCY';
                             
                             const getRowClasses = () => {
-                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150";
+                              let baseClasses = "flex items-center w-full h-full transition-colors duration-150 hover:bg-gray-200";
                               if (isEmergency) return isSelected ? `${baseClasses} bg-red-200 hover:bg-red-300` : `${baseClasses} bg-red-100 hover:bg-red-200`;
                               if (isSelected) return `${baseClasses} bg-blue-50 hover:bg-blue-100`;
                               return `${baseClasses} ${index % 2 === 0 ? 'bg-white' : 'bg-gray-100'}`;
@@ -545,16 +829,16 @@ const cardGrid = useMemo(() => (
                                   {visibleColumns.checkbox && <div className="flex-shrink-0 w-8 px-2 flex items-center justify-center border-r border-gray-300 h-full"><input type="checkbox" className="rounded border-gray-300 w-4 h-4" checked={selectedStudies.includes(study._id)} onChange={() => callbacks.onSelectStudy(study._id)}/></div>}
                                   {visibleColumns.status && <div className="flex-shrink-0 w-16 px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className="flex justify-center items-center"><StatusDot status={study.workflowStatus} priority={study.priority} />{isEmergency && (<span className="ml-1 text-red-600 font-bold text-xs animate-pulse">🚨</span>)}</div></div>}
                                   {visibleColumns.randomEmoji && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><RandomEmojiButton study={study} /></div>}
-                                  {visibleColumns.user && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><button onClick={() => callbacks.onPatientClick(study.patientId)}><UserButton study={study} /></button></div>}
+                                  {visibleColumns.user && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><button onClick={() => callbacks.onPatientClick(study._id)}><UserButton study={study} /></button></div>}
                                   {visibleColumns.shareBtn && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><ShareButton study={study} /></div>}
                                   {visibleColumns.discussion && <div className="flex-shrink-0 w-10 px-1 flex items-center justify-center border-r border-gray-300 h-full"><DiscussionButton study={study} /></div>}
                                   {visibleColumns.patientId && <div className="flex-1 min-w-[100px] px-2 flex items-center border-r border-gray-300 h-full"><button onClick={() => callbacks.onPatienIdClick(study.patientId, study)} className={`hover:underline text-sm font-medium truncate block w-full text-left ${isEmergency ? 'text-red-700 hover:text-red-900' : 'text-blue-600 hover:text-blue-800'}`}>{study.patientId}{isEmergency && (<span className="ml-1 inline-flex items-center px-1 py-0.5 rounded text-xs font-bold bg-red-600 text-white">EMERGENCY</span>)}</button></div>}
-                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
+                                  {visibleColumns.patientName && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-sm font-medium truncate ${isEmergency ? 'text-red-900' : 'text-gray-900'}`} title={study.patientName}>{study.patientName}</div></div>}
                                   {visibleColumns.ageGender && <div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.ageGender || study.patientAge || 'N/A'}</div></div>}
-                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[120px] xl:min-w-[150px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
+                                  {visibleColumns.description && <div className="flex-1 lg:min-w-[170px] xl:min-w-[170px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-900 font-medium' : 'text-gray-900'}`} title={study.description}>{study.description || study.studyDescription || 'N/A'}</div></div>}
                                   {visibleColumns.series && (<div className="flex-shrink-0 w-16 px-1 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>{study.seriesImages || study.numberOfSeries || 'N/A'}</div></div>)}
                                   {visibleColumns.modality && <div className="flex-shrink-0 w-20 px-2 flex items-center justify-center border-r border-gray-300 h-full"><span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${isEmergency ? 'bg-red-600 text-white' : 'text-black'}`}>{study.modality || 'N/A'}</span></div>}
-                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[120px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
+                                  {visibleColumns.location && <div className="flex-1 lg:min-w-[100px] xl:min-w-[220px] px-2 flex items-center border-r border-gray-300 h-full"><div className={`text-xs truncate ${isEmergency ? 'text-red-700' : 'text-gray-600'}`} title={study.location}>{study.location || 'N/A'}</div></div>}
                                   {visibleColumns.studyDate && <div className="flex-1 min-w-[100px] px-2 flex items-center justify-center border-r border-gray-300 h-full"><div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}><div className="font-medium">{study.studyDateTime
                             }</div>
                             
