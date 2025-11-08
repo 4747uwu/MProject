@@ -167,24 +167,20 @@ export const uploadImages = async (req, res) => {
         
         console.log(`📊 Processing ${req.files.length} image(s) for patient: ${patientName}`);
         
-        // 🔧 STEP 1: Find or create patient
-        let patient = await Patient.findOne({ patientID: patientId });
-        
-        if (!patient) {
-            console.log(`👤 Creating new patient: ${patientName}`);
-            patient = await Patient.create({
-                mrn: patientId,
-                patientID: patientId,
-                patientNameRaw: patientName,
-                firstName: patientName?.split(' ')[0] || '',
-                lastName: patientName?.split(' ').slice(1).join(' ') || '',
-                gender: patientSex || 'O',
-                dateOfBirth: patientBirthDate || null,
-                computed: {
-                    fullName: patientName
-                }
-            });
-        }
+        // 🔧 STEP 1: Always create new patient record (no lookup)
+        console.log(`👤 Creating new patient record (no lookup): ${patientName}`);
+        const patient = await Patient.create({
+            mrn: patientId || `MRN_${Date.now()}`,
+            patientID: patientId || `PID_${Date.now()}`,
+            patientNameRaw: patientName || 'UNKNOWN PATIENT',
+            firstName: patientName?.split(' ')[0] || '',
+            lastName: patientName?.split(' ').slice(1).join(' ') || '',
+            gender: patientSex || 'O',
+            dateOfBirth: patientBirthDate || null,
+            computed: {
+                fullName: patientName || ''
+            }
+        });
         
         // 🔧 STEP 2: Find or create lab
         let lab;
@@ -229,8 +225,8 @@ export const uploadImages = async (req, res) => {
             patientSex: patientSex || 'O',
             studyInstanceUID: studyInstanceUID,
             seriesInstanceUID: seriesInstanceUID,
-            studyDescription: studyDescription || 'Image Study', // 🔧 SIMPLIFIED: Remove "Uploaded" prefix
-            seriesDescription: seriesDescription || 'Image Series',
+            studyDescription: studyDescription || 'N/A',  // 🔧 SIMPLIFIED: Remove "Uploaded" prefix
+            seriesDescription: seriesDescription || 'n/a',
             modality: modality || 'CT',
             bodyPartExamined: bodyPartExamined || '',
             referringPhysician: referringPhysician || '',
