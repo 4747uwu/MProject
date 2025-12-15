@@ -904,7 +904,9 @@ const cardGrid = useMemo(() => (
                 <div className="flex space-x-1 overflow-x-auto">
                   <button onClick={handleAssignStudy} className={`px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap ${selectedStudies.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={selectedStudies.length === 0}>Assign Study</button>
                   <button onClick={handleUnauthorized} className={`px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap ${selectedStudies.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={selectedStudies.length === 0}>Unauthorized</button>
-                  <button onClick={handleExportWorklist} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap">Export Worklist</button>
+                  {userRole === 'admin' && (
+  <button onClick={handleExportWorklist} className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap">Export Worklist</button>
+)}
                   <button onClick={handleDispatchReport} className={`px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap ${selectedStudies.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={selectedStudies.length === 0}>Dispatch Report</button>
                   <button onClick={handleBulkZipDownload} className={`px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 transition-colors rounded whitespace-nowrap ${selectedStudies.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`} disabled={selectedStudies.length === 0}>Bulk Zip Download</button>
                 </div>
