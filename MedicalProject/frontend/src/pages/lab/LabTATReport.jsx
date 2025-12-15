@@ -1,4 +1,3 @@
-// frontend/src/pages/lab/LabTATReport.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
