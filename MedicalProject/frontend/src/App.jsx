@@ -25,6 +25,9 @@ import TemplateManager from './components/layout/TemplateMangement';
 import OnlineReportingSystem from './components/layout/OnlineReportingSystem';
 import DicomUploader from './pages/admin/DicomUploader';
 
+import DoctorTATReport from './pages/doctor/DoctorTATReport';
+import LabTATReport from './pages/lab/LabTATReport';
+
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { currentUser, loading } = useAuth();
@@ -115,6 +118,24 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route 
+              path="/lab/tat-report" 
+              element={
+                <ProtectedRoute allowedRoles={['lab_staff']}>
+                  <LabTATReport />
+                </ProtectedRoute>
+              } 
+            />
+
+            
+            <Route 
+  path="/doctor/tat-report" 
+  element={
+    <ProtectedRoute allowedRoles={['doctor_account']}>
+      <DoctorTATReport />
+    </ProtectedRoute>
+  } 
+/>
 
             <Route 
               path="/admin/doctors" 

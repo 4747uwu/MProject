@@ -436,11 +436,9 @@ async function updateWorkflowStatusForDownload(study, user) {
             newStatus = 'report_downloaded_radiologist';
             statusNote = `Pre-processed study downloaded by radiologist from Cloudflare R2: ${user.fullName || user.email}`;
         } else if (user.role === 'lab_staff') {
-            return null;
+           return null; // No status change for lab staff downloads
         } else if (user.role === 'admin') {
-            // ✅ ADMIN EXCLUSION: No workflow status update for admin downloads
-            console.log(`⚠️ Admin download detected - skipping workflow status update for: ${user.fullName || user.email}`);
-            return null;
+            return null; // No status change for admin downloads
         }
         
         // ✅ CRITICAL: Always update status if we have a newStatus

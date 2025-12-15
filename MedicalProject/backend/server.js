@@ -28,6 +28,8 @@ import sharingRoutes from './routes/sharing.routes.js';
 import zipdownloadRoutes from './routes/zipdownload.route.js';
 import tatRoutes from './routes/TAT.routes.js';
 import htmlTemplateRoutes from './routes/htmlTemplate.routes.js';
+import labTATRoutes from './routes/labTAT.routes.js';
+import doctorTATRoutes from './routes/doctorTAT.routes.js';
 
 
 
@@ -212,6 +214,9 @@ app.use('/api/sharing', sharingRoutes);
 app.use('/api/download', zipdownloadRoutes)
 app.use('/api/tat', tatRoutes)
 app.use('/api/html-templates', htmlTemplateRoutes);
+
+app.use('/api/lab/tat', labTATRoutes);
+app.use('/api/doctor/tat', doctorTATRoutes);
 
 
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);

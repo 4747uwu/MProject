@@ -63,10 +63,11 @@ const UniversalNavbar = () => {
           hoverColor: 'hover:text-emerald-600',
           activeColor: 'text-emerald-600 bg-emerald-50',
           links: [
-            { to: '/doctor', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/doctor/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/doctor/tat-report', label: 'TAT Report', icon: 'reports' }
           ]
         };
-      case 'lab_staff':
+       case 'lab_staff':
         return {
           title: 'Star-Radiology',
           subtitle: 'Lab Portal',
@@ -75,8 +76,9 @@ const UniversalNavbar = () => {
           hoverColor: 'hover:text-orange-600',
           activeColor: 'text-orange-600 bg-orange-50',
           links: [
-            { to: '/lab', label: 'Dashboard', icon: 'dashboard', exact: true },
+            { to: '/lab/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
             { to: '/admin/dicom-uploader', label: 'Upload Images', icon: 'upload', exact: false }, // 🆕 NEW: Lab staff can also upload
+            { to: '/lab/tat-report', label: 'TAT Report', icon: 'reports' }
           ]
         };
       default:
