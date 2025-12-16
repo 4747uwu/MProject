@@ -458,7 +458,7 @@ const DoctorTATReport = () => {
                   </td>
                   <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className="inline-flex items-center px-1 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
-                      {safeValue(study.modality)}
+                      {safeValue(study.modalitiesInStudy)}
                     </span>
                   </td>
                   <td className="border-r border-gray-100 px-1 py-1">

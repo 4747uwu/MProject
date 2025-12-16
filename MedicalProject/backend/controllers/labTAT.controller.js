@@ -252,6 +252,8 @@ export const getLabTATReport = async (req, res) => {
                 studyDate: 1,
                 studyTime: 1,
                 modality: 1,
+                modalitiesInStudy: 1,
+
                 studyDescription: 1,
                 examDescription: 1,
                 createdAt: 1, // ✅ FIXED: Use createdAt as uploadedAt
@@ -467,7 +469,8 @@ export const exportLabTATReport = async (req, res) => {
                 studyInstanceUID: 1,
                 studyDate: 1,
                 studyTime: 1,
-                modality: 1,
+                // modality: 1,
+                modalitiesInStudy: 1,
                 studyDescription: 1,
                 examDescription: 1,
                 createdAt: 1, // ✅ FIXED
@@ -544,7 +547,8 @@ export const exportLabTATReport = async (req, res) => {
                 gender: study.gender || '-',
                 studyDate: study.studyDate ? formatDateIST(study.studyDate, false) : '-',
                 studyTime: formatStudyTime(study.studyTime),
-                modality: study.modality || '-',
+                modality: study.modalitiesInStudy?.length > 0 ? 
+                         study.modalitiesInStudy.join(', ') : (study.modality || 'N/A'),
                 studyDescription: study.studyDescription || study.examDescription || '-',
                 labName: study.labName || '-',
                 uploadedAt: formatDateIST(study.createdAt),
@@ -557,6 +561,8 @@ export const exportLabTATReport = async (req, res) => {
                 workflowStatus: study.workflowStatus || '-'
             });
         });
+
+        console.log(studies.modalitiesInStudy);
 
         // Set response headers
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

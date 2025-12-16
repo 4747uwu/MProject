@@ -1,3 +1,4 @@
+// frontend/src/pages/lab/LabTATReport.jsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
@@ -457,7 +458,7 @@ const LabTATReport = () => {
                   </td>
                   <td className="border-r border-gray-100 px-1 py-1 text-center whitespace-nowrap">
                     <span className="inline-flex items-center px-1 py-0.5 rounded text-xs font-semibold bg-orange-100 text-orange-800">
-                      {safeValue(study.modality)}
+                      {safeValue(study.modalitiesInStudy)}
                     </span>
                   </td>
                   <td className="border-r border-gray-100 px-1 py-1 whitespace-nowrap">
