@@ -101,14 +101,23 @@ export const searchStudies = async (req, res) => {
                 case 'accession':
                     matchConditions.accessionNumber = { $regex: trimmedSearchTerm, $options: 'i' };
                     break;
+
+                case 'description':
+                    searchConditions.push(
+                        { examDescription: { $regex: trimmedSearchTerm, $options: 'i' } },
+                        { 'clinicalHistory.clinicalHistory': { $regex: trimmedSearchTerm, $options: 'i' } }
+                    );
+                    break;
                     
                 default:
                     searchConditions.push(
-                        { 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } },
-                        { 'patientInfo.patientID': { $regex: trimmedSearchTerm, $options: 'i' } },
-                        { patientId: { $regex: trimmedSearchTerm, $options: 'i' } },
-                        { accessionNumber: { $regex: trimmedSearchTerm, $options: 'i' } }
-                    );
+                    { 'patientInfo.patientName': { $regex: trimmedSearchTerm, $options: 'i' } },
+                    { 'patientInfo.patientID': { $regex: trimmedSearchTerm, $options: 'i' } },
+                    { patientId: { $regex: trimmedSearchTerm, $options: 'i' } },
+                    { accessionNumber: { $regex: trimmedSearchTerm, $options: 'i' } },
+                    { examDescription: { $regex: trimmedSearchTerm, $options: 'i' } },
+                    { 'clinicalHistory.clinicalHistory': { $regex: trimmedSearchTerm, $options: 'i' } }
+                );
             }
             
             if (searchConditions.length > 0) {

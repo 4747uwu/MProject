@@ -466,6 +466,47 @@ const selectedLocationLabel = useMemo(() => {
     }
   }, [connectionStatus]);
 
+  // 🆕 NEW: Top 20 exam descriptions list
+  const TOP_EXAM_DESCRIPTIONS = [
+    { rank: 1, name: 'NCCT HEAD', count: 1760 },
+    { rank: 2, name: 'Chest', count: 884 },
+    { rank: 3, name: 'CHEST PA', count: 851 },
+    { rank: 4, name: 'HEAD', count: 706 },
+    { rank: 5, name: 'Chest Pa', count: 594 },
+    { rank: 6, name: 'CT HEAD', count: 479 },
+    { rank: 7, name: 'HRCT CHEST', count: 397 },
+    { rank: 8, name: 'MRI BRAIN', count: 285 },
+    { rank: 9, name: 'BRAIN', count: 260 },
+    { rank: 10, name: 'CECT ABDOMEN', count: 235 },
+    { rank: 11, name: 'Chest PA VIEW', count: 222 },
+    { rank: 12, name: 'LOWER EXTREMITIES', count: 205 },
+    { rank: 13, name: 'LS SPINE', count: 177 },
+    { rank: 14, name: 'CT BRAIN', count: 175 },
+    { rank: 15, name: 'X-RAY CHEST PA', count: 170 },
+    { rank: 16, name: 'MRI LS SPINE', count: 142 },
+    { rank: 17, name: 'SPINE', count: 133 },
+    { rank: 18, name: 'HRCT THORAX', count: 127 },
+    { rank: 19, name: 'CHEST AP', count: 123 },
+    { rank: 20, name: 'CORONARY ANGIO.', count: 118 }
+  ];
+
+  // 🆕 NEW: Add state for description search
+  const [descriptionSearch, setDescriptionSearch] = useState('');
+  const [showDescriptionDropdown, setShowDescriptionDropdown] = useState(false);
+  const [descriptionSearchType, setDescriptionSearchType] = useState('all'); // 'all', 'examDescription', 'clinicalHistory'
+
+  // 🆕 NEW: Filter descriptions based on search
+  const filteredDescriptions = useMemo(() => {
+    if (!descriptionSearch.trim()) {
+      return TOP_EXAM_DESCRIPTIONS;
+    }
+    
+    const searchLower = descriptionSearch.toLowerCase();
+    return TOP_EXAM_DESCRIPTIONS.filter(desc => 
+      desc.name.toLowerCase().includes(searchLower)
+    );
+  }, [descriptionSearch]);
+
   return (
     <div className="h-full w-full flex flex-col">
       {/* 🎯 SINGLE LINE: Compact Search-First Design */}
@@ -477,7 +518,7 @@ const selectedLocationLabel = useMemo(() => {
             
             {/* 🔍 LEFT: Search Controls (Priority 1) */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1 min-w-0">
-              {/* Top row on mobile: Search type and input */}
+              {/* Top row on mobile: Search type and input + Description search */}
               <div className="flex items-center gap-2 flex-1 min-w-0">
                 {/* Search Type */}
                 <select 
@@ -489,10 +530,11 @@ const selectedLocationLabel = useMemo(() => {
                   <option value="patientName">Name</option>
                   <option value="patientId">ID</option>
                   <option value="accession">Acc#</option>
+                  <option value="description">Desc</option>
                 </select>
                 
-                {/* Search Input */}
-                <div className="flex-1 relative min-w-0">
+                {/* Search Input - REDUCED SIZE */}
+                <div className="flex-1 relative min-w-0 max-w-xs">
                   <form onSubmit={handleQuickSearch} className="relative">
                     <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
                       <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -506,6 +548,76 @@ const selectedLocationLabel = useMemo(() => {
                       onChange={(e) => debouncedSetQuickSearchTerm(e.target.value)}
                     />
                   </form>
+                </div>
+
+                {/* 🆕 NEW: Description Search - Separate Box */}
+                <div className="relative min-w-0 flex-1 max-w-m">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                      <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      value={descriptionSearch}
+                      onChange={(e) => {
+                        setDescriptionSearch(e.target.value);
+                        setShowDescriptionDropdown(true);
+                      }}
+                      onFocus={() => setShowDescriptionDropdown(true)}
+                      className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                      placeholder="Exam description..."
+                    />
+                  </div>
+
+                  {/* Dropdown for top descriptions */}
+                  {showDescriptionDropdown && (
+                    <>
+                      <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                        {/* Dropdown Header */}
+                        <div className="px-3 py-2 bg-green-50 border-b border-green-200 sticky top-0">
+                          <div className="text-xs font-semibold text-green-800">
+                            Top 20 Exam Descriptions
+                          </div>
+                        </div>
+
+                        {/* Dropdown Items */}
+                        {filteredDescriptions.length > 0 ? (
+                          filteredDescriptions.map(desc => (
+                            <button
+                              key={desc.rank}
+                              type="button"
+                              className="block w-full text-left px-3 py-2 text-xs hover:bg-green-50 transition-colors border-b border-gray-100 last:border-b-0"
+                              onClick={() => {
+                                setDescriptionSearch(desc.name);
+                                setDescription(desc.name);
+                                setShowDescriptionDropdown(false);
+                              }}
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <div className="font-medium text-gray-800 truncate">{desc.name}</div>
+                                  <div className="text-xs text-gray-500">Rank #{desc.rank}</div>
+                                </div>
+                                <div className="text-xs font-semibold text-green-600 flex-shrink-0">
+                                  {desc.count.toLocaleString()}
+                                </div>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-3 py-6 text-xs text-gray-500 text-center">
+                            <div className="font-medium">No descriptions found</div>
+                          </div>
+                        )}
+                      </div>
+                      <div 
+                        className="fixed inset-0 z-10" 
+                        onClick={() => setShowDescriptionDropdown(false)}
+                      />
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -991,8 +1103,78 @@ const selectedLocationLabel = useMemo(() => {
                     </div>
                   </div>
 
-                  {/* Additional Filters */}
-                  
+                  {/* Description Search - NEW SECTION */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-2">Exam Description</label>
+                    <div className="relative">
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                          <svg className="w-3 h-3 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                          </svg>
+                        </div>
+                        <input
+                          type="text"
+                          value={descriptionSearch}
+                          onChange={(e) => {
+                            setDescriptionSearch(e.target.value);
+                            setShowDescriptionDropdown(true);
+                          }}
+                          onFocus={() => setShowDescriptionDropdown(true)}
+                          className="w-full pl-7 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-green-500 focus:border-green-500"
+                          placeholder="Exam description..."
+                        />
+                      </div>
+                      
+                      {/* Dropdown for top descriptions */}
+                      {showDescriptionDropdown && (
+                        <>
+                          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                            {/* Dropdown Header */}
+                            <div className="px-3 py-2 bg-green-50 border-b border-green-200 sticky top-0">
+                              <div className="text-xs font-semibold text-green-800">
+                                Top 20 Exam Descriptions
+                              </div>
+                            </div>
+
+                            {/* Dropdown Items */}
+                            {filteredDescriptions.length > 0 ? (
+                              filteredDescriptions.map(desc => (
+                                <button
+                                  key={desc.rank}
+                                  type="button"
+                                  className="block w-full text-left px-3 py-2 text-xs hover:bg-green-50 transition-colors border-b border-gray-100 last:border-b-0"
+                                  onClick={() => {
+                                    setDescriptionSearch(desc.name);
+                                    setDescription(desc.name);
+                                    setShowDescriptionDropdown(false);
+                                  }}
+                                >
+                                  <div className="flex justify-between items-start gap-2">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="font-medium text-gray-800 truncate">{desc.name}</div>
+                                      <div className="text-xs text-gray-500">Rank #{desc.rank}</div>
+                                    </div>
+                                    <div className="text-xs font-semibold text-green-600 flex-shrink-0">
+                                      {desc.count.toLocaleString()}
+                                    </div>
+                                  </div>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-3 py-6 text-xs text-gray-500 text-center">
+                                <div className="font-medium">No descriptions found</div>
+                              </div>
+                            )}
+                          </div>
+                          <div 
+                            className="fixed inset-0 z-10" 
+                            onClick={() => setShowDescriptionDropdown(false)}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
