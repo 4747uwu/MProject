@@ -30,6 +30,8 @@ import tatRoutes from './routes/TAT.routes.js';
 import htmlTemplateRoutes from './routes/htmlTemplate.routes.js';
 import labTATRoutes from './routes/labTAT.routes.js';
 import doctorTATRoutes from './routes/doctorTAT.routes.js';
+import qrDownloaderRoutes from './routes/qrdownloader.routes.js'
+
 
 
 
@@ -217,6 +219,7 @@ app.use('/api/html-templates', htmlTemplateRoutes);
 
 app.use('/api/lab/tat', labTATRoutes);
 app.use('/api/doctor/tat', doctorTATRoutes);
+app.use('/api/scan', qrDownloaderRoutes);
 
 
 // app.use('/api/orthanc-proxy', orthancProaxyRoutes);
