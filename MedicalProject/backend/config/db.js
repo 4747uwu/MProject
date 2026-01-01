@@ -18,7 +18,7 @@ const connectDB = async () => {
             // 🚀 LOCAL TIMEOUTS (both Node.js and MongoDB on same droplet)
             serverSelectionTimeoutMS: 30000,   // ✅ Fast local connection
             socketTimeoutMS: 45000,            // ✅ Local network speed
-            connectTimeoutMS: 60000,            // ✅ Quick local connection
+            connectTimeoutMS: 100000,            // ✅ Quick local connection
             
             // 🔄 REPLICA SET SETTINGS (Required for transactions)
             readPreference: 'primary',         // ✅ Required for transactions
