@@ -13,12 +13,12 @@ const connectDB = async () => {
             // 🎯 OPTIMIZED for 2vCPU, 16GB RAM droplet
             maxPoolSize: 8,              // ✅ Reasonable for 2vCPU
             minPoolSize: 2,              // ✅ Conservative minimum
-            maxIdleTimeMS: 30000,        // ✅ Good for cloud deployment
+            maxIdleTimeMS: 300000,        // ✅ Good for cloud deployment
             
             // 🚀 LOCAL TIMEOUTS (both Node.js and MongoDB on same droplet)
-            serverSelectionTimeoutMS: 5000,   // ✅ Fast local connection
-            socketTimeoutMS: 20000,            // ✅ Local network speed
-            connectTimeoutMS: 5000,            // ✅ Quick local connection
+            serverSelectionTimeoutMS: 30000,   // ✅ Fast local connection
+            socketTimeoutMS: 45000,            // ✅ Local network speed
+            connectTimeoutMS: 60000,            // ✅ Quick local connection
             
             // 🔄 REPLICA SET SETTINGS (Required for transactions)
             readPreference: 'primary',         // ✅ Required for transactions
