@@ -316,7 +316,7 @@ const StudyTable = React.memo(({
                   <th className="w-16 px-1 py-2 text-center border-r border-gray-300">Series</th>
                   <th className="w-20 px-2 py-2 text-center border-r border-gray-300">Modality</th>
                   <th className="min-w-[100px] px-2 py-2 text-left border-r border-gray-300">Location</th>
-                  <th className="min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Study Date</th>
+                  <th className="min-w-[100px] px-2 py-2 text-center border-r border-gray-300">Upload Date</th>
                   <th className="min-w-[80px] px-1 py-2 text-center border-r border-gray-300">Actions</th>
                   {canAssignDoctors && (
                     <th className="w-24 px-2 py-2 text-center">Assign Doctor</th>
@@ -426,13 +426,18 @@ const StudyTable = React.memo(({
                         </div>
                       </td>
 
-                      {/* STUDY DATE */}
+                      {/* UPLOAD DATE */}
                       <td className="min-w-[100px] px-2 py-3 text-center border-r border-gray-300">
                         <div className={`text-xs ${isEmergency ? 'text-red-700' : 'text-gray-600'}`}>
-                          <div className="font-medium">{formatMonthDay(study.studyDateTime)}</div>
-                          <div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}>
-                            {formatTime(study.studyDateTime)}
-                          </div>
+                          {study.uploadDateTime ? (() => {
+                            const [date, time] = study?.uploadDateTime.split(/ (?=\d{2}:\d{2}$)/); // splits at last space before time
+                            return (
+                              <>
+                                <div className="font-medium">{date}</div>
+                                <div className={`${isEmergency ? 'text-red-500' : 'text-gray-500'}`}>{time}</div>
+                              </>
+                            );
+                          })() : <div className="font-medium">N/A</div>}
                         </div>
                       </td>
 
