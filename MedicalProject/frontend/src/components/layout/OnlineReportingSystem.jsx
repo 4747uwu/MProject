@@ -652,7 +652,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
         '--accessionno--': studyData?.accessionNumber || '',
         '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
         '--referredby--': reportData?.referringPhysician.name || '',
-        '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString(),
+        '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB'),
         '--Content--': reportContent
       };
 
@@ -771,7 +771,7 @@ const templateName = `${currentUser.email.split('@')[0]}.docx`;
         '--accessionno--': studyData?.accessionNumber || '',
         '--agegender--': `${patientData?.age || ''} / ${patientData?.gender || ''}`,
         '--referredby--': reportData?.referringPhysician.name || '',
-        '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString() : new Date().toLocaleDateString(),
+        '--reporteddate--': studyData?.studyDate ? new Date(studyData.studyDate).toLocaleDateString('en-GB') : new Date().toLocaleDateString('en-GB'),
         '--Content--': reportContent
       };
 
