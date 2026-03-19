@@ -9,6 +9,20 @@ import bcrypt from 'bcryptjs'; // Ensure bcrypt is imported for password hashing
 
 dotenv.config();
 
+const DOCTOR_PROFILE_SAFE_FIELDS = [
+    'fullName',
+    'name',
+    'specialization',
+    'licenseNumber',
+    'department',
+    'qualifications',
+    'yearsOfExperience',
+    'contactPhoneOffice',
+    'isActiveProfile',
+    'assigned',
+    'signaturePresignedUrl'
+].join(' ');
+
 export const loginUser = async (req, res) => {
     const { email, password } = req.body;
     console.log('Login attempt with email:', email);
@@ -55,9 +69,10 @@ export const loginUser = async (req, res) => {
             userResponseData.lab = user.lab; 
         } else if (user.role === 'doctor_account') {
             const doctorProfile = await Doctor.findOne({ userAccount: user._id })
-                                        .select('-userAccount -createdAt -updatedAt -__v'); 
+                                        .select(DOCTOR_PROFILE_SAFE_FIELDS)
+                                        .lean();
             if (doctorProfile) {
-                userResponseData.doctorProfile = doctorProfile.toObject();
+                userResponseData.doctorProfile = doctorProfile;
             }
         }
 
@@ -81,9 +96,10 @@ export const getMe = async (req, res) => {
 
     if (userPayload.role === 'doctor_account') {
         const doctorProfile = await Doctor.findOne({ userAccount: userPayload._id })
-                                    .select('-userAccount -createdAt -updatedAt -__v');
+                                    .select(DOCTOR_PROFILE_SAFE_FIELDS)
+                                    .lean();
         if (doctorProfile) {
-            userPayload.doctorProfile = doctorProfile.toObject();
+            userPayload.doctorProfile = doctorProfile;
         }
     }
 
