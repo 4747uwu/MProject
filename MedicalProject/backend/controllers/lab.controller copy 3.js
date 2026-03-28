@@ -763,8 +763,6 @@ else {
                     instanceCount: 1,
                     studyDate: 1,
                     studyTime: 1,
-                    age: 1,
-                    gender: 1,
                     createdAt: 1,
                     doctorReports:1,
                     ReportAvailable: 1,
@@ -802,15 +800,32 @@ else {
             // Build patient display
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            const patientAgeGenderDisplay = study.age && study.gender ?
-                                            `${study.age}/${study.gender}` :
-                                            study.age || study.gender || 'N/A';
+                const patientAgeGenderDisplay = study.age && study.gender ? 
+                                                `${study.age}/${study.gender}` : 
+                                                study.age || study.gender || 'N/A';
+                            if (patient) {
+                                patientDisplay = patient.computed?.fullName || 
+                                                patient.patientNameRaw || 
+                                                `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
+                                patientIdForDisplay = patient.patientID || patientIdForDisplay;
 
+                                
+                            }
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || 'N/A';
+
+                let agePart = patient.ageString || "";
+                let genderPart = patient.gender || "";
+                if (agePart && genderPart) {
+                    patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+                } else if (agePart) {
+                    patientAgeGenderDisplay = agePart;
+                } else if (genderPart) {
+                    patientAgeGenderDisplay = `/ ${genderPart}`;
+                }
             }
 
             return {
@@ -1267,8 +1282,6 @@ export const getPendingStudies = async (req, res) => {
                     doctorReports:1,
                     studyDate: 1,
                     studyTime: 1,
-                    age: 1,
-                    gender: 1,
                     createdAt: 1,
                     ReportAvailable: 1,
                     lastAssignedDoctor: 1,
@@ -1301,15 +1314,23 @@ export const getPendingStudies = async (req, res) => {
             
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            const patientAgeGenderDisplay = study.age && study.gender ?
-                                            `${study.age}/${study.gender}` :
-                                            study.age || study.gender || 'N/A';
+            let patientAgeGenderDisplay = "N/A";
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || 'N/A';
+
+                let agePart = patient.ageString || "";
+                let genderPart = patient.gender || "";
+                if (agePart && genderPart) {
+                    patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+                } else if (agePart) {
+                    patientAgeGenderDisplay = agePart;
+                } else if (genderPart) {
+                    patientAgeGenderDisplay = `/ ${genderPart}`;
+                }
             }
 
             return {
@@ -1669,8 +1690,6 @@ export const getProcessingStudies = async (req, res) => {
                     instanceCount: 1,
                     studyDate: 1,
                     studyTime: 1,
-                    age: 1,
-                    gender: 1,
                     doctorReports:1,
                     ReportAvailable: 1,
                     lastAssignedDoctor: 1,
@@ -1701,15 +1720,23 @@ export const getProcessingStudies = async (req, res) => {
             
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            const patientAgeGenderDisplay = study.age && study.gender ?
-                                            `${study.age}/${study.gender}` :
-                                            study.age || study.gender || 'N/A';
+            let patientAgeGenderDisplay = "N/A";
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || 'N/A';
+
+                let agePart = patient.ageString || "";
+                let genderPart = patient.gender || "";
+                if (agePart && genderPart) {
+                    patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+                } else if (agePart) {
+                    patientAgeGenderDisplay = agePart;
+                } else if (genderPart) {
+                    patientAgeGenderDisplay = `/ ${genderPart}`;
+                }
             }
 
             return {
@@ -2065,8 +2092,6 @@ export const getCompletedStudies = async (req, res) => {
                     instanceCount: 1,
                     studyDate: 1,
                     studyTime: 1,
-                    age: 1,
-                    gender: 1,
                     createdAt: 1,
                     ReportAvailable: 1,
                     lastAssignedDoctor: 1,
@@ -2097,15 +2122,23 @@ export const getCompletedStudies = async (req, res) => {
             
             let patientDisplay = "N/A";
             let patientIdForDisplay = "N/A";
-            const patientAgeGenderDisplay = study.age && study.gender ?
-                                            `${study.age}/${study.gender}` :
-                                            study.age || study.gender || 'N/A';
+            let patientAgeGenderDisplay = "N/A";
 
             if (patient) {
                 patientDisplay = patient.computed?.fullName || 
                                 patient.patientNameRaw || 
                                 `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || "N/A";
                 patientIdForDisplay = patient.patientID || 'N/A';
+
+                let agePart = patient.ageString || "";
+                let genderPart = patient.gender || "";
+                if (agePart && genderPart) {
+                    patientAgeGenderDisplay = `${agePart} / ${genderPart}`;
+                } else if (agePart) {
+                    patientAgeGenderDisplay = agePart;
+                } else if (genderPart) {
+                    patientAgeGenderDisplay = `/ ${genderPart}`;
+                }
             }
 
             return {
