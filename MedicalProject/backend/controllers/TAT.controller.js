@@ -15,50 +15,45 @@ const cache = new NodeCache({
     useClones: false
 });
 
-// ✅ FIX: Add timezone utility functions at the top of the file
-const getISTDate = (date = new Date()) => {
-    // Convert any date to IST (UTC+5:30)
-    const utcTime = date.getTime() + (date.getTimezoneOffset() * 60000);
-    const istTime = new Date(utcTime + (5.5 * 60 * 60 * 1000));
-    return istTime;
+// Timezone helpers — single-step IST conversion (timezone-safe on any server)
+const getISTDateParts = (date) => {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(date));
+    return {
+        y: parts.find(p => p.type === 'year').value,
+        m: parts.find(p => p.type === 'month').value,
+        d: parts.find(p => p.type === 'day').value
+    };
 };
 
 const getISTStartOfDay = (date) => {
-    const istDate = getISTDate(date);
-    const startOfDay = new Date(istDate.getFullYear(), istDate.getMonth(), istDate.getDate());
-    // Convert back to UTC for database query
-    return new Date(startOfDay.getTime() - (5.5 * 60 * 60 * 1000));
+    const { y, m, d } = getISTDateParts(date);
+    return new Date(`${y}-${m}-${d}T00:00:00+05:30`);
 };
 
 const getISTEndOfDay = (date) => {
-    const istDate = getISTDate(date);
-    const endOfDay = new Date(istDate.getFullYear(), istDate.getMonth(), istDate.getDate(), 23, 59, 59, 999);
-    // Convert back to UTC for database query
-    return new Date(endOfDay.getTime() - (5.5 * 60 * 60 * 1000));
+    return new Date(getISTStartOfDay(date).getTime() + 86400000 - 1);
 };
 
 const formatDateIST = (date, includeTime = true) => {
     if (!date) return '-';
     try {
-        const istDate = getISTDate(new Date(date));
+        const d = new Date(date);
+        if (isNaN(d.getTime())) return '-';
+        const options = {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit'
+        };
         if (includeTime) {
-            return istDate.toLocaleString('en-GB', {
-                timeZone: 'Asia/Kolkata',
-                year: 'numeric',
-                month: '2-digit', 
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                hour12: false
-            });
-        } else {
-            return istDate.toLocaleDateString('en-GB', {
-                timeZone: 'Asia/Kolkata',
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit'
-            });
+            options.hour = '2-digit';
+            options.minute = '2-digit';
+            options.hour12 = false;
         }
+        return d.toLocaleString('en-GB', options);
     } catch (error) {
         console.warn('Invalid date format:', date);
         return date?.toString() || '-';
