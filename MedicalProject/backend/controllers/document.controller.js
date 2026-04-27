@@ -711,32 +711,29 @@ static async getStudyReport(req, res) {
       }
     }
     
-    // Update workflow status based on user role
+    // Update workflow status - ONLY for lab_staff
+    // 🔧 DISABLED: Admin and radiologist downloads do NOT change status
     try {
-      let newStatus;
-      let statusNote;
-      
-      // Determine workflow status based on user role
-      if (req.user.role === 'doctor_account') {
-        newStatus = 'report_downloaded_radiologist';
-        statusNote = `Report "${documentRecord.fileName}" downloaded by radiologist: ${req.user.fullName || req.user.email}`;
-      } else if (req.user.role === 'admin' || req.user.role === 'lab_staff') {
-        newStatus = 'final_report_downloaded';
-        statusNote = `Final report "${documentRecord.fileName}" downloaded by ${req.user.role}: ${req.user.fullName || req.user.email}`;
+      // ✅ ONLY update status when lab_staff downloads
+      if (req.user.role === 'lab_staff') {
+        const newStatus = 'final_report_downloaded';
+        const statusNote = `Final report "${documentRecord.fileName}" downloaded by lab_staff: ${req.user.fullName || req.user.email}`;
+        
+        await updateWorkflowStatus({
+          studyId: study._id,
+          status: newStatus,
+          note: statusNote,
+          user: req.user
+        });
+        
+        console.log(`✅ Workflow status updated to ${newStatus} for study ${studyId} by lab_staff`);
+      } else if (req.user.role === 'doctor_account') {
+        console.log(`⏭️ Report downloaded by radiologist - Status change DISABLED for doctor_account`);
+      } else if (req.user.role === 'admin') {
+        console.log(`⏭️ Report downloaded by admin - Status change DISABLED for admin`);
       } else {
-        // Fallback for other roles
-        newStatus = 'report_downloaded';
-        statusNote = `Report "${documentRecord.fileName}" downloaded by ${req.user.role || 'unknown'}: ${req.user.fullName || req.user.email}`;
+        console.log(`⏭️ Report downloaded by ${req.user.role} - Status change DISABLED`);
       }
-      
-      await updateWorkflowStatus({
-        studyId: study._id,
-        status: newStatus,
-        note: statusNote,
-        user: req.user
-      });
-      
-      console.log(`✅ Workflow status updated to ${newStatus} for study ${studyId} by ${req.user.role}`);
     } catch (statusError) {
       // Log the error but don't fail the download
       console.error('⚠️ Error updating workflow status:', statusError);
