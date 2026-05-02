@@ -430,7 +430,13 @@ async function updateWorkflowStatusForDownload(study, user) {
         
         console.log(`🔄 Updating workflow status for download by ${user.role}: ${user.fullName || user.email}`);
         console.log(`📊 Current study status: ${study.workflowStatus}`);
-        
+
+        // Do not move status backwards from report_drafted or report_finalized
+        if (study.workflowStatus === 'report_drafted' || study.workflowStatus === 'report_finalized') {
+            console.log(`⚠️ Skipping status update — study is in '${study.workflowStatus}' state`);
+            return null;
+        }
+
         // ✅ ENHANCED: More comprehensive role-based status updates
         if (user.role === 'doctor_account') {
             newStatus = 'report_downloaded_radiologist';
