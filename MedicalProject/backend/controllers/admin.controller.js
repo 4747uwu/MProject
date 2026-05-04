@@ -412,6 +412,8 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     ReportAvailable: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
+                    'assignment.assignedTo': 1,
+                    'assignment.assignedBy': 1,
                     lastAssignedDoctor: 1,
                     doctorReports: 1,
                     reportInfo: 1,
@@ -423,7 +425,7 @@ export const getAllStudiesForAdmin = async (req, res) => {
                     patientId: 1,
                     age:1,
                     gender:1,
-                    
+
 clinicalHistory: 1,
                     preProcessedDownload: 1
                 }
@@ -458,30 +460,31 @@ clinicalHistory: 1,
         const lookupMaps = {
             patients: new Map(),
             labs: new Map(),
-            doctors: new Map()
+            doctors: new Map(),
+            users: new Map()
         };
 
         if (studies.length > 0) {
             const lookupStart = Date.now();
-            
+
             // Extract unique IDs with Set for deduplication
             const uniqueIds = {
                 patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
                 labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))],
                 doctors: [...new Set(studies.flatMap(s => {
-                    // Handle both legacy (object) and new (array) formats
                     let assignments = [];
-                    
                     if (Array.isArray(s.lastAssignedDoctor)) {
-                        // New format: array of objects
                         assignments = s.lastAssignedDoctor;
                     } else if (s.lastAssignedDoctor && typeof s.lastAssignedDoctor === 'object') {
-                        // Legacy format: single object
                         assignments = [s.lastAssignedDoctor];
                     }
-                    
                     return assignments.map(assignment => assignment?.doctorId?.toString()).filter(Boolean);
-                }).filter(Boolean))]
+                }).filter(Boolean))],
+                assignedByUsers: [...new Set(studies.flatMap(s =>
+                    Array.isArray(s.assignment)
+                        ? s.assignment.map(a => a?.assignedBy?.toString()).filter(Boolean)
+                        : []
+                ))]
             };
 
             // 🔥 PARALLEL: Optimized batch lookups with lean queries
@@ -512,15 +515,24 @@ clinicalHistory: 1,
                     mongoose.model('Doctor')
                         .find({ _id: { $in: uniqueIds.doctors.map(id => new mongoose.Types.ObjectId(id)) } })
                         // Populate userAccount within the Doctor model to get fullName, email, etc.
-                        .populate('userAccount', 'fullName email isActive') 
+                        .populate('userAccount', 'fullName email isActive')
                         .lean()
                         .then(results => ({ type: 'doctors', data: results }))
                 );
             }
 
+            if (uniqueIds.assignedByUsers.length > 0) {
+                lookupPromises.push(
+                    User.find({ _id: { $in: uniqueIds.assignedByUsers.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('fullName email')
+                        .lean()
+                        .then(results => ({ type: 'users', data: results }))
+                );
+            }
+
             // Execute all lookups in parallel
             const lookupResults = await Promise.allSettled(lookupPromises);
-            
+
             // Process results and build maps
             lookupResults.forEach(result => {
                 if (result.status === 'fulfilled') {
@@ -532,7 +544,7 @@ clinicalHistory: 1,
                     console.warn(`Lookup failed for ${result.reason}`);
                 }
             });
-            
+
             const lookupTime = Date.now() - lookupStart;
             console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
         }
@@ -604,8 +616,19 @@ clinicalHistory: 1,
                 // Map all doctor assignments with their details
                 allDoctorAssignments = assignmentArray.map(entry => {
                     if (!entry || !entry.doctorId) return null;
-                    
+
                     const doctor = lookupMaps.doctors.get(entry.doctorId.toString());
+                    const doctorUserAccountId = doctor?.userAccount?._id?.toString();
+                    const studyAssignment = Array.isArray(study.assignment)
+                        ? study.assignment.find(a => {
+                            const assignedToStr = a?.assignedTo?.toString();
+                            return assignedToStr === entry.doctorId.toString() ||
+                                   (doctorUserAccountId && assignedToStr === doctorUserAccountId);
+                        })
+                        : null;
+                    const assignedByUser = studyAssignment?.assignedBy
+                        ? lookupMaps.users.get(studyAssignment.assignedBy.toString())
+                        : null;
                     return {
                         doctorId: entry.doctorId,
                         assignedAt: entry.assignedAt,
@@ -615,7 +638,10 @@ clinicalHistory: 1,
                             email: doctor.userAccount?.email || null,
                             specialization: doctor.specialization || null,
                             isActive: doctor.userAccount?.isActive || false
-                        } : null
+                        } : null,
+                        assignedBy: assignedByUser
+                            ? { _id: assignedByUser._id, name: assignedByUser.fullName || assignedByUser.email }
+                            : null
                     };
                 }).filter(Boolean); // Remove null entries
             }
@@ -1527,9 +1553,10 @@ export const assignDoctorToStudy = async (req, res) => {
             // Assuming doctorId from req.body is the Doctor._id
             const doctorObjectId = req.body.doctorId; // Renamed for clarity
             const { assignmentNote, priority = 'NORMAL' } = req.body;
-            const assignedBy = req.user.id; // Assuming req.user.id is the User._id of the assigner
+            const assignedBy = req.user._id || req.user.id; // User._id of the assigner
 
             console.log(`🔄 Processing assignment for doctor (ID: ${doctorObjectId}) to study (ID: ${studyId})`);
+            console.log(`👤 AssignedBy user ID: ${assignedBy} (req.user.id=${req.user.id}, req.user._id=${req.user._id})`);
 
             if (!studyId || !doctorObjectId) {
                 throw new Error('Both study ID and doctor ID are required');
@@ -3721,6 +3748,8 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     ReportAvailable: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
+                    'assignment.assignedTo': 1,
+                    'assignment.assignedBy': 1,
                     doctorReports: 1,
                     lastAssignedDoctor: 1,
                     reportInfo: 1,
@@ -3767,28 +3796,31 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
         const lookupMaps = {
             patients: new Map(),
             labs: new Map(),
-            doctors: new Map()
+            doctors: new Map(),
+            users: new Map()
         };
 
         if (studies.length > 0) {
             const lookupStart = Date.now();
-            
+
             // Extract unique IDs with Set for deduplication
             const uniqueIds = {
                 patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
                 labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))],
                 doctors: [...new Set(studies.flatMap(s => {
-                    // Handle both legacy (object) and new (array) formats
                     let assignments = [];
-                    
                     if (Array.isArray(s.lastAssignedDoctor)) {
                         assignments = s.lastAssignedDoctor;
                     } else if (s.lastAssignedDoctor && typeof s.lastAssignedDoctor === 'object') {
                         assignments = [s.lastAssignedDoctor];
                     }
-                    
                     return assignments.map(assignment => assignment?.doctorId?.toString()).filter(Boolean);
-                }).filter(Boolean))]
+                }).filter(Boolean))],
+                assignedByUsers: [...new Set(studies.flatMap(s =>
+                    Array.isArray(s.assignment)
+                        ? s.assignment.map(a => a?.assignedBy?.toString()).filter(Boolean)
+                        : []
+                ))]
             };
 
             // 🔥 PARALLEL: Optimized batch lookups with lean queries
@@ -3824,9 +3856,18 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 );
             }
 
+            if (uniqueIds.assignedByUsers.length > 0) {
+                lookupPromises.push(
+                    User.find({ _id: { $in: uniqueIds.assignedByUsers.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('fullName email')
+                        .lean()
+                        .then(results => ({ type: 'users', data: results }))
+                );
+            }
+
             // Execute all lookups in parallel
             const lookupResults = await Promise.allSettled(lookupPromises);
-            
+
             // Process results and build maps
             lookupResults.forEach(result => {
                 if (result.status === 'fulfilled') {
@@ -3838,7 +3879,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     console.warn(`Lookup failed for ${result.reason}`);
                 }
             });
-            
+
             const lookupTime = Date.now() - lookupStart;
             console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
         }
@@ -3894,6 +3935,17 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     if (!entry || !entry.doctorId) return null;
                     
                     const doctor = lookupMaps.doctors.get(entry.doctorId.toString());
+                    const doctorUserAccountId = doctor?.userAccount?._id?.toString();
+                    const studyAssignment = Array.isArray(study.assignment)
+                        ? study.assignment.find(a => {
+                            const assignedToStr = a?.assignedTo?.toString();
+                            return assignedToStr === entry.doctorId.toString() ||
+                                   (doctorUserAccountId && assignedToStr === doctorUserAccountId);
+                        })
+                        : null;
+                    const assignedByUser = studyAssignment?.assignedBy
+                        ? lookupMaps.users.get(studyAssignment.assignedBy.toString())
+                        : null;
                     return {
                         doctorId: entry.doctorId,
                         assignedAt: entry.assignedAt,
@@ -3903,7 +3955,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                             email: doctor.userAccount?.email || null,
                             specialization: doctor.specialization || null,
                             isActive: doctor.userAccount?.isActive || false
-                        } : null
+                        } : null,
+                        assignedBy: assignedByUser
+                            ? { _id: assignedByUser._id, name: assignedByUser.fullName || assignedByUser.email }
+                            : null
                     };
                 }).filter(Boolean);
             }
@@ -4375,27 +4430,31 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
         const lookupMaps = {
             patients: new Map(),
             labs: new Map(),
-            doctors: new Map()
+            doctors: new Map(),
+            users: new Map()
         };
 
         if (studies.length > 0) {
             const lookupStart = Date.now();
-            
+
             // Extract unique IDs with Set for deduplication
             const uniqueIds = {
                 patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
                 labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))],
                 doctors: [...new Set(studies.flatMap(s => {
                     let assignments = [];
-                    
                     if (Array.isArray(s.lastAssignedDoctor)) {
                         assignments = s.lastAssignedDoctor;
                     } else if (s.lastAssignedDoctor && typeof s.lastAssignedDoctor === 'object') {
                         assignments = [s.lastAssignedDoctor];
                     }
-                    
                     return assignments.map(assignment => assignment?.doctorId?.toString()).filter(Boolean);
-                }).filter(Boolean))]
+                }).filter(Boolean))],
+                assignedByUsers: [...new Set(studies.flatMap(s =>
+                    Array.isArray(s.assignment)
+                        ? s.assignment.map(a => a?.assignedBy?.toString()).filter(Boolean)
+                        : []
+                ))]
             };
 
             // 🔥 PARALLEL: Optimized batch lookups with lean queries
@@ -4431,9 +4490,18 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 );
             }
 
+            if (uniqueIds.assignedByUsers.length > 0) {
+                lookupPromises.push(
+                    User.find({ _id: { $in: uniqueIds.assignedByUsers.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('fullName email')
+                        .lean()
+                        .then(results => ({ type: 'users', data: results }))
+                );
+            }
+
             // Execute all lookups in parallel
             const lookupResults = await Promise.allSettled(lookupPromises);
-            
+
             // Process results and build maps
             lookupResults.forEach(result => {
                 if (result.status === 'fulfilled') {
@@ -4445,7 +4513,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     console.warn(`Lookup failed for ${result.reason}`);
                 }
             });
-            
+
             const lookupTime = Date.now() - lookupStart;
             console.log(`🔍 IN-PROGRESS batch lookups completed in ${lookupTime}ms`);
         }
@@ -4498,6 +4566,17 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     if (!entry || !entry.doctorId) return null;
                     
                     const doctor = lookupMaps.doctors.get(entry.doctorId.toString());
+                    const doctorUserAccountId = doctor?.userAccount?._id?.toString();
+                    const studyAssignment = Array.isArray(study.assignment)
+                        ? study.assignment.find(a => {
+                            const assignedToStr = a?.assignedTo?.toString();
+                            return assignedToStr === entry.doctorId.toString() ||
+                                   (doctorUserAccountId && assignedToStr === doctorUserAccountId);
+                        })
+                        : null;
+                    const assignedByUser = studyAssignment?.assignedBy
+                        ? lookupMaps.users.get(studyAssignment.assignedBy.toString())
+                        : null;
                     return {
                         doctorId: entry.doctorId,
                         assignedAt: entry.assignedAt,
@@ -4507,7 +4586,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                             email: doctor.userAccount?.email || null,
                             specialization: doctor.specialization || null,
                             isActive: doctor.userAccount?.isActive || false
-                        } : null
+                        } : null,
+                        assignedBy: assignedByUser
+                            ? { _id: assignedByUser._id, name: assignedByUser.fullName || assignedByUser.email }
+                            : null
                     };
                 }).filter(Boolean);
             }
@@ -4916,6 +4998,8 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     ReportAvailable: 1,
                     'assignment.priority': 1,
                     'assignment.assignedAt': 1,
+                    'assignment.assignedTo': 1,
+                    'assignment.assignedBy': 1,
                     doctorReports: 1,
                     lastAssignedDoctor: 1,
                     reportInfo: 1,
@@ -4962,30 +5046,31 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
         const lookupMaps = {
             patients: new Map(),
             labs: new Map(),
-            doctors: new Map()
+            doctors: new Map(),
+            users: new Map()
         };
 
         if (studies.length > 0) {
             const lookupStart = Date.now();
-            
+
             // Extract unique IDs with Set for deduplication
             const uniqueIds = {
                 patients: [...new Set(studies.map(s => s.patient?.toString()).filter(Boolean))],
                 labs: [...new Set(studies.map(s => s.sourceLab?.toString()).filter(Boolean))],
                 doctors: [...new Set(studies.flatMap(s => {
-                    // Handle both legacy (object) and new (array) formats
                     let assignments = [];
-                    
                     if (Array.isArray(s.lastAssignedDoctor)) {
-                        // New format: array of objects
                         assignments = s.lastAssignedDoctor;
                     } else if (s.lastAssignedDoctor && typeof s.lastAssignedDoctor === 'object') {
-                        // Legacy format: single object
                         assignments = [s.lastAssignedDoctor];
                     }
-                    
                     return assignments.map(assignment => assignment?.doctorId?.toString()).filter(Boolean);
-                }).filter(Boolean))]
+                }).filter(Boolean))],
+                assignedByUsers: [...new Set(studies.flatMap(s =>
+                    Array.isArray(s.assignment)
+                        ? s.assignment.map(a => a?.assignedBy?.toString()).filter(Boolean)
+                        : []
+                ))]
             };
 
             // 🔥 PARALLEL: Optimized batch lookups with lean queries
@@ -5022,9 +5107,18 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 );
             }
 
+            if (uniqueIds.assignedByUsers.length > 0) {
+                lookupPromises.push(
+                    User.find({ _id: { $in: uniqueIds.assignedByUsers.map(id => new mongoose.Types.ObjectId(id)) } })
+                        .select('fullName email')
+                        .lean()
+                        .then(results => ({ type: 'users', data: results }))
+                );
+            }
+
             // Execute all lookups in parallel
             const lookupResults = await Promise.allSettled(lookupPromises);
-            
+
             // Process results and build maps
             lookupResults.forEach(result => {
                 if (result.status === 'fulfilled') {
@@ -5036,7 +5130,7 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                     console.warn(`Lookup failed for ${result.reason}`);
                 }
             });
-            
+
             const lookupTime = Date.now() - lookupStart;
             console.log(`🔍 Batch lookups completed in ${lookupTime}ms`);
         }
@@ -5092,8 +5186,19 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                 // Map all doctor assignments with their details
                 allDoctorAssignments = assignmentArray.map(entry => {
                     if (!entry || !entry.doctorId) return null;
-                    
+
                     const doctor = lookupMaps.doctors.get(entry.doctorId.toString());
+                    const doctorUserAccountId = doctor?.userAccount?._id?.toString();
+                    const studyAssignment = Array.isArray(study.assignment)
+                        ? study.assignment.find(a => {
+                            const assignedToStr = a?.assignedTo?.toString();
+                            return assignedToStr === entry.doctorId.toString() ||
+                                   (doctorUserAccountId && assignedToStr === doctorUserAccountId);
+                        })
+                        : null;
+                    const assignedByUser = studyAssignment?.assignedBy
+                        ? lookupMaps.users.get(studyAssignment.assignedBy.toString())
+                        : null;
                     return {
                         doctorId: entry.doctorId,
                         assignedAt: entry.assignedAt,
@@ -5103,7 +5208,10 @@ if (req.query.quickDatePreset || req.query.dateFilter) {
                             email: doctor.userAccount?.email || null,
                             specialization: doctor.specialization || null,
                             isActive: doctor.userAccount?.isActive || false
-                        } : null
+                        } : null,
+                        assignedBy: assignedByUser
+                            ? { _id: assignedByUser._id, name: assignedByUser.fullName || assignedByUser.email }
+                            : null
                     };
                 }).filter(Boolean); // Remove null entries
             }

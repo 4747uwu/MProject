@@ -302,6 +302,15 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
     }
   };
 
+  const getAssignmentInfo = (doctorId) => {
+    if (!study?.doctorAssignments) return null;
+    return study.doctorAssignments.find(a =>
+      a.doctorId === doctorId ||
+      a.doctorDetails?._id === doctorId ||
+      a.assignedTo === doctorId
+    ) || null;
+  };
+
   const clearFilters = () => {
     setSearchTerm('');
     setAssignmentFilter('');
@@ -398,9 +407,9 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
               <thead className="bg-gray-600 text-white sticky top-0 z-10">
                 <tr>
                   <th className="text-left p-3 font-medium">Name</th>
-                  <th className="text-center p-3 font-medium">Specialization</th>
+                  <th className="text-center p-3 font-medium">Assigned By</th>
+                  <th className="text-center p-3 font-medium">Email</th>
                   <th className="text-center p-3 font-medium">Status</th>
-                  {/* <th className="text-center p-3 font-medium">Assignment</th> */}
                 </tr>
               </thead>
               <tbody>
@@ -416,6 +425,11 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                     const isOnline = doctor.isLoggedIn;
                     const fullName = doctor.fullName || `${doctor.firstName || ''} ${doctor.lastName || ''}`.trim();
                     const displayName = fullName || doctor.email || 'Unknown Doctor';
+                    const assignmentInfo = getAssignmentInfo(doctorId);
+                    const assignedBy = assignmentInfo?.assignedBy;
+                    const assignedByName = assignedBy
+                      ? (assignedBy.name || `${assignedBy.firstName || ''} ${assignedBy.lastName || ''}`.trim() || assignedBy.email)
+                      : (assignmentInfo?.assignedByName || null);
 
                     return (
                       <tr
@@ -434,25 +448,29 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                               }}
                               className="mr-3 h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
                             />
-                            {/* ✨ MODIFIED: Wrapped name and email in a div for better layout */}
-                            <div>
-                              <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
-                                {/* Dr. {displayName} */}
-                                 {displayName}
-
-                              </span>
-                              {/* <div className="text-xs text-gray-500"></div> */}
-                            </div>
+                            <span className={`font-medium ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
+                              {displayName}
+                            </span>
                           </div>
                         </td>
-                        <td className="p-3 text-center text-gray-700">{doctor.email}</td>
+                        <td className="p-3 text-center">
+                          {isCurrentlyAssignedToThisStudy ? (
+                            assignedByName ? (
+                              <span className="text-xs text-gray-700 font-medium">{assignedByName}</span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">—</span>
+                            )
+                          ) : (
+                            <span className="text-xs text-gray-300">—</span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center text-gray-700 text-sm">{doctor.email}</td>
                         <td className="p-3 text-center">
                           <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs sm:text-sm font-medium ${isOnline ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
                             <span className={`w-2 h-2 rounded-full mr-1 ${isOnline ? 'bg-green-500' : 'bg-red-500'}`}></span>
                             {isOnline ? 'Online' : 'Offline'}
                           </span>
                         </td>
-                        
                       </tr>
                     );
                   })
@@ -479,6 +497,11 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                   const isOnline = doctor.isLoggedIn;
                   const fullName = doctor.fullName || `${doctor.firstName || ''} ${doctor.lastName || ''}`.trim();
                   const displayName = fullName || doctor.email || 'Unknown Doctor';
+                  const assignmentInfo = getAssignmentInfo(doctorId);
+                  const assignedBy = assignmentInfo?.assignedBy;
+                  const assignedByName = assignedBy
+                    ? (assignedBy.name || `${assignedBy.firstName || ''} ${assignedBy.lastName || ''}`.trim() || assignedBy.email)
+                    : (assignmentInfo?.assignedByName || null);
 
                   return (
                     <div
@@ -496,10 +519,11 @@ const DoctorAssignmentModal = ({ isOpen, onClose, study, onAssignComplete }) => 
                           />
                           <div>
                             <div className={`font-medium text-sm break-words ${isSelected ? 'text-blue-700' : 'text-blue-600'}`}>
-                              {/* Dr. {displayName} */}
-                               {displayName}
-
+                              {displayName}
                             </div>
+                            {isCurrentlyAssignedToThisStudy && assignedByName && (
+                              <div className="text-xs text-gray-500">Assigned by: <span className="font-medium text-gray-700">{assignedByName}</span></div>
+                            )}
                             <div className="text-xs text-gray-500 break-all">{doctor.email}</div>
                             <div className="text-xs text-gray-600">{doctor.specialization || 'Radiology'}</div>
                           </div>

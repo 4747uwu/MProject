@@ -316,6 +316,8 @@ const WorklistTable = React.memo(({
   useEffect(() => {
     setActiveTab(activeCategory);
   }, [activeCategory]);
+
+  // console.log("worklist studies:", studies);
   
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024);
