@@ -35,25 +35,32 @@ const UniversalNavbar = () => {
   }, []);
 
   // Get role-based configurations
+  const SUPER_ADMIN_EMAILS = ['aistar@starradiology.com', 'utkarshit@starradiology.com'];
+  const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email);
+
   const getRoleConfig = () => {
     switch (currentUser?.role) {
-      case 'admin':
+      case 'admin': {
+        const adminLinks = [
+          { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
+          { to: '/admin/dicom-uploader', label: 'Upload Images', icon: 'upload', exact: false },
+          ...(isSuperAdmin ? [
+            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
+            { to: '/admin/labs', label: 'Labs', icon: 'labs' },
+          ] : []),
+          { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
+          { to: '/admin/templates', label: 'Templates', icon: 'templates', exact: false },
+        ];
         return {
-          title: 'Star-Radiology', // Keep for alt text and fallback
+          title: 'Star-Radiology',
           subtitle: 'Administration',
           brandColor: 'text-blue-500',
           accentColor: 'bg-blue-500',
           hoverColor: 'hover:text-blue-600',
           activeColor: 'text-blue-600 bg-blue-50',
-          links: [
-            { to: '/admin/dashboard', label: 'Dashboard', icon: 'dashboard', exact: true },
-            { to: '/admin/dicom-uploader', label: 'Upload Images', icon: 'upload', exact: false }, // 🆕 NEW: DICOM uploader link
-            { to: '/admin/doctors', label: 'Doctors', icon: 'doctors' },
-            { to: '/admin/labs', label: 'Labs', icon: 'labs' },
-            { to: '/reports/tat', label: 'TAT Reports', icon: 'reports' },
-            { to: '/admin/templates', label: 'Templates', icon: 'templates', exact: false },
-          ]
+          links: adminLinks,
         };
+      }
       case 'doctor_account':
         return {
           title: 'Star-Radiology',

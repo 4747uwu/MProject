@@ -5534,7 +5534,26 @@ export const updateStudyInteractionStatus = async (req, res) => {
                 message: 'Study not found'
             });
         }
-        
+
+        // Guard: never update status if study has reached report_drafted or beyond
+        const protectedStatuses = [
+            'report_drafted',
+            'report_finalized',
+            'report_uploaded',
+            'report_downloaded_radiologist',
+            'report_downloaded',
+            'final_report_downloaded',
+            'archived'
+        ];
+        if (protectedStatuses.includes(study.workflowStatus)) {
+            return res.json({
+                success: true,
+                message: 'Viewer opened; status unchanged (report already drafted or finalized)',
+                currentStatus: study.workflowStatus,
+                action: action
+            });
+        }
+
         // Only doctors can trigger these status changes
         if (req.user.role !== 'doctor_account') {
             return res.status(403).json({
@@ -5588,15 +5607,15 @@ export const updateStudyInteractionStatus = async (req, res) => {
             'new_study_received',
             'pending_assignment',
             'assigned_to_doctor',
-                        'report_downloaded_radiologist',
-                                    'report_downloaded',
-
-
             'doctor_opened_report',
             'report_in_progress',
-            'report_uploaded',
+            'report_drafted',
             'report_finalized',
-            'final_report_downloaded'
+            'report_uploaded',
+            'report_downloaded_radiologist',
+            'report_downloaded',
+            'final_report_downloaded',
+            'archived'
         ];
         
         const currentStatusIndex = statusHierarchy.indexOf(study.workflowStatus);
