@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import WorklistTable from './WorklistTable';
 import { Link } from 'react-router-dom';
 import api from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
 // 🔧 COMPACT & MODERN UI: WorklistSearch component
 const WorklistSearch = React.memo(({ 
   allStudies = [], 
@@ -33,7 +34,11 @@ const WorklistSearch = React.memo(({
   onResetNewStudyCount,
 }) => {
 
-  //location 
+  const { currentUser } = useAuth();
+  const SUPER_ADMIN_EMAILS = ['aistar@starradiology.com', 'utkarshit@starradiology.com'];
+  const isSuperAdmin = SUPER_ADMIN_EMAILS.includes(currentUser?.email);
+
+  //location
   const [backendLocations, setBackendLocations] = useState([]);
   const [locationsLoading, setLocationsLoading] = useState(false);
   const [locationSearchTerm, setLocationSearchTerm] = useState('');
@@ -882,11 +887,10 @@ const selectedLocationLabel = useMemo(() => {
                   <span className="sm:hidden lg:inline">Refresh</span>
                 </button>
 
-                {(userRole === 'admin' && (
-                  // 🔧 ADMIN: Lab and Doctor management buttons
+                {userRole === 'admin' && isSuperAdmin && (
                   <>
-                    <Link 
-                      to="/admin/new-lab" 
+                    <Link
+                      to="/admin/new-lab"
                       className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-blue-500 text-white rounded text-xs font-medium hover:bg-blue-600 transition-colors flex-1 sm:flex-none justify-center"
                       title="Add New Lab"
                     >
@@ -896,8 +900,8 @@ const selectedLocationLabel = useMemo(() => {
                       <span className="sm:hidden lg:inline">Lab</span>
                     </Link>
 
-                    <Link 
-                      to="/admin/new-doctor" 
+                    <Link
+                      to="/admin/new-doctor"
                       className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-green-500 text-white rounded text-xs font-medium hover:bg-green-600 transition-colors flex-1 sm:flex-none justify-center"
                       title="Add New Doctor"
                     >
@@ -907,8 +911,8 @@ const selectedLocationLabel = useMemo(() => {
                       <span className="sm:hidden lg:inline">Doctor</span>
                     </Link>
 
-                    <Link 
-                      to="/admin/new-admin" 
+                    <Link
+                      to="/admin/new-admin"
                       className="inline-flex items-center px-2 sm:px-3 py-1.5 bg-purple-500 text-white rounded text-xs font-medium hover:bg-purple-600 transition-colors flex-1 sm:flex-none justify-center"
                       title="Add New Admin"
                     >
@@ -918,7 +922,6 @@ const selectedLocationLabel = useMemo(() => {
                       <span className="sm:hidden lg:inline">Admin</span>
                     </Link>
                   </>
-                ) 
                 )}
               </div>
             </div>
