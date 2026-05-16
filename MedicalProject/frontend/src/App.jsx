@@ -18,6 +18,7 @@ import TATReportPage from './pages/TATReport';
 import AdminRegistrationForm from './components/admin/AdminRegistrationForm';
 import { WebSocketProvider } from './contexts/webSocketContext';
 import ShareStudy from './pages/ShareStudy';
+import ShareDecisionPage from './pages/ShareDecisionPage';
 import LabsManagement from './pages/LabsManagement'; // 🆕 NEW
 import DoctorsManagement from './pages/DoctorsManagement'; // 🆕 NEW
 
@@ -211,6 +212,7 @@ function App() {
               } 
             />
             <Route path="/share/:token" element={<ShareStudy />} />
+            <Route path="/admin/share/:id" element={<ShareDecisionPage />} />
 
             <Route 
               path="/reporting/:studyId" 

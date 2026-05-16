@@ -4,6 +4,88 @@ import DicomStudy from '../models/dicomStudyModel.js';
 import ShareToken from '../models/shareTokenSchema.js';
 import QRCode from 'qrcode';
 
+const ORTHANC_BASE_URL = 'http://64.227.187.164:8042';
+const OHIF_LOCAL_URL = 'http://64.227.187.164:4000';
+
+function buildOhifUrl(studyInstanceUID) {
+  const ohifUrl = new URL(`${OHIF_LOCAL_URL}/viewer`);
+  ohifUrl.searchParams.set('StudyInstanceUIDs', studyInstanceUID);
+  const dataSourceConfig = {
+    namespace: '@ohif/extension-default.dataSourcesModule.dicomweb',
+    sourceName: 'dicomweb',
+    configuration: {
+      friendlyName: 'Star Radiology Viewer',
+      name: 'orthanc',
+      wadoUriRoot: `${ORTHANC_BASE_URL}/wado`,
+      qidoRoot: `${ORTHANC_BASE_URL}/dicom-web`,
+      wadoRoot: `${ORTHANC_BASE_URL}/dicom-web`,
+      qidoSupportsIncludeField: true,
+      supportsReject: false,
+      imageRendering: 'wadors',
+      thumbnailRendering: 'wadors',
+      enableStudyLazyLoad: true,
+      supportsFuzzyMatching: false,
+      supportsWildcard: true
+    }
+  };
+  ohifUrl.searchParams.set('dataSources', JSON.stringify([dataSourceConfig]));
+  return ohifUrl.toString();
+}
+
+// Public: fetch study info for share decision page
+export const getStudyForShare = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const study = await DicomStudy.findById(id).select(
+      'patientInfo patientId studyInstanceUID orthancStudyID modality studyDate workflowStatus uploadedReports ReportAvailable'
+    );
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+    res.json({
+      success: true,
+      study: {
+        _id: study._id,
+        patientName: study.patientInfo?.patientName || 'Unknown Patient',
+        patientId: study.patientInfo?.patientID || study.patientId,
+        modality: study.modality,
+        studyDate: study.studyDate,
+        studyInstanceUID: study.studyInstanceUID,
+        workflowStatus: study.workflowStatus,
+        hasReport: (study.uploadedReports?.length > 0) || study.ReportAvailable,
+        reportCount: study.uploadedReports?.length || 0
+      },
+      viewerUrl: buildOhifUrl(study.studyInstanceUID)
+    });
+  } catch (error) {
+    console.error('❌ Error fetching study for share:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch study' });
+  }
+};
+
+// Public: download latest uploaded report for a study
+export const downloadSharedReport = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const study = await DicomStudy.findById(id).select('uploadedReports patientInfo');
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+    if (!study.uploadedReports || study.uploadedReports.length === 0) {
+      return res.status(404).json({ success: false, message: 'No report available for this study' });
+    }
+    const report = study.uploadedReports[study.uploadedReports.length - 1];
+    const documentBuffer = Buffer.from(report.data, 'base64');
+    res.setHeader('Content-Type', report.contentType || 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.filename || 'report.pdf'}"`);
+    res.setHeader('Content-Length', documentBuffer.length);
+    res.send(documentBuffer);
+  } catch (error) {
+    console.error('❌ Error downloading shared report:', error);
+    res.status(500).json({ success: false, message: 'Failed to download report' });
+  }
+};
+
 // Generate shareable link
 export const generateShareableLink = async (req, res) => {
   try {
@@ -63,9 +145,8 @@ export const generateShareableLink = async (req, res) => {
 
     await shareToken.save();
 
-    // 🔧 FIXED: Generate correct frontend shareable URL (not API URL)
-    const baseUrl = 'http://64.227.187.164';
-    const shareableLink = `${baseUrl}/share/${token}`; // 🔧 This should point to frontend route
+    const baseUrl = 'https://ai.starradiology.com';
+    const shareableLink = `${baseUrl}/admin/share/${studyId}`;
 
     console.log(`🔗 Generated shareable link for study ${studyId}: ${shareableLink}`);
 

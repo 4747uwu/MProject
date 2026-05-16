@@ -2,8 +2,13 @@ import express from 'express';
 import axios from 'axios';
 import mongoose from 'mongoose';
 import Redis from 'ioredis';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 import websocketService from '../config/webSocket.js';
 import CloudflareR2ZipService from '../services/wasabi.zip.service.js';
+import { r2Client } from '../config/cloudflare-r2.js';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 
 // Import Mongoose Models
 import DicomStudy from '../models/dicomStudyModel.js';
@@ -14,6 +19,7 @@ const router = express.Router();
 
 // --- Configuration ---
 const ORTHANC_BASE_URL = process.env.ORTHANC_URL || 'http://localhost:8042';
+// const ORTHANC_BASE_URL = 'http://64.227.187.164:8042';
 const ORTHANC_USERNAME = process.env.ORTHANC_USERNAME || 'alice';
 const ORTHANC_PASSWORD = process.env.ORTHANC_PASSWORD || 'alicePassword';
 const orthancAuth = 'Basic ' + Buffer.from(ORTHANC_USERNAME + ':' + ORTHANC_PASSWORD).toString('base64');
@@ -1265,6 +1271,125 @@ router.get('/init-r2', async (req, res) => {
             message: 'Failed to initialize R2 bucket',
             error: error.message
         });
+    }
+});
+
+// Ensure study is in Orthanc — restore from R2 if it was deleted
+router.post('/ensure-available', async (req, res) => {
+    let tempFilePath = null;
+    try {
+        const { studyId } = req.body;
+        if (!studyId) {
+            return res.status(400).json({ success: false, error: 'studyId required' });
+        }
+
+        // Find study in DB
+        const orConditions = [
+            { orthancStudyID: studyId },
+            { studyInstanceUID: studyId },
+        ];
+        if (mongoose.Types.ObjectId.isValid(studyId)) {
+            orConditions.push({ _id: studyId });
+        }
+        const study = await DicomStudy.findOne({ $or: orConditions });
+
+        if (!study) {
+            return res.status(404).json({ success: false, error: 'Study not found in database' });
+        }
+
+        const orthancId = study.orthancStudyID;
+        if (!orthancId) {
+            // No Orthanc ID means we can't check or restore — let viewer try anyway
+            console.warn(`[EnsureAvailable] ⚠️ No orthancStudyID for study ${study._id}, letting viewer try`);
+            return res.json({ success: true, available: true, restored: false, warning: 'No Orthanc ID stored' });
+        }
+
+        // Check if study already exists in Orthanc
+        const orthancCheckUrl = `${ORTHANC_BASE_URL}/studies/${orthancId}`;
+        console.log(`[EnsureAvailable] 🔍 Checking Orthanc at: ${orthancCheckUrl}`);
+        try {
+            await axios.get(orthancCheckUrl, {
+                headers: { Authorization: orthancAuth },
+                timeout: 5000
+            });
+            console.log(`[EnsureAvailable] ✅ Study ${orthancId} already in Orthanc`);
+            return res.json({ success: true, available: true, restored: false });
+        } catch (orthancErr) {
+            console.error(`[EnsureAvailable] Orthanc error — status: ${orthancErr.response?.status}, code: ${orthancErr.code}, message: ${orthancErr.message}`);
+            if (orthancErr.response?.status !== 404) {
+                // Orthanc unreachable or other error — don't block, let viewer try
+                console.warn(`[EnsureAvailable] ⚠️ Orthanc unreachable (code: ${orthancErr.code}), letting viewer try`);
+                return res.json({ success: true, available: true, restored: false, warning: 'Could not verify Orthanc availability' });
+            }
+            // 404 → not in Orthanc, proceed to restore from R2
+        }
+
+        // Resolve R2 key — same multi-fallback pattern as zip.download.controller
+        const zipInfo = study.preProcessedDownload;
+        let r2Key = zipInfo?.zipKey ||
+                    zipInfo?.zipMetadata?.r2Key ||
+                    zipInfo?.zipMetadata?.zipKey;
+
+        if (!r2Key && zipInfo?.zipFileName) {
+            const year = new Date(study.createdAt || Date.now()).getFullYear();
+            r2Key = `studies/${year}/${zipInfo.zipFileName}`;
+            console.log(`[EnsureAvailable] 🔧 Constructed R2 key from filename: ${r2Key}`);
+        }
+
+        if (!r2Key) {
+            console.warn(`[EnsureAvailable] ⚠️ No R2 backup for study ${orthancId} — letting viewer try`);
+            // Don't hard-block — viewer will show its own "study not found" error
+            return res.json({ success: true, available: true, restored: false, warning: 'Study not in Orthanc and no R2 backup found' });
+        }
+
+        console.log(`[EnsureAvailable] 📦 Restoring study ${orthancId} from R2 key: ${r2Key}`);
+
+        // Download from Cloudflare R2 to temp file
+        tempFilePath = path.join(os.tmpdir(), `ensure_${study._id}_${Date.now()}.zip`);
+
+        const r2Response = await r2Client.send(new GetObjectCommand({
+            Bucket: 'studyzip',
+            Key: r2Key
+        }));
+
+        const writeStream = fs.createWriteStream(tempFilePath);
+        let downloadedBytes = 0;
+        for await (const chunk of r2Response.Body) {
+            writeStream.write(chunk);
+            downloadedBytes += chunk.length;
+        }
+        writeStream.end();
+        await new Promise((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+        });
+
+        const fileSizeMB = (downloadedBytes / 1024 / 1024).toFixed(2);
+        console.log(`[EnsureAvailable] ✅ Downloaded ${fileSizeMB}MB from R2`);
+
+        // Upload to local Orthanc
+        const fileStream = fs.createReadStream(tempFilePath);
+        await axios.post(`${ORTHANC_BASE_URL}/instances`, fileStream, {
+            headers: {
+                Authorization: orthancAuth,
+                'Content-Type': 'application/zip'
+            },
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity,
+            timeout: 300000
+        });
+
+        console.log(`[EnsureAvailable] ✅ Study ${orthancId} restored to Orthanc (${fileSizeMB}MB)`);
+        return res.json({ success: true, available: true, restored: true, fileSizeMB: parseFloat(fileSizeMB) });
+
+    } catch (error) {
+        console.error('[EnsureAvailable] ❌ Unexpected error:', error.message);
+        // Return available:true so the viewer still opens — don't hard-block on unexpected errors
+        return res.json({ success: true, available: true, restored: false, warning: error.message });
+    } finally {
+        if (tempFilePath) {
+            try { fs.unlinkSync(tempFilePath); } catch (_) {}
+        }
     }
 });
 

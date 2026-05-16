@@ -1,10 +1,12 @@
 // 🔧 FIXED: routes/sharing.routes.js
 import express from 'express';
 import mongoose from 'mongoose';
-import { 
-  generateShareableLink, 
-  generateQRCode, 
-  accessSharedStudy 
+import {
+  generateShareableLink,
+  generateQRCode,
+  accessSharedStudy,
+  getStudyForShare,
+  downloadSharedReport
 } from '../controllers/share.controller.js';
 // 🔧 FIXED: Import correct auth middleware
 import { protect, authorize } from '../middleware/authMiddleware.js';
@@ -30,6 +32,14 @@ router.post('/generate-qr',
 // 🌐 Access shared study (public endpoint - no auth required)
 // GET /api/sharing/access/:token
 router.get('/access/:token', accessSharedStudy);
+
+// 🌐 Public: Get study info for share decision page
+// GET /api/sharing/study/:id
+router.get('/study/:id', getStudyForShare);
+
+// 🌐 Public: Download report for shared study
+// GET /api/sharing/study/:id/report
+router.get('/study/:id/report', downloadSharedReport);
 
 // 📊 Get sharing statistics (optional - for analytics)
 // GET /api/sharing/stats/:studyId

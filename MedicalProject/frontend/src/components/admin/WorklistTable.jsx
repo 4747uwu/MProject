@@ -870,8 +870,9 @@ const cardGrid = useMemo(() => (
 
 
                                   {visibleColumns.actions && <div className="flex-1 min-w-[80px] px-2 flex items-center justify-center space-x-2 border-r border-gray-300 h-full">
-                                    <EyeIconDropdown 
+                                    <EyeIconDropdown
                                   studyInstanceUID={study.studyInstanceUID}
+                                  study={study}
                                   userRole={userRole}/>
                                     
                                     <div className="flex-shrink-0"><DownloadDropdown study={study} /></div></div>}

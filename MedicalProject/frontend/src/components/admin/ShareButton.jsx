@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { createPortal } from 'react-dom'; // Correct import for createPortal
+import { createPortal } from 'react-dom';
 import { toast } from 'react-hot-toast';
-import api from '../../services/api';
 
 const ShareButton = ({ study }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const modalRef = useRef(null);
+
+  const buildShareLink = () => `https://ai.starradiology.com/admin/share/${study._id}`;
 
   // Get the element to mount the portal to.
   // It's best practice to have a dedicated div like <div id="modal-root"></div> in your index.html.
@@ -47,37 +47,6 @@ const ShareButton = ({ study }) => {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen]);
 
-  // Generate shareable link for OHIF Local
-  const generateShareableLink = async () => {
-    try {
-      setIsGenerating(true);
-      
-      const response = await api.post('/sharing/generate-link', {
-        studyId: study._id,
-        studyInstanceUID: study.studyInstanceUID || study.instanceID,
-        orthancStudyID: study.orthancStudyID,
-        viewerType: 'ohif-local',
-        patientName: study.patientName,
-        studyDescription: study.description,
-        modality: study.modality,
-        studyDate: study.studyDate,
-        expiresIn: '7d' // Link expiration time
-      });
-
-      if (response.data.success) {
-        setShareLink(response.data.shareableLink);
-        return response.data.shareableLink;
-      } else {
-        throw new Error(response.data.message || 'Failed to generate shareable link');
-      }
-    } catch (error) {
-      console.error('Error generating shareable link:', error);
-      toast.error('Failed to generate shareable link');
-      return null;
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   // Copy link to clipboard
   const copyToClipboard = async (link) => {
@@ -105,13 +74,7 @@ const ShareButton = ({ study }) => {
 
   // Handle share action (copy or email)
   const handleShare = async (action) => {
-    let link = shareLink;
-    
-    // Generate link if not already present
-    if (!link) {
-      link = await generateShareableLink();
-      if (!link) return; // Stop if link generation failed
-    }
+    const link = shareLink || buildShareLink();
 
     switch (action) {
       case 'copy':
@@ -127,11 +90,10 @@ const ShareButton = ({ study }) => {
     }
   };
 
-  // Open modal and optionally generate link if it doesn't exist
-  const handleOpenModal = async () => {
+  const handleOpenModal = () => {
     setIsOpen(true);
     if (!shareLink) {
-      await generateShareableLink();
+      setShareLink(buildShareLink());
     }
   };
 
@@ -161,7 +123,7 @@ const ShareButton = ({ study }) => {
                     🔗 Share Study
                   </h3>
                   <p className="text-sm text-gray-500">
-                    OHIF Viewer Link
+                    Viewer & Report Access
                   </p>
                 </div>
               </div>
@@ -199,34 +161,24 @@ const ShareButton = ({ study }) => {
           {/* Modal Body */}
           <div className="bg-white px-4 py-5 sm:p-6">
             <div className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center mb-3">
-                <span className="text-2xl mr-3">🏠</span>
-                <div className="flex-1">
-                  <h4 className="text-sm font-medium text-gray-900">OHIF Viewer (Local)</h4>
-                  <p className="text-xs text-gray-500">Self-hosted OHIF viewer</p>
-                </div>
-              </div>
-              
-              {/* Share Link Display */}
-              {shareLink && (
-                <div className="mb-3 p-2 bg-gray-50 rounded text-xs text-gray-600 break-all">
+              <div className="mb-3">
+                <p className="text-xs text-gray-500 mb-1">Share link (lets recipient choose Viewer or Report):</p>
+                <div className="p-2 bg-gray-50 rounded text-xs text-gray-700 break-all font-mono border border-gray-100">
                   {shareLink}
                 </div>
-              )}
-              
+              </div>
+
               {/* Action Buttons */}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => handleShare('copy')}
                   className="flex items-center justify-center px-3 py-2 text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 rounded transition-colors"
-                  disabled={isGenerating || !shareLink}
                 >
                   📋 Copy Link
                 </button>
                 <button
                   onClick={() => handleShare('email')}
                   className="flex items-center justify-center px-3 py-2 text-sm bg-green-100 hover:bg-green-200 text-green-700 rounded transition-colors"
-                  disabled={isGenerating || !shareLink}
                 >
                   ✉️ Email
                 </button>
@@ -235,32 +187,15 @@ const ShareButton = ({ study }) => {
           </div>
 
           {/* Modal Footer */}
-          <div className="bg-gray-50 px-4 py-3 sm:px-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center text-sm text-yellow-800">
-                <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <span>🔒 Link expires in 7 days</span>
-              </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-              >
-                Close
-              </button>
-            </div>
+          <div className="bg-gray-50 px-4 py-3 sm:px-6 flex justify-end">
+            <button
+              onClick={() => setIsOpen(false)}
+              className="inline-flex justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              Close
+            </button>
           </div>
 
-          {/* Loading Overlay */}
-          {isGenerating && (
-            <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mx-auto mb-2"></div>
-                <p className="text-sm text-gray-600">Generating link...</p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -269,19 +204,14 @@ const ShareButton = ({ study }) => {
   return (
     <>
       {/* Share Button (remains in the component's normal render tree) */}
-      <button 
+      <button
         onClick={handleOpenModal}
         className="text-purple-600 hover:text-purple-800 transition-colors duration-200 p-1 hover:bg-purple-50 rounded"
-        title="Share study with OHIF Viewer"
-        disabled={isGenerating}
+        title="Share study"
       >
-        {isGenerating ? (
-          <div className="animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full"></div>
-        ) : (
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
-          </svg>
-        )}
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+        </svg>
       </button>
       
       {/* The modal is rendered into 'modalRoot' (e.g., a div outside the main app div) */}
