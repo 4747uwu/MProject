@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import DicomStudy from '../models/dicomStudyModel.js';
 import ShareToken from '../models/shareTokenSchema.js';
 import QRCode from 'qrcode';
+import Document from '../models/documentModal.js';
+import WasabiService from '../services/wasabi.service.js';
 
 const ORTHANC_BASE_URL = 'http://64.227.187.164:8042';
 const OHIF_LOCAL_URL = 'http://64.227.187.164:4000';
@@ -37,7 +39,7 @@ export const getStudyForShare = async (req, res) => {
   try {
     const { id } = req.params;
     const study = await DicomStudy.findById(id).select(
-      'patientInfo patientId studyInstanceUID orthancStudyID modality studyDate workflowStatus uploadedReports ReportAvailable'
+      'patientInfo patientId studyInstanceUID orthancStudyID modality studyDate workflowStatus doctorReports ReportAvailable'
     );
     if (!study) {
       return res.status(404).json({ success: false, message: 'Study not found' });
@@ -52,8 +54,8 @@ export const getStudyForShare = async (req, res) => {
         studyDate: study.studyDate,
         studyInstanceUID: study.studyInstanceUID,
         workflowStatus: study.workflowStatus,
-        hasReport: (study.uploadedReports?.length > 0) || study.ReportAvailable,
-        reportCount: study.uploadedReports?.length || 0
+        hasReport: (study.doctorReports?.length > 0) || study.ReportAvailable,
+        reportCount: study.doctorReports?.length || 0
       },
       viewerUrl: buildOhifUrl(study.studyInstanceUID)
     });
@@ -63,21 +65,46 @@ export const getStudyForShare = async (req, res) => {
   }
 };
 
-// Public: download latest uploaded report for a study
+// Public: download latest finalized report for a study
 export const downloadSharedReport = async (req, res) => {
   try {
     const { id } = req.params;
-    const study = await DicomStudy.findById(id).select('uploadedReports patientInfo');
+    const study = await DicomStudy.findById(id).select('doctorReports patientInfo');
     if (!study) {
       return res.status(404).json({ success: false, message: 'Study not found' });
     }
-    if (!study.uploadedReports || study.uploadedReports.length === 0) {
+    if (!study.doctorReports || study.doctorReports.length === 0) {
       return res.status(404).json({ success: false, message: 'No report available for this study' });
     }
-    const report = study.uploadedReports[study.uploadedReports.length - 1];
-    const documentBuffer = Buffer.from(report.data, 'base64');
-    res.setHeader('Content-Type', report.contentType || 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${report.filename || 'report.pdf'}"`);
+
+    // Use the last report (most recent)
+    const reportReference = study.doctorReports[study.doctorReports.length - 1];
+
+    // Fetch the Document record that holds the actual file
+    const documentRecord = await Document.findById(reportReference._id);
+    if (!documentRecord) {
+      return res.status(404).json({ success: false, message: 'Report file not found in storage' });
+    }
+
+    let documentBuffer;
+
+    if (documentRecord.wasabiKey && documentRecord.wasabiBucket) {
+      const wasabiResult = await WasabiService.downloadFile(
+        documentRecord.wasabiBucket,
+        documentRecord.wasabiKey
+      );
+      if (!wasabiResult.success) {
+        return res.status(500).json({ success: false, message: 'Failed to retrieve report from storage' });
+      }
+      documentBuffer = wasabiResult.data;
+    } else if (reportReference.data) {
+      documentBuffer = Buffer.from(reportReference.data, 'base64');
+    } else {
+      return res.status(404).json({ success: false, message: 'Report data not found' });
+    }
+
+    res.setHeader('Content-Disposition', `attachment; filename="${documentRecord.fileName || 'report.pdf'}"`);
+    res.setHeader('Content-Type', documentRecord.contentType || 'application/pdf');
     res.setHeader('Content-Length', documentBuffer.length);
     res.send(documentBuffer);
   } catch (error) {
